@@ -12,7 +12,7 @@ On iOS, if you want to download big files no matter the state of your app, wethe
 
 This API handles your downloads separately from your app and only keeps it informed using delegates (Read: [Downloading Files in the Background](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background)).
 
-On Android we are simulating this process with a wonderful library called [Fetch2](https://github.com/tonyofrancis/Fetch)
+On Android we are simulating this process with [DownloadManager](https://developer.android.com/reference/android/app/DownloadManager)
 
 The real challenge of using this method is making sure the app's UI is always up-to-date with the downloads that are happening in another process because your app might startup from scratch while the downloads are still running.
 
@@ -118,9 +118,8 @@ let task = download({
 
   // PROCESS YOUR STUFF
 
-  // FINISH DOWNLOAD JOB ON IOS
-  if (Platform.OS === 'ios')
-    completeHandler(jobId)
+  // FINISH DOWNLOAD JOB
+  completeHandler(jobId)
 }).error(error => {
   console.log('Download canceled due to error: ', error);
 })
@@ -205,15 +204,15 @@ Download a file to destination
 
 An object containing options properties
 
-| Property      | Type                                             | Required | Platforms | Info                                                                                                                                                                             |
-| ------------- | ------------------------------------------------ | :------: | :-------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | String                                           | ✅        | All       | A Unique ID to provide for this download. This ID will help to identify the download task when the app re-launches                                                               |
-| `url`         | String                                           | ✅        | All       | URL to file you want to download                                                                                                                                                 |
-| `destination` | String                                           | ✅        | All       | Where to copy the file to once the download is done                                                                                                                              |
-| `metadata`    | Object                                           |           | All       | Data to be preserved on reboot.                                                                                                                              |
-| `headers`      | Object                                           |          | All       | Costume headers to add to the download request. These are merged with the headers given in the `setHeaders` function
-| `priority`    | [Priority (enum)](#priority-enum---android-only) |          | Android   | The priority of the download. On Android, downloading is limited to 4 simultaneous instances where further downloads are queued. Priority helps in deciding which download to pick next from the queue. **Default:** Priority.MEDIUM |
-| `network`     | [Network (enum)](#network-enum---android-only)   |          | Android   | Give your the ability to limit the download to WIFI only. **Default:** Network.ALL                                                                                               |
+| Property      | Type                                             | Required | Platforms | Info                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------------------ | :------: | :-------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`          | String |    ✅     |    All    | A Unique ID to provide for this download. This ID will help to identify the download task when the app re-launches |
+| `url`         | String |    ✅     |    All    | URL to file you want to download |
+| `destination` | String |    ✅     |    All    | Where to copy the file to once the download is done |
+| `metadata`    | Object |           |    All    | Data to be preserved on reboot. |
+| `headers`     | Object |           |    All    | Costume headers to add to the download request. These are merged with the headers given in the `setHeaders` function |
+| `isAllowedOverRoaming` | Boolean   |          |  Android  | whether this download may proceed over a roaming connection. By default, roaming is allowed |
+| `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
 
 **returns**
 
@@ -245,12 +244,12 @@ A class representing a download task created by `RNBackgroundDownloader.download
 | `id`           | String | The id you gave the task when calling `RNBackgroundDownloader.download`                              |
 | `metadata`     | Object | The metadata you gave the task when calling `RNBackgroundDownloader.download`                        |
 | `percent`      | Number | The current percent of completion of the task between 0 and 1                                        |
-| `bytesWritten` | Number | The number of bytes currently written by the task                                                    |
-| `totalBytes`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded |
+| `bytesDownloaded` | Number | The number of bytes currently written by the task                                                    |
+| `bytesTotal`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded |
 
 ### `completeHandler(jobId)`
 
-Finishes download job on iOS and informs OS that app can be closed in background if needed.
+Finishes download job and informs OS that app can be closed in background if needed.
 After finishing download in background you have some time to process your JS logic and finish the job.
 
 ### `ensureDownloadsAreRunning`
@@ -305,12 +304,12 @@ Use these methods to stay updated on what's happening with the task.
 
 All callback methods return the current instance of the `DownloadTask` for chaining.
 
-| Function   | Callback Arguments                | Info                                                                                                                          |
-| ---------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Function   | Callback Arguments                | Info                                                                                                                            |
+| ---------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `begin`    | { expectedBytes, headers }        | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
-| `progress` | percent, bytesWritten, totalBytes | Called at max every 1.5s so you can update your progress bar accordingly                                                      |
-| `done`     |                                   | Called when the download is done, the file is at the destination you've set                                                   |
-| `error`    | error                             | Called when the download stops due to an error                                                                                |
+| `progress` | percent, bytesDownloaded, bytesTotal | Called at max every 1.5s so you can update your progress bar accordingly                                                        |
+| `done`     |                                   | Called when the download is done, the file is at the destination you've set                                                     |
+| `error`    | error                             | Called when the download stops due to an error                                                                                  |
 
 ### `pause()`
 Pauses the download
@@ -321,31 +320,6 @@ Resumes a pause download
 ### `stop()`
 Stops the download for good and removes the file that was written so far
 
-### `initDownloader(options)`
-
-Init android downloader with options
-
-**options**
-
-An object containing options properties
-
-| Property      | Type                                             | Required | Platforms | Info                                                                                                                                                                             |
-| ------------- | ------------------------------------------------ | :------: | :-------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`        | String                                           |          | Android    | Downloader type: 'parallel' or 'sequential'. Default: 'sequential'. 'parallel' seems to cause lots of ANRs, so be careful |
-
-**Usage**
-
-```javascript
-import { initDownloader } from '@kesha-antonov/react-native-background-downloader'
-
-...
-// SOMEWHERE AT APP STARTUP
-
-useEffect(() => {
-  initDownloader({ type: 'parallel' })
-}, [])
-```
-
 ## Constants
 
 ### directories
@@ -353,20 +327,6 @@ useEffect(() => {
 ### `documents`
 
 An absolute path to the app's documents directory. It is recommended that you use this path as the target of downloaded files.
-
-### Priority (enum) - Android only
-
-`Priority.HIGH`
-
-`Priority.MEDIUM` - Default ✅
-
-`Priority.LOW`
-
-### Network (enum) - Android only
-
-`Network.WIFI_ONLY`
-
-`Network.ALL` - Default ✅
 
 ## Authors
 

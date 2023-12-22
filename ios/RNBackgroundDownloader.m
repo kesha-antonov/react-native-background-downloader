@@ -62,7 +62,7 @@ RCT_EXPORT_MODULE();
             taskToConfigMap = [[NSMutableDictionary alloc] init];
         }
         idToTaskMap = [[NSMutableDictionary alloc] init];
-        idToResumeDataMap= [[NSMutableDictionary alloc] init];
+        idToResumeDataMap = [[NSMutableDictionary alloc] init];
         idToPercentMap = [[NSMutableDictionary alloc] init];
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessonIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
@@ -286,8 +286,8 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                         @"id": taskConfig.id,
                         @"metadata": taskConfig.metadata,
                         @"state": [NSNumber numberWithInt: task.state],
-                        @"bytesWritten": [NSNumber numberWithLongLong:task.countOfBytesReceived],
-                        @"totalBytes": [NSNumber numberWithLongLong:task.countOfBytesExpectedToReceive],
+                        @"bytesDownloaded": [NSNumber numberWithLongLong:task.countOfBytesReceived],
+                        @"bytesTotal": [NSNumber numberWithLongLong:task.countOfBytesExpectedToReceive],
                         @"percent": percent
                     }];
                     taskConfig.reportedBegin = YES;
@@ -341,11 +341,11 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
     }
 }
 
-- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didResumeAtOffset:(int64_t)fileOffset expectedTotalBytes:(int64_t)expectedTotalBytes {
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didResumeAtOffset:(int64_t)fileOffset expectedbytesTotal:(int64_t)expectedbytesTotal {
     NSLog(@"[RNBackgroundDownloader] - [didResumeAtOffset]");
 }
 
-- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didWriteData:(int64_t)bytesDownloaded bytesTotalWritten:(int64_t)bytesTotalWritten bytesTotalExpectedToWrite:(int64_t)bytesTotalExpectedToWrite {
     NSLog(@"[RNBackgroundDownloader] - [didWriteData]");
     @synchronized (sharedLock) {
         RNBGDTaskConfig *taskCofig = taskToConfigMap[@(downloadTask.taskIdentifier)];
@@ -356,7 +356,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
                 if (self.bridge) {
                     [self sendEventWithName:@"downloadBegin" body:@{
                         @"id": taskCofig.id,
-                        @"expectedBytes": [NSNumber numberWithLongLong: totalBytesExpectedToWrite],
+                        @"expectedBytes": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite],
                         @"headers": responseHeaders
                     }];
                 }
@@ -364,9 +364,9 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
             }
 
             NSNumber *prevPercent = idToPercentMap[taskCofig.id];
-            NSNumber *percent = [NSNumber numberWithFloat:(float)totalBytesWritten/(float)totalBytesExpectedToWrite];
+            NSNumber *percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
             if ([percent floatValue] - [prevPercent floatValue] > 0.01f) {
-                progressReports[taskCofig.id] = @{@"id": taskCofig.id, @"written": [NSNumber numberWithLongLong: totalBytesWritten], @"total": [NSNumber numberWithLongLong: totalBytesExpectedToWrite], @"percent": percent};
+                progressReports[taskCofig.id] = @{@"id": taskCofig.id, @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten], @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite], @"percent": percent};
                 idToPercentMap[taskCofig.id] = percent;
             }
 

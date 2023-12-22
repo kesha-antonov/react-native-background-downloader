@@ -16,14 +16,14 @@ export default class DownloadTask {
   metadata = {}
 
   percent = 0
-  bytesWritten = 0
-  totalBytes = 0
+  bytesDownloaded = 0
+  bytesTotal = 0
 
   constructor (taskInfo: TaskInfo, originalTask?: TaskInfo) {
     this.id = taskInfo.id
     this.percent = taskInfo.percent ?? 0
-    this.bytesWritten = taskInfo.bytesWritten ?? 0
-    this.totalBytes = taskInfo.totalBytes ?? 0
+    this.bytesDownloaded = taskInfo.bytesDownloaded ?? 0
+    this.bytesTotal = taskInfo.bytesTotal ?? 0
 
     const metadata = this.tryParseJson(taskInfo.metadata)
     if (metadata)
@@ -66,11 +66,11 @@ export default class DownloadTask {
     this.beginHandler?.({ expectedBytes, headers })
   }
 
-  onProgress (percent, bytesWritten, totalBytes) {
+  onProgress (percent, bytesDownloaded, bytesTotal) {
     this.percent = percent
-    this.bytesWritten = bytesWritten
-    this.totalBytes = totalBytes
-    this.progressHandler?.(percent, bytesWritten, totalBytes)
+    this.bytesDownloaded = bytesDownloaded
+    this.bytesTotal = bytesTotal
+    this.progressHandler?.(percent, bytesDownloaded, bytesTotal)
   }
 
   onDone ({ location }) {

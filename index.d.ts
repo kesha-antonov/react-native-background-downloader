@@ -16,8 +16,8 @@ export interface TaskInfoObject {
   metadata: object | string;
 
   percent?: number;
-  bytesWritten?: number;
-  totalBytes?: number;
+  bytesDownloaded?: number;
+  bytesTotal?: number;
 
   beginHandler?: Function;
   progressHandler?: Function;
@@ -37,8 +37,8 @@ export type BeginHandler = ({
 }: BeginHandlerObject) => any;
 export type ProgressHandler = (
   percent: number,
-  bytesWritten: number,
-  totalBytes: number
+  bytesDownloaded: number,
+  bytesTotal: number
 ) => any;
 export type DoneHandler = () => any;
 export type ErrorHandler = (error: any, errorCode: any) => any;
@@ -55,8 +55,8 @@ export interface DownloadTask {
   id: string;
   state: DownloadTaskState;
   percent: number;
-  bytesWritten: number;
-  totalBytes: number;
+  bytesDownloaded: number;
+  bytesTotal: number;
 
   begin: (handler: BeginHandler) => DownloadTask;
   progress: (handler: ProgressHandler) => DownloadTask;
@@ -77,7 +77,6 @@ export type CheckForExistingDownloads = () => Promise<DownloadTask[]>;
 export type EnsureDownloadsAreRunning = () => Promise<void>;
 
 export interface InitDownloaderOptions {
-  type?: 'parallel' | 'sequential' | null;
 }
 export type InitDownloader = (options: InitDownloaderOptions) => undefined;
 
@@ -87,6 +86,8 @@ export interface DownloadOption {
   destination: string;
   headers?: DownloadHeaders | undefined;
   metadata?: object;
+  isAllowedOverRoaming?: boolean;
+  isAllowedOverMetered?: boolean;
 }
 
 export type Download = (options: DownloadOption) => DownloadTask;
@@ -96,17 +97,6 @@ export interface Directories {
   documents: string;
 }
 
-export interface Network {
-  WIFI_ONLY: string;
-  ALL: string;
-}
-
-export interface Priority {
-  HIGH: string;
-  MEDIUM: string;
-  LOW: string;
-}
-
 export const setHeaders: SetHeaders;
 export const checkForExistingDownloads: CheckForExistingDownloads;
 export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning;
@@ -114,8 +104,6 @@ export const initDownloader: InitDownloader;
 export const download: Download;
 export const completeHandler: CompleteHandler;
 export const directories: Directories;
-export const Network: Network;
-export const Priority: Priority;
 
 export interface RNBackgroundDownloader {
   setHeaders: SetHeaders;
@@ -125,8 +113,6 @@ export interface RNBackgroundDownloader {
   download: Download;
   completeHandler: CompleteHandler;
   directories: Directories;
-  Network: Network;
-  Priority: Priority;
 }
 
 declare const RNBackgroundDownloader: RNBackgroundDownloader;

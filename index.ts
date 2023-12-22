@@ -7,14 +7,23 @@ const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloa
 const tasksMap = new Map()
 let headers = {}
 
+RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, expectedBytes, headers }) => {
+  console.log('[RNBackgroundDownloader] downloadBegin', id, expectedBytes, headers)
+  const task = tasksMap.get(id)
+  task?.onBegin({ expectedBytes, headers })
+})
+
 RNBackgroundDownloaderEmitter.addListener('downloadProgress', events => {
+  // console.log('[RNBackgroundDownloader] downloadProgress-1', events, tasksMap)
   for (const event of events) {
     const task = tasksMap.get(event.id)
-    task?.onProgress(event.percent, event.written, event.total)
+    // console.log('[RNBackgroundDownloader] downloadProgress-2', event.id, task)
+    task?.onProgress(event.percent, event.bytesDownloaded, event.bytesTotal)
   }
 })
 
 RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, location }) => {
+  console.log('[RNBackgroundDownloader] downloadComplete', id, location)
   const task = tasksMap.get(id)
   task?.onDone({ location })
 
@@ -22,35 +31,34 @@ RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, location })
 })
 
 RNBackgroundDownloaderEmitter.addListener('downloadFailed', event => {
+  console.log('[RNBackgroundDownloader] downloadFailed', event)
   const task = tasksMap.get(event.id)
-  task?.onError(event.error, event.errorcode)
+  task?.onError(event.error, event.errorCode)
 
   tasksMap.delete(event.id)
 })
 
-RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, expectedBytes, headers }) => {
-  const task = tasksMap.get(id)
-  task?.onBegin({ expectedBytes, headers })
-})
-
-export function setHeaders (h = {}) {
+export function setHeaders(h = {}) {
   if (typeof h !== 'object')
     throw new Error('[RNBackgroundDownloader] headers must be an object')
 
   headers = h
 }
 
-export function initDownloader (options = {}) {
+export function initDownloader(options = {}) {
   if (Platform.OS === 'android')
     RNBackgroundDownloader.initDownloader(options)
 }
 
-export function checkForExistingDownloads () {
+export function checkForExistingDownloads() {
+  console.log('[RNBackgroundDownloader] checkForExistingDownloads-1')
   return RNBackgroundDownloader.checkForExistingDownloads()
     .then(foundTasks => {
+      console.log('[RNBackgroundDownloader] checkForExistingDownloads-2', foundTasks)
       return foundTasks.map(taskInfo => {
         // SECOND ARGUMENT RE-ASSIGNS EVENT HANDLERS
         const task = new DownloadTask(taskInfo, tasksMap.get(taskInfo.id))
+        console.log('[RNBackgroundDownloader] checkForExistingDownloads-3', taskInfo)
 
         if (taskInfo.state === RNBackgroundDownloader.TaskRunning) {
           task.state = 'DOWNLOADING'
@@ -60,7 +68,7 @@ export function checkForExistingDownloads () {
           task.stop()
           return null
         } else if (taskInfo.state === RNBackgroundDownloader.TaskCompleted) {
-          if (taskInfo.bytesWritten === taskInfo.totalBytes)
+          if (taskInfo.bytesDownloaded === taskInfo.bytesTotal)
             task.state = 'DONE'
           else
             // IOS completed the download but it was not done.
@@ -68,11 +76,12 @@ export function checkForExistingDownloads () {
         }
         tasksMap.set(taskInfo.id, task)
         return task
-      }).filter(task => task !== null)
+      }).filter(task => !!task)
     })
 }
 
-export function ensureDownloadsAreRunning () {
+export function ensureDownloadsAreRunning() {
+  console.log('[RNBackgroundDownloader] ensureDownloadsAreRunning')
   return checkForExistingDownloads()
     .then(tasks => {
       for (const task of tasks)
@@ -83,7 +92,12 @@ export function ensureDownloadsAreRunning () {
     })
 }
 
-export function completeHandler (jobId) {
+export function completeHandler(jobId: string) {
+  if (jobId == null) {
+    console.warn('[RNBackgroundDownloader] completeHandler: jobId is empty')
+    return
+  }
+
   return RNBackgroundDownloader.completeHandler(jobId)
 }
 
@@ -93,9 +107,12 @@ type DownloadOptions = {
   destination: string,
   headers?: object,
   metadata?: object,
+  isAllowedOverRoaming?: boolean,
+  isAllowedOverMetered?: boolean,
 }
 
-export function download (options : DownloadOptions) {
+export function download(options: DownloadOptions) {
+  console.log('[RNBackgroundDownloader] download', options)
   if (!options.id || !options.url || !options.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')
 
@@ -103,6 +120,11 @@ export function download (options : DownloadOptions) {
 
   if (!(options.metadata && typeof options.metadata === 'object'))
     options.metadata = {}
+
+  options.destination = options.destination.replace('file://', '')
+
+  if (options.isAllowedOverRoaming == null) options.isAllowedOverRoaming = true
+  if (options.isAllowedOverMetered == null) options.isAllowedOverMetered = true
 
   const task = new DownloadTask({
     id: options.id,
@@ -122,17 +144,6 @@ export const directories = {
   documents: RNBackgroundDownloader.documents,
 }
 
-export const Network = {
-  WIFI_ONLY: RNBackgroundDownloader.OnlyWifi,
-  ALL: RNBackgroundDownloader.AllNetworks,
-}
-
-export const Priority = {
-  HIGH: RNBackgroundDownloader.PriorityHigh,
-  MEDIUM: RNBackgroundDownloader.PriorityNormal,
-  LOW: RNBackgroundDownloader.PriorityLow,
-}
-
 export default {
   initDownloader,
   download,
@@ -141,6 +152,4 @@ export default {
   completeHandler,
   setHeaders,
   directories,
-  Network,
-  Priority,
 }
