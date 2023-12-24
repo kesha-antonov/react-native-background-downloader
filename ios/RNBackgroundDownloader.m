@@ -37,19 +37,24 @@ RCT_EXPORT_MODULE();
 }
 
 - (NSArray<NSString *> *)supportedEvents {
-    return @[@"downloadComplete", @"downloadProgress", @"downloadFailed", @"downloadBegin"];
+    return @[
+        @"downloadBegin",
+        @"downloadProgress",
+        @"downloadComplete",
+        @"downloadFailed"
+    ];
 }
 
 - (NSDictionary *)constantsToExport {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
 
     return @{
-             @"documents": [paths firstObject],
-             @"TaskRunning": @(NSURLSessionTaskStateRunning),
-             @"TaskSuspended": @(NSURLSessionTaskStateSuspended),
-             @"TaskCanceling": @(NSURLSessionTaskStateCanceling),
-             @"TaskCompleted": @(NSURLSessionTaskStateCompleted)
-             };
+        @"documents": [paths firstObject],
+        @"TaskRunning": @(NSURLSessionTaskStateRunning),
+        @"TaskSuspended": @(NSURLSessionTaskStateSuspended),
+        @"TaskCanceling": @(NSURLSessionTaskStateCanceling),
+        @"TaskCompleted": @(NSURLSessionTaskStateCompleted)
+    };
 }
 
 - (id) init {
@@ -93,9 +98,9 @@ RCT_EXPORT_MODULE();
         if (isNotificationCenterInited != YES) {
             isNotificationCenterInited = YES;
             [[NSNotificationCenter defaultCenter] addObserver:self
-                                                     selector:@selector(resumeTasks:)
-                                                         name:UIApplicationWillEnterForegroundNotification
-                                                       object:nil];
+                                                selector:@selector(resumeTasks:)
+                                                name:UIApplicationWillEnterForegroundNotification
+                                                object:nil];
         }
     }
 }
@@ -325,9 +330,20 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
                 if (error == nil) {
                     NSDictionary *responseHeaders = ((NSHTTPURLResponse *)downloadTask.response).allHeaderFields;
                     // TODO: SEND bytesDownloaded AND bytesTotal
-                    [self sendEventWithName:@"downloadComplete" body:@{@"id": taskConfig.id, @"headers": responseHeaders, @"location": taskConfig.destination}];
+                    [self sendEventWithName:@"downloadComplete" body:@{
+                        @"id": taskConfig.id,
+                        @"headers": responseHeaders,
+                        @"location": taskConfig.destination,
+                        @"bytesDownloaded": [NSNumber numberWithLongLong:downloadTask.countOfBytesReceived],
+                        @"bytesTotal": [NSNumber numberWithLongLong:downloadTask.countOfBytesExpectedToReceive]
+                    }];
                 } else {
-                    [self sendEventWithName:@"downloadFailed" body:@{@"id": taskConfig.id, @"error": [error localizedDescription]}];
+                    [self sendEventWithName:@"downloadFailed" body:@{
+                        @"id": taskConfig.id,
+                        @"error": [error localizedDescription],
+                        // TODO
+                        @"errorCode": @-1
+                    }];
                 }
             }
             [self removeTaskFromMap:downloadTask];
@@ -339,7 +355,12 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
     NSLog(@"[RNBackgroundDownloader] - [didResumeAtOffset]");
 }
 
-- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didWriteData:(int64_t)bytesDownloaded bytesTotalWritten:(int64_t)bytesTotalWritten bytesTotalExpectedToWrite:(int64_t)bytesTotalExpectedToWrite {
+- (void)URLSession:(NSURLSession *)session
+    downloadTask:(NSURLSessionDownloadTask *)downloadTask
+    didWriteData:(int64_t)bytesDownloaded
+    totalBytesWritten:(int64_t)bytesTotalWritten
+    totalBytesExpectedToWrite:(int64_t)bytesTotalExpectedToWrite
+{
     NSLog(@"[RNBackgroundDownloader] - [didWriteData]");
     @synchronized (sharedLock) {
         RNBGDTaskConfig *taskCofig = taskToConfigMap[@(downloadTask.taskIdentifier)];
@@ -364,13 +385,12 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
             };
 
             NSDate *now = [[NSDate alloc] init];
-            if ([now timeIntervalSinceDate:lastProgressReport] > 0.25 && progressReports.count > 0) {
+            // TODO: PROPOSE OPTION TO SET PROGRESS INTERVAL (ITS COMMON FOR ALL DOWNLOADS. ON ANDROID SIDE ITS PER DOWNLOAD. MAYBE CHANGE ANDROID TO BE COMMON AS WELL AND PREVENT IT SEND TOO OFTEN. ALSO SEND IT ONLY IF PROGRESS CHANGED - SEE PREV IMPLEMENTATION IN 2.10)
+            if ([now timeIntervalSinceDate:lastProgressReport] > 0.5 && progressReports.count > 0) {
                 if (self.bridge) {
                     [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
                 }
                 lastProgressReport = now;
-                // TODO: SHOULD REMOVE ALL progressReports ?
-                // IS IT ALL SENT?
                 [progressReports removeAllObjects];
             }
         }
@@ -388,8 +408,12 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
             return;
 
         if (self.bridge) {
-            // TODO: SEND error AS IN OBJECT
-            [self sendEventWithName:@"downloadFailed" body:@{@"id": taskCofig.id, @"error": [error localizedDescription]}];
+            [self sendEventWithName:@"downloadFailed" body:@{
+                @"id": taskCofig.id,
+                @"error": [error localizedDescription],
+                // TODO
+                @"errorCode": @-1
+            }];
         }
         // IF WE CAN'T RESUME TO DOWNLOAD LATER
         if (error.userInfo[NSURLSessionDownloadTaskResumeData] == nil) {
