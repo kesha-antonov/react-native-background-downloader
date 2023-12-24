@@ -15,13 +15,11 @@ export default class DownloadTask {
   state = 'PENDING'
   metadata = {}
 
-  percent = 0
   bytesDownloaded = 0
   bytesTotal = 0
 
   constructor (taskInfo: TaskInfo, originalTask?: TaskInfo) {
     this.id = taskInfo.id
-    this.percent = taskInfo.percent ?? 0
     this.bytesDownloaded = taskInfo.bytesDownloaded ?? 0
     this.bytesTotal = taskInfo.bytesTotal ?? 0
 
@@ -61,26 +59,27 @@ export default class DownloadTask {
     return this
   }
 
-  onBegin ({ expectedBytes, headers }) {
+  onBegin (params) {
     this.state = 'DOWNLOADING'
-    this.beginHandler?.({ expectedBytes, headers })
+    this.beginHandler?.(params)
   }
 
-  onProgress (percent, bytesDownloaded, bytesTotal) {
-    this.percent = percent
+  onProgress ({ bytesDownloaded, bytesTotal }) {
     this.bytesDownloaded = bytesDownloaded
     this.bytesTotal = bytesTotal
-    this.progressHandler?.(percent, bytesDownloaded, bytesTotal)
+    this.progressHandler?.({ bytesDownloaded, bytesTotal })
   }
 
-  onDone ({ location }) {
+  onDone (params) {
     this.state = 'DONE'
-    this.doneHandler?.({ location })
+    this.bytesDownloaded = params.bytesDownloaded
+    this.bytesTotal = params.bytesTotal
+    this.doneHandler?.(params)
   }
 
-  onError (error, errorCode) {
+  onError (params) {
     this.state = 'FAILED'
-    this.errorHandler?.(error, errorCode)
+    this.errorHandler?.(params)
   }
 
   pause () {

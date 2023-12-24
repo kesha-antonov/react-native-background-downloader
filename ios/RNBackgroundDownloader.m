@@ -19,7 +19,6 @@ static CompletionHandler storedCompletionHandler;
     NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *taskToConfigMap;
     NSMutableDictionary<NSString *, NSURLSessionDownloadTask *> *idToTaskMap;
     NSMutableDictionary<NSString *, NSData *> *idToResumeDataMap;
-    NSMutableDictionary<NSString *, NSNumber *> *idToPercentMap;
     NSMutableDictionary<NSString *, NSDictionary *> *progressReports;
     NSDate *lastProgressReport;
     NSNumber *sharedLock;
@@ -63,7 +62,6 @@ RCT_EXPORT_MODULE();
         }
         idToTaskMap = [[NSMutableDictionary alloc] init];
         idToResumeDataMap = [[NSMutableDictionary alloc] init];
-        idToPercentMap = [[NSMutableDictionary alloc] init];
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessonIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
         sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessonIdentifier];
@@ -149,7 +147,6 @@ RCT_EXPORT_MODULE();
 
         if (taskConfig) {
             [idToTaskMap removeObjectForKey:taskConfig.id];
-            [idToPercentMap removeObjectForKey:taskConfig.id];
         }
         // TOREMOVE - GIVES ERROR IN JS ON HOT RELOAD
         // if (taskToConfigMap.count == 0) {
@@ -224,7 +221,6 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         [[NSUserDefaults standardUserDefaults] setObject:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         idToTaskMap[identifier] = task;
-        idToPercentMap[identifier] = @0.0;
 
         [task resume];
         lastProgressReport = [[NSDate alloc] init];
@@ -280,20 +276,17 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                         }
                         [task resume];
                     }
-                    NSNumber *percent = task.countOfBytesExpectedToReceive > 0 ? [NSNumber numberWithFloat:(float)task.countOfBytesReceived/(float)task.countOfBytesExpectedToReceive] : @0.0;
 
                     [idsFound addObject:@{
                         @"id": taskConfig.id,
                         @"metadata": taskConfig.metadata,
                         @"state": [NSNumber numberWithInt: task.state],
                         @"bytesDownloaded": [NSNumber numberWithLongLong:task.countOfBytesReceived],
-                        @"bytesTotal": [NSNumber numberWithLongLong:task.countOfBytesExpectedToReceive],
-                        @"percent": percent
+                        @"bytesTotal": [NSNumber numberWithLongLong:task.countOfBytesExpectedToReceive]
                     }];
                     taskConfig.reportedBegin = YES;
                     taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
                     idToTaskMap[taskConfig.id] = task;
-                    idToPercentMap[taskConfig.id] = percent;
                 } else {
                     [task cancel];
                 }
@@ -331,6 +324,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
             if (self.bridge) {
                 if (error == nil) {
                     NSDictionary *responseHeaders = ((NSHTTPURLResponse *)downloadTask.response).allHeaderFields;
+                    // TODO: SEND bytesDownloaded AND bytesTotal
                     [self sendEventWithName:@"downloadComplete" body:@{@"id": taskConfig.id, @"headers": responseHeaders, @"location": taskConfig.destination}];
                 } else {
                     [self sendEventWithName:@"downloadFailed" body:@{@"id": taskConfig.id, @"error": [error localizedDescription]}];
@@ -363,12 +357,11 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
                 taskCofig.reportedBegin = YES;
             }
 
-            NSNumber *prevPercent = idToPercentMap[taskCofig.id];
-            NSNumber *percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
-            if ([percent floatValue] - [prevPercent floatValue] > 0.01f) {
-                progressReports[taskCofig.id] = @{@"id": taskCofig.id, @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten], @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite], @"percent": percent};
-                idToPercentMap[taskCofig.id] = percent;
-            }
+            progressReports[taskCofig.id] = @{
+                @"id": taskCofig.id,
+                @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten],
+                @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite]
+            };
 
             NSDate *now = [[NSDate alloc] init];
             if ([now timeIntervalSinceDate:lastProgressReport] > 0.25 && progressReports.count > 0) {
@@ -376,6 +369,8 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
                     [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
                 }
                 lastProgressReport = now;
+                // TODO: SHOULD REMOVE ALL progressReports ?
+                // IS IT ALL SENT?
                 [progressReports removeAllObjects];
             }
         }
@@ -393,6 +388,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
             return;
 
         if (self.bridge) {
+            // TODO: SEND error AS IN OBJECT
             [self sendEventWithName:@"downloadFailed" body:@{@"id": taskCofig.id, @"error": [error localizedDescription]}];
         }
         // IF WE CAN'T RESUME TO DOWNLOAD LATER

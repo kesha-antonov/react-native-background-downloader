@@ -19,13 +19,12 @@ public class OnProgress extends Thread {
   private Cursor cursor;
   private int lastBytesDownloaded;
   private int bytesTotal;
-  private int progressInterval = 300;
 
   private RNBGDTaskConfig config;
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
   public OnProgress(RNBGDTaskConfig config, long downloadId,
-      DeviceEventManagerModule.RCTDeviceEventEmitter ee, Downloader downloader, int progressInterval) {
+      DeviceEventManagerModule.RCTDeviceEventEmitter ee, Downloader downloader) {
     this.config = config;
 
     this.downloadId = downloadId;
@@ -34,9 +33,6 @@ public class OnProgress extends Thread {
 
     this.ee = ee;
     this.downloader = downloader;
-    if (progressInterval > 0) {
-      this.progressInterval = progressInterval;
-    }
   }
 
   private void handleInterrupt() {
@@ -56,7 +52,7 @@ public class OnProgress extends Thread {
     Log.d("RNBackgroundDownloader", "RNBD: OnProgress-1. downloadId " + downloadId);
     while (downloadId > 0) {
       try {
-        Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2. downloadId " + downloadId);
+        Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2. downloadId " + downloadId + " destination " + config.destination);
 
         cursor = downloader.downloadManager.query(query);
 
@@ -77,7 +73,7 @@ public class OnProgress extends Thread {
           Thread.sleep(1000);
         } else {
           Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2.3. downloadId " + downloadId);
-          Thread.sleep(progressInterval);
+          Thread.sleep(config.progressInterval);
         }
 
         // get total bytes of the file
@@ -101,7 +97,6 @@ public class OnProgress extends Thread {
           params.putString("id", config.id);
           params.putInt("bytesDownloaded", (int) lastBytesDownloaded);
           params.putInt("bytesTotal", (int) bytesTotal);
-          params.putDouble("percent", ((double) lastBytesDownloaded / bytesTotal));
 
           HashMap<String, WritableMap> progressReports = new HashMap<>();
           progressReports.put(config.id, params);

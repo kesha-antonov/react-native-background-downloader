@@ -121,6 +121,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 WritableMap params = Arguments.createMap();
                 params.putString("id", config.id);
                 params.putString("location", config.destination);
+                params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
+                params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
 
                 ee.emit("downloadComplete", params);
                 break;
@@ -148,13 +150,20 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
 
-    ReadableMap emptyMap = Arguments.createMap();
-    this.initDownloader(emptyMap);
+    loadConfigMap();
 
     downloader = new Downloader(reactContext);
 
     IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
     compatRegisterReceiver(reactContext, downloadReceiver, filter, true);
+
+    // iterate over downloadIdToConfig
+    for(Map.Entry<Long, RNBGDTaskConfig> entry : downloadIdToConfig.entrySet()) {
+      Long downloadId = entry.getKey();
+      RNBGDTaskConfig config = entry.getValue();
+
+      startReportingTasks(downloadId, config);
+    }
   }
 
   // TAKEN FROM
@@ -220,15 +229,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     return constants;
   }
 
-  @ReactMethod
-  public void initDownloader(ReadableMap options) {
-    Log.d(getName(), "RNBD: initDownloader");
-
-    loadConfigMap();
-
-    // TODO. MAYBE REINIT DOWNLOADER
-  }
-
   private void removeFromMaps(long downloadId) {
     Log.d(getName(), "RNBD: removeFromMaps");
 
@@ -291,7 +291,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       return;
     }
 
-    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata);
+    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata, progressInterval);
     final Request request = new Request(Uri.parse(url));
     request.setAllowedOverRoaming(isAllowedOverRoaming);
     request.setAllowedOverMetered(isAllowedOverMetered);
@@ -333,52 +333,59 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
         return;
       }
 
-      config.reportedBegin = true;
-      saveConfigMap();
+      startReportingTasks(downloadId, config);
+    }
+  }
 
-      Log.d(getName(), "RNBD: download-2 downloadId: " + downloadId);
-      // report begin & progress
-      //
-      // overlaped with thread to not block main thread
-      new Thread(new Runnable() {
-        public void run() {
-          try {
-            Log.d(getName(), "RNBD: download-3 downloadId: " + downloadId);
+  private void startReportingTasks(Long downloadId, RNBGDTaskConfig config) {
+    Log.d(getName(), "RNBD: startReportingTasks-1 downloadId " + downloadId + " config.id " + config.id);
+    config.reportedBegin = true;
+    downloadIdToConfig.put(downloadId, config);
+    saveConfigMap();
 
-            while (true) {
-              WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
-              int status = downloadStatus.getInt("status");
+    Log.d(getName(), "RNBD: startReportingTasks-2 downloadId: " + downloadId);
+    // report begin & progress
+    //
+    // overlaped with thread to not block main thread
+    new Thread(new Runnable() {
+      public void run() {
+        try {
+          Log.d(getName(), "RNBD: startReportingTasks-3 downloadId: " + downloadId);
 
-              Log.d(getName(), "RNBD: download-3.1 " + status + " downloadId: " + downloadId);
+          while (true) {
+            WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
+            int status = downloadStatus.getInt("status");
 
-              if (status == DownloadManager.STATUS_RUNNING) {
-                break;
-              }
-              if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
-                Log.d(getName(), "RNBD: download-3.2 " + status + " downloadId: " + downloadId);
-                Thread.currentThread().interrupt();
-              }
+            Log.d(getName(), "RNBD: startReportingTasks-3.1 " + status + " downloadId: " + downloadId);
 
-              Thread.sleep(500);
+            if (status == DownloadManager.STATUS_RUNNING) {
+              break;
+            }
+            if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
+              Log.d(getName(), "RNBD: startReportingTasks-3.2 " + status + " downloadId: " + downloadId);
+              Thread.currentThread().interrupt();
             }
 
-            // EMIT BEGIN
-            OnBegin onBeginTh = new OnBegin(config, ee);
-            onBeginTh.start();
-            // wait for onBeginTh to finish
-            onBeginTh.join();
-
-            Log.d(getName(), "RNBD: download-4 downloadId: " + downloadId);
-            OnProgress onProgressTh = new OnProgress(config, downloadId, ee, downloader, progressInterval);
-            onProgressThreads.put(config.id, onProgressTh);
-            onProgressTh.start();
-            Log.d(getName(), "RNBD: download-5 downloadId: " + downloadId);
-          } catch (Exception e) {
+            Thread.sleep(500);
           }
+
+          // EMIT BEGIN
+          OnBegin onBeginTh = new OnBegin(config, ee);
+          onBeginTh.start();
+          // wait for onBeginTh to finish
+          onBeginTh.join();
+
+          Log.d(getName(), "RNBD: startReportingTasks-4 downloadId: " + downloadId);
+          OnProgress onProgressTh = new OnProgress(config, downloadId, ee, downloader);
+          onProgressThreads.put(config.id, onProgressTh);
+          onProgressTh.start();
+          Log.d(getName(), "RNBD: startReportingTasks-5 downloadId: " + downloadId);
+        } catch (Exception e) {
+          Log.d(getName(), "RNBD: Runnable e: " + e.toString());
         }
-      }).start();
-      Log.d(getName(), "RNBD: download-6 downloadId: " + downloadId);
-    }
+      }
+    }).start();
+    Log.d(getName(), "RNBD: startReportingTasks-6 downloadId: " + downloadId);
   }
 
   // TODO: NOT WORKING WITH DownloadManager FOR NOW
@@ -453,8 +460,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
         if (cursor.moveToFirst()) {
           do {
-            WritableMap result = downloader.getDownloadStatus(cursor);
-            Long downloadId = Long.parseLong(result.getString("downloadId"));
+            WritableMap downloadStatus = downloader.getDownloadStatus(cursor);
+            Long downloadId = Long.parseLong(downloadStatus.getString("downloadId"));
 
             if (downloadIdToConfig.containsKey(downloadId)) {
               Log.d(getName(), "RNBD: checkForExistingDownloads-2");
@@ -462,15 +469,9 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               WritableMap params = Arguments.createMap();
               params.putString("id", config.id);
               params.putString("metadata", config.metadata);
-              params.putInt("state", stateMap.get(result.getInt("status")));
-
-              int bytesDownloaded = result.getInt("bytesDownloaded");
-              params.putInt("bytesDownloaded", bytesDownloaded);
-
-              int bytesTotal = result.getInt("bytesTotal");
-              params.putInt("bytesTotal", bytesTotal);
-
-              params.putDouble("percent", ((double) bytesDownloaded / bytesTotal));
+              params.putInt("state", stateMap.get(downloadStatus.getInt("status")));
+              params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
+              params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
 
               foundIds.pushMap(params);
 

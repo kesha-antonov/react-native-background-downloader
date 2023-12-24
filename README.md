@@ -111,10 +111,10 @@ let task = download({
   metadata: {}
 }).begin(({ expectedBytes, headers }) => {
   console.log(`Going to download ${expectedBytes} bytes!`)
-}).progress(percent => {
-  console.log(`Downloaded: ${percent * 100}%`)
-}).done(() => {
-  console.log('Download is done!')
+}).progress(({ bytesDownloaded, bytesTotal }) => {
+  console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
+}).done(({ bytesDownloaded, bytesTotal }) => {
+  console.log('Download is done!', { bytesDownloaded, bytesTotal })
 
   // PROCESS YOUR STUFF
 
@@ -148,10 +148,10 @@ import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downl
 let lostTasks = await RNBackgroundDownloader.checkForExistingDownloads()
 for (let task of lostTasks) {
   console.log(`Task ${task.id} was found!`)
-  task.progress(percent => {
-    console.log(`Downloaded: ${percent * 100}%`)
-  }).done(() => {
-    console.log('Download is done!')
+  task.progress(({ bytesDownloaded, bytesTotal }) => {
+    console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
+  }).done(({ bytesDownloaded, bytesTotal }) => {
+    console.log('Download is done!', { bytesDownloaded, bytesTotal })
   }).error(error => {
     console.log('Download canceled due to error: ', error)
   })
@@ -182,10 +182,10 @@ let task = RNBackgroundDownloader.download({
   }
 }).begin(({ expectedBytes, headers }) => {
   console.log(`Going to download ${expectedBytes} bytes!`)
-}).progress(percent => {
-  console.log(`Downloaded: ${percent * 100}%`)
-}).done(() => {
-  console.log('Download is done!')
+}).progress(({ bytesDownloaded, bytesTotal }) => {
+  console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
+}).done(({ bytesDownloaded, bytesTotal }) => {
+  console.log('Download is done!', { bytesDownloaded, bytesTotal })
 }).error(error => {
   console.log('Download canceled due to error: ', error)
 })
@@ -243,7 +243,6 @@ A class representing a download task created by `RNBackgroundDownloader.download
 | -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
 | `id`           | String | The id you gave the task when calling `RNBackgroundDownloader.download`                              |
 | `metadata`     | Object | The metadata you gave the task when calling `RNBackgroundDownloader.download`                        |
-| `percent`      | Number | The current percent of completion of the task between 0 and 1                                        |
 | `bytesDownloaded` | Number | The number of bytes currently written by the task                                                    |
 | `bytesTotal`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded |
 
@@ -304,12 +303,12 @@ Use these methods to stay updated on what's happening with the task.
 
 All callback methods return the current instance of the `DownloadTask` for chaining.
 
-| Function   | Callback Arguments                | Info                                                                                                                            |
-| ---------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `begin`    | { expectedBytes, headers }        | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
-| `progress` | percent, bytesDownloaded, bytesTotal | Called at max every 1.5s so you can update your progress bar accordingly                                                        |
-| `done`     |                                   | Called when the download is done, the file is at the destination you've set                                                     |
-| `error`    | error                             | Called when the download stops due to an error                                                                                  |
+| Function   | Callback Arguments                | Info|
+| ---------- | --------------------------------- | ---- |
+| `begin`    | { expectedBytes, headers } | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
+| `progress` | { bytesDownloaded, bytesTotal } | Called at max every 1.5s so you can update your progress bar accordingly |
+| `done`     | { bytesDownloaded, bytesTotal } | Called when the download is done, the file is at the destination you've set |
+| `error`    | { error, errorCode } | Called when the download stops due to an error |
 
 ### `pause()`
 Pauses the download

@@ -1,4 +1,4 @@
-import { NativeModules, NativeEventEmitter, Platform } from 'react-native'
+import { NativeModules, NativeEventEmitter } from 'react-native'
 import DownloadTask from './lib/DownloadTask'
 
 const { RNBackgroundDownloader } = NativeModules
@@ -7,50 +7,46 @@ const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloa
 const tasksMap = new Map()
 let headers = {}
 
-RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, expectedBytes, headers }) => {
-  console.log('[RNBackgroundDownloader] downloadBegin', id, expectedBytes, headers)
+RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, ...rest }) => {
+  console.log('[RNBackgroundDownloader] downloadBegin', id, rest)
   const task = tasksMap.get(id)
-  task?.onBegin({ expectedBytes, headers })
+  task?.onBegin(rest)
 })
 
 RNBackgroundDownloaderEmitter.addListener('downloadProgress', events => {
   // console.log('[RNBackgroundDownloader] downloadProgress-1', events, tasksMap)
   for (const event of events) {
-    const task = tasksMap.get(event.id)
-    // console.log('[RNBackgroundDownloader] downloadProgress-2', event.id, task)
-    task?.onProgress(event.percent, event.bytesDownloaded, event.bytesTotal)
+    const { id, ...rest } = event
+    const task = tasksMap.get(id)
+    // console.log('[RNBackgroundDownloader] downloadProgress-2', id, task)
+    task?.onProgress(rest)
   }
 })
 
-RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, location }) => {
-  console.log('[RNBackgroundDownloader] downloadComplete', id, location)
+RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, ...rest }) => {
+  console.log('[RNBackgroundDownloader] downloadComplete', id, rest)
   const task = tasksMap.get(id)
-  task?.onDone({ location })
+  task?.onDone(rest)
 
   tasksMap.delete(id)
 })
 
-RNBackgroundDownloaderEmitter.addListener('downloadFailed', event => {
-  console.log('[RNBackgroundDownloader] downloadFailed', event)
-  const task = tasksMap.get(event.id)
-  task?.onError(event.error, event.errorCode)
+RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }) => {
+  console.log('[RNBackgroundDownloader] downloadFailed', id, rest)
+  const task = tasksMap.get(id)
+  task?.onError(rest)
 
-  tasksMap.delete(event.id)
+  tasksMap.delete(id)
 })
 
-export function setHeaders(h = {}) {
+export function setHeaders (h = {}) {
   if (typeof h !== 'object')
     throw new Error('[RNBackgroundDownloader] headers must be an object')
 
   headers = h
 }
 
-export function initDownloader(options = {}) {
-  if (Platform.OS === 'android')
-    RNBackgroundDownloader.initDownloader(options)
-}
-
-export function checkForExistingDownloads() {
+export function checkForExistingDownloads () {
   console.log('[RNBackgroundDownloader] checkForExistingDownloads-1')
   return RNBackgroundDownloader.checkForExistingDownloads()
     .then(foundTasks => {
@@ -80,7 +76,7 @@ export function checkForExistingDownloads() {
     })
 }
 
-export function ensureDownloadsAreRunning() {
+export function ensureDownloadsAreRunning () {
   console.log('[RNBackgroundDownloader] ensureDownloadsAreRunning')
   return checkForExistingDownloads()
     .then(tasks => {
@@ -92,7 +88,7 @@ export function ensureDownloadsAreRunning() {
     })
 }
 
-export function completeHandler(jobId: string) {
+export function completeHandler (jobId: string) {
   if (jobId == null) {
     console.warn('[RNBackgroundDownloader] completeHandler: jobId is empty')
     return
@@ -109,9 +105,10 @@ type DownloadOptions = {
   metadata?: object,
   isAllowedOverRoaming?: boolean,
   isAllowedOverMetered?: boolean,
+  progressInterval?: number,
 }
 
-export function download(options: DownloadOptions) {
+export function download (options: DownloadOptions) {
   console.log('[RNBackgroundDownloader] download', options)
   if (!options.id || !options.url || !options.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')
@@ -125,6 +122,7 @@ export function download(options: DownloadOptions) {
 
   if (options.isAllowedOverRoaming == null) options.isAllowedOverRoaming = true
   if (options.isAllowedOverMetered == null) options.isAllowedOverMetered = true
+  if (options.progressInterval == null) options.progressInterval = 1000
 
   const task = new DownloadTask({
     id: options.id,
@@ -145,7 +143,6 @@ export const directories = {
 }
 
 export default {
-  initDownloader,
   download,
   checkForExistingDownloads,
   ensureDownloadsAreRunning,

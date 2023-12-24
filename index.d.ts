@@ -11,50 +11,68 @@ export interface DownloadHeaders {
 
 type SetHeaders = (h: DownloadHeaders) => void;
 
-export interface TaskInfoObject {
-  id: string;
-  metadata: object | string;
-
-  percent?: number;
-  bytesDownloaded?: number;
-  bytesTotal?: number;
-
-  beginHandler?: Function;
-  progressHandler?: Function;
-  doneHandler?: Function;
-  errorHandler?: Function;
-}
-export type TaskInfo = TaskInfoObject;
-
 export interface BeginHandlerObject {
   expectedBytes: number;
   headers: { [key: string]: string };
 }
-
 export type BeginHandler = ({
   expectedBytes,
   headers,
-}: BeginHandlerObject) => any;
-export type ProgressHandler = (
-  percent: number,
-  bytesDownloaded: number,
+}: BeginHandlerObject) => void;
+
+export interface ProgressHandlerObject {
+  bytesDownloaded: number
   bytesTotal: number
-) => any;
-export type DoneHandler = () => any;
-export type ErrorHandler = (error: any, errorCode: any) => any;
+}
+export type ProgressHandler = ({
+  bytesDownloaded,
+  bytesTotal,
+}: ProgressHandlerObject) => void;
+
+export interface DoneHandlerObject {
+  bytesDownloaded: number
+  bytesTotal: number
+}
+export type DoneHandler = ({
+  bytesDownloaded,
+  bytesTotal,
+}: DoneHandlerObject) => void;
+
+export interface ErrorHandlerObject {
+  error: string
+  errorCode: number
+}
+export type ErrorHandler = ({
+  error,
+  errorCode,
+}: ErrorHandlerObject) => void;
+
+export interface TaskInfoObject {
+  id: string;
+  metadata: object | string;
+
+  bytesDownloaded?: number;
+  bytesTotal?: number;
+
+  beginHandler?: BeginHandler;
+  progressHandler?: ProgressHandler;
+  doneHandler?: DoneHandler;
+  errorHandler?: ErrorHandler;
+}
+export type TaskInfo = TaskInfoObject;
+
 export type DownloadTaskState =
-  | "DOWNLOADING"
-  | "PAUSED"
-  | "DONE"
-  | "FAILED"
-  | "STOPPED";
+  | 'DOWNLOADING'
+  | 'PAUSED'
+  | 'DONE'
+  | 'FAILED'
+  | 'STOPPED';
 
 export interface DownloadTask {
   constructor: (taskInfo: TaskInfo) => DownloadTask;
 
   id: string;
   state: DownloadTaskState;
-  percent: number;
   bytesDownloaded: number;
   bytesTotal: number;
 
@@ -68,17 +86,13 @@ export interface DownloadTask {
   _doneHandler: DoneHandler;
   _errorHandler: ErrorHandler;
 
-  pause: () => any;
-  resume: () => any;
-  stop: () => any;
+  pause: () => void;
+  resume: () => void;
+  stop: () => void;
 }
 
 export type CheckForExistingDownloads = () => Promise<DownloadTask[]>;
 export type EnsureDownloadsAreRunning = () => Promise<void>;
-
-export interface InitDownloaderOptions {
-}
-export type InitDownloader = (options: InitDownloaderOptions) => undefined;
 
 export interface DownloadOption {
   id: string;
@@ -88,6 +102,7 @@ export interface DownloadOption {
   metadata?: object;
   isAllowedOverRoaming?: boolean;
   isAllowedOverMetered?: boolean;
+  progressInterval?: number;
 }
 
 export type Download = (options: DownloadOption) => DownloadTask;
@@ -97,17 +112,15 @@ export interface Directories {
   documents: string;
 }
 
-export const setHeaders: SetHeaders;
-export const checkForExistingDownloads: CheckForExistingDownloads;
-export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning;
-export const initDownloader: InitDownloader;
-export const download: Download;
-export const completeHandler: CompleteHandler;
-export const directories: Directories;
+export const setHeaders: SetHeaders
+export const checkForExistingDownloads: CheckForExistingDownloads
+export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning
+export const download: Download
+export const completeHandler: CompleteHandler
+export const directories: Directories
 
 export interface RNBackgroundDownloader {
   setHeaders: SetHeaders;
-  initDownloader: InitDownloader;
   checkForExistingDownloads: CheckForExistingDownloads;
   ensureDownloadsAreRunning: EnsureDownloadsAreRunning;
   download: Download;
@@ -115,5 +128,5 @@ export interface RNBackgroundDownloader {
   directories: Directories;
 }
 
-declare const RNBackgroundDownloader: RNBackgroundDownloader;
-export default RNBackgroundDownloader;
+declare const RNBackgroundDownloader: RNBackgroundDownloader
+export default RNBackgroundDownloader
