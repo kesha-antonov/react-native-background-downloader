@@ -19,19 +19,20 @@ public class OnProgress extends Thread {
   private Cursor cursor;
   private int lastBytesDownloaded;
   private int bytesTotal;
+  private ProgressCallback callback;
 
   private RNBGDTaskConfig config;
-  private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
   public OnProgress(RNBGDTaskConfig config, long downloadId,
-      DeviceEventManagerModule.RCTDeviceEventEmitter ee, Downloader downloader) {
+      Downloader downloader,
+      ProgressCallback callback) {
     this.config = config;
+    this.callback = callback;
 
     this.downloadId = downloadId;
     this.query = new DownloadManager.Query();
     query.setFilterById(this.downloadId);
 
-    this.ee = ee;
     this.downloader = downloader;
   }
 
@@ -73,7 +74,7 @@ public class OnProgress extends Thread {
           Thread.sleep(1000);
         } else {
           Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2.3. downloadId " + downloadId);
-          Thread.sleep(config.progressInterval);
+          Thread.sleep(250);
         }
 
         // get total bytes of the file
@@ -93,21 +94,7 @@ public class OnProgress extends Thread {
             + bytesDownloaded + " bytesTotal " + bytesTotal);
 
         if (lastBytesDownloaded > 0 && bytesTotal > 0) {
-          WritableMap params = Arguments.createMap();
-          params.putString("id", config.id);
-          params.putInt("bytesDownloaded", (int) lastBytesDownloaded);
-          params.putInt("bytesTotal", (int) bytesTotal);
-
-          HashMap<String, WritableMap> progressReports = new HashMap<>();
-          progressReports.put(config.id, params);
-
-          WritableArray reportsArray = Arguments.createArray();
-          for (WritableMap report : progressReports.values()) {
-            reportsArray.pushMap(report);
-          }
-
-          Log.d("RNBackgroundDownloader", "RNBD: OnProgress-4. downloadId " + downloadId);
-          ee.emit("downloadProgress", reportsArray);
+          callback.onProgress(config.id, lastBytesDownloaded, bytesTotal);
         }
       } catch (Exception e) {
         return;

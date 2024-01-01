@@ -5,26 +5,36 @@ const { RNBackgroundDownloader } = NativeModules
 const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloader)
 
 const tasksMap = new Map()
-let headers = {}
+
+const config = {
+  headers: {},
+  progressInterval: 1000,
+  isLogsEnabled: false,
+}
+
+function log(...args) {
+  if (config.isLogsEnabled)
+    console.log('[RNBackgroundDownloader]', ...args)
+}
 
 RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, ...rest }) => {
-  console.log('[RNBackgroundDownloader] downloadBegin', id, rest)
+  log('[RNBackgroundDownloader] downloadBegin', id, rest)
   const task = tasksMap.get(id)
   task?.onBegin(rest)
 })
 
 RNBackgroundDownloaderEmitter.addListener('downloadProgress', events => {
-  // console.log('[RNBackgroundDownloader] downloadProgress-1', events, tasksMap)
+  // log('[RNBackgroundDownloader] downloadProgress-1', events, tasksMap)
   for (const event of events) {
     const { id, ...rest } = event
     const task = tasksMap.get(id)
-    // console.log('[RNBackgroundDownloader] downloadProgress-2', id, task)
+    // log('[RNBackgroundDownloader] downloadProgress-2', id, task)
     task?.onProgress(rest)
   }
 })
 
 RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, ...rest }) => {
-  console.log('[RNBackgroundDownloader] downloadComplete', id, rest)
+  log('[RNBackgroundDownloader] downloadComplete', id, rest)
   const task = tasksMap.get(id)
   task?.onDone(rest)
 
@@ -32,29 +42,34 @@ RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, ...rest }) 
 })
 
 RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }) => {
-  console.log('[RNBackgroundDownloader] downloadFailed', id, rest)
+  log('[RNBackgroundDownloader] downloadFailed', id, rest)
   const task = tasksMap.get(id)
   task?.onError(rest)
 
   tasksMap.delete(id)
 })
 
-export function setHeaders (h = {}) {
-  if (typeof h !== 'object')
-    throw new Error('[RNBackgroundDownloader] headers must be an object')
+export function setConfig({ headers, progressInterval, isLogsEnabled }) {
+  if (typeof headers === 'object') config.headers = headers
 
-  headers = h
+  if (progressInterval != null)
+    if (typeof progressInterval === 'number' && progressInterval >= 200)
+      config.progressInterval = progressInterval
+    else
+      console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= 200. You passed ${progressInterval}`)
+
+  if (typeof isLogsEnabled === 'boolean') config.isLogsEnabled = isLogsEnabled
 }
 
-export function checkForExistingDownloads () {
-  console.log('[RNBackgroundDownloader] checkForExistingDownloads-1')
+export function checkForExistingDownloads() {
+  log('[RNBackgroundDownloader] checkForExistingDownloads-1')
   return RNBackgroundDownloader.checkForExistingDownloads()
     .then(foundTasks => {
-      console.log('[RNBackgroundDownloader] checkForExistingDownloads-2', foundTasks)
+      log('[RNBackgroundDownloader] checkForExistingDownloads-2', foundTasks)
       return foundTasks.map(taskInfo => {
         // SECOND ARGUMENT RE-ASSIGNS EVENT HANDLERS
         const task = new DownloadTask(taskInfo, tasksMap.get(taskInfo.id))
-        console.log('[RNBackgroundDownloader] checkForExistingDownloads-3', taskInfo)
+        log('[RNBackgroundDownloader] checkForExistingDownloads-3', taskInfo)
 
         if (taskInfo.state === RNBackgroundDownloader.TaskRunning) {
           task.state = 'DOWNLOADING'
@@ -76,8 +91,8 @@ export function checkForExistingDownloads () {
     })
 }
 
-export function ensureDownloadsAreRunning () {
-  console.log('[RNBackgroundDownloader] ensureDownloadsAreRunning')
+export function ensureDownloadsAreRunning() {
+  log('[RNBackgroundDownloader] ensureDownloadsAreRunning')
   return checkForExistingDownloads()
     .then(tasks => {
       for (const task of tasks)
@@ -88,7 +103,7 @@ export function ensureDownloadsAreRunning () {
     })
 }
 
-export function completeHandler (jobId: string) {
+export function completeHandler(jobId: string) {
   if (jobId == null) {
     console.warn('[RNBackgroundDownloader] completeHandler: jobId is empty')
     return
@@ -105,15 +120,14 @@ type DownloadOptions = {
   metadata?: object,
   isAllowedOverRoaming?: boolean,
   isAllowedOverMetered?: boolean,
-  progressInterval?: number,
 }
 
-export function download (options: DownloadOptions) {
-  console.log('[RNBackgroundDownloader] download', options)
+export function download(options: DownloadOptions) {
+  log('[RNBackgroundDownloader] download', options)
   if (!options.id || !options.url || !options.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')
 
-  options.headers = { ...headers, ...(options.headers || {}) }
+  options.headers = { ...config.headers, ...options.headers }
 
   if (!(options.metadata && typeof options.metadata === 'object'))
     options.metadata = {}
@@ -122,7 +136,6 @@ export function download (options: DownloadOptions) {
 
   if (options.isAllowedOverRoaming == null) options.isAllowedOverRoaming = true
   if (options.isAllowedOverMetered == null) options.isAllowedOverMetered = true
-  if (options.progressInterval == null) options.progressInterval = 1000
 
   const task = new DownloadTask({
     id: options.id,
@@ -133,6 +146,7 @@ export function download (options: DownloadOptions) {
   RNBackgroundDownloader.download({
     ...options,
     metadata: JSON.stringify(options.metadata),
+    progressInterval: config.progressInterval,
   })
 
   return task
@@ -147,6 +161,8 @@ export default {
   checkForExistingDownloads,
   ensureDownloadsAreRunning,
   completeHandler,
-  setHeaders,
+
+  setConfig,
+
   directories,
 }

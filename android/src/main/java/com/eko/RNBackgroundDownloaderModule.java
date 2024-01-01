@@ -80,8 +80,12 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private Downloader downloader;
 
-  private Map<String, Long> condigIdToDownloadId = new HashMap<>();
+  private Map<String, Long> configIdToDownloadId = new HashMap<>();
   private Map<Long, RNBGDTaskConfig> downloadIdToConfig = new HashMap<>();
+  private Map<String, Double> configIdToPercent = new HashMap<>();
+  private Map<String, WritableMap> progressReports = new HashMap<>();
+  private Date lastProgressReportedAt = new Date();
+  private int progressInterval;
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
   private Map<String, OnProgress> onProgressThreads = new HashMap<>();
 
@@ -150,6 +154,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
 
+    loadDownloadIdToConfigMap();
     loadConfigMap();
 
     downloader = new Downloader(reactContext);
@@ -183,6 +188,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     if (onProgressTh != null) {
       onProgressTh.interrupt();
       onProgressThreads.remove(configId);
+      configIdToPercent.remove(configId);
     }
   }
 
@@ -235,19 +241,20 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     synchronized (sharedLock) {
       RNBGDTaskConfig config = downloadIdToConfig.get(downloadId);
       if (config != null) {
-        condigIdToDownloadId.remove(config.id);
+        configIdToDownloadId.remove(config.id);
         downloadIdToConfig.remove(downloadId);
+        configIdToPercent.remove(config.id);
 
-        saveConfigMap();
+        saveDownloadIdToConfigMap();
       }
     }
   }
 
-  private void saveConfigMap() {
-    Log.d(getName(), "RNBD: saveConfigMap");
+  private void saveDownloadIdToConfigMap() {
+    Log.d(getName(), "RNBD: saveDownloadIdToConfigMap");
 
     synchronized (sharedLock) {
-      File file = new File(this.getReactApplicationContext().getFilesDir(), "RNFileBackgroundDownload_configMap");
+      File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_downloadIdToConfig");
       try {
         ObjectOutputStream outputStream = new ObjectOutputStream(new FileOutputStream(file));
         outputStream.writeObject(downloadIdToConfig);
@@ -259,15 +266,74 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void loadConfigMap() {
+  private void loadDownloadIdToConfigMap() {
+    Log.d(getName(), "RNBD: loadDownloadIdToConfigMap");
+
+    File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_downloadIdToConfig");
+    if (file.exists()) {
+      try {
+        ObjectInputStream inputStream = new ObjectInputStream(new FileInputStream(file));
+        downloadIdToConfig = (Map<Long, RNBGDTaskConfig>) inputStream.readObject();
+      } catch (IOException | ClassNotFoundException e) {
+        e.printStackTrace();
+      }
+    }
+  }
+
+  private void saveConfigMap () {
+    Log.d(getName(), "RNBD: saveConfigMap");
+
+    synchronized (sharedLock) {
+      File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_config");
+      try {
+        ObjectOutputStream outputStream = new ObjectOutputStream(new FileOutputStream(file));
+
+        Map<String, String> config = new HashMap<>();
+        config.put("progressInterval", Integer.toString(progressInterval));
+        outputStream.writeObject(config);
+        outputStream.flush();
+        outputStream.close();
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+    }
+  }
+
+  private void loadConfigMap () {
     Log.d(getName(), "RNBD: loadConfigMap");
 
-    File file = new File(this.getReactApplicationContext().getFilesDir(), "RNFileBackgroundDownload_configMap");
-    try {
-      ObjectInputStream inputStream = new ObjectInputStream(new FileInputStream(file));
-      downloadIdToConfig = (Map<Long, RNBGDTaskConfig>) inputStream.readObject();
-    } catch (IOException | ClassNotFoundException e) {
-      e.printStackTrace();
+    File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_config");
+    if (file.exists()) {
+      try {
+        ObjectInputStream inputStream = new ObjectInputStream(new FileInputStream(file));
+        Map<String, Object> config = (HashMap<String, Object>) inputStream.readObject();
+        // iterate over config
+        for(Map.Entry<String, Object> entry : config.entrySet()) {
+          String key = entry.getKey();
+
+          Object valueObj = entry.getValue();
+          Log.d(getName(), "RNBD: loadConfigMap-1 " + " key " + key + " valueObj " + valueObj);
+          String value = null;
+          if (valueObj instanceof Long) {
+            value = Long.toString((Long) valueObj);
+          } else if (valueObj instanceof String) {
+            value = (String) valueObj;
+          }
+
+          if (key.equals("progressInterval") && value != null) {
+            try {
+              int _progressInterval = Integer.parseInt(value);
+              if (_progressInterval > 0) {
+                progressInterval = _progressInterval;
+              }
+            } catch (NumberFormatException e) {
+              e.printStackTrace();
+            }
+          }
+        }
+      } catch (IOException | ClassNotFoundException e) {
+        e.printStackTrace();
+      }
     }
   }
 
@@ -279,19 +345,23 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     String destination = options.getString("destination");
     ReadableMap headers = options.getMap("headers");
     String metadata = options.getString("metadata");
-    int progressInterval = options.getInt("progressInterval");
+    int _progressInterval = options.getInt("progressInterval");
+    if (_progressInterval > 0) {
+      progressInterval = _progressInterval;
+      saveConfigMap();
+    }
 
     boolean isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming");
     boolean isAllowedOverMetered = options.getBoolean("isAllowedOverMetered");
 
-    Log.d(getName(), "RNBD: download " + id + " " + url + " " + destination + " " + metadata);
+    Log.d(getName(), "RNBD: download " + id + " " + url + " " + destination + " " + metadata + " " + progressInterval);
 
     if (id == null || url == null || destination == null) {
       Log.e(getName(), "id, url and destination must be set");
       return;
     }
 
-    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata, progressInterval);
+    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata);
     final Request request = new Request(Uri.parse(url));
     request.setAllowedOverRoaming(isAllowedOverRoaming);
     request.setAllowedOverMetered(isAllowedOverMetered);
@@ -320,9 +390,10 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     long downloadId = downloader.queueDownload(request);
 
     synchronized (sharedLock) {
-      condigIdToDownloadId.put(id, downloadId);
+      configIdToDownloadId.put(id, downloadId);
       downloadIdToConfig.put(downloadId, config);
-      saveConfigMap();
+      configIdToPercent.put(id, 0.0);
+      saveDownloadIdToConfigMap();
 
       WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
       int status = downloadStatus.getInt("status");
@@ -341,7 +412,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     Log.d(getName(), "RNBD: startReportingTasks-1 downloadId " + downloadId + " config.id " + config.id);
     config.reportedBegin = true;
     downloadIdToConfig.put(downloadId, config);
-    saveConfigMap();
+    saveDownloadIdToConfigMap();
 
     Log.d(getName(), "RNBD: startReportingTasks-2 downloadId: " + downloadId);
     // report begin & progress
@@ -376,7 +447,45 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           onBeginTh.join();
 
           Log.d(getName(), "RNBD: startReportingTasks-4 downloadId: " + downloadId);
-          OnProgress onProgressTh = new OnProgress(config, downloadId, ee, downloader);
+          OnProgress onProgressTh = new OnProgress(
+            config,
+            downloadId,
+            downloader,
+            new ProgressCallback() {
+              @Override
+              public void onProgress(String configId, int bytesDownloaded, int bytesTotal) {
+                Log.d(getName(), "RNBD: onProgress-1 " + configId + " " + bytesDownloaded + " " + bytesTotal);
+
+                double prevPercent = configIdToPercent.get(configId);
+                double percent = (double) bytesDownloaded / bytesTotal;
+                if (percent - prevPercent > 0.01) {
+                  Log.d(getName(), "RNBD: onProgress-2 " + configId + " " + bytesDownloaded + " " + bytesTotal);
+                  WritableMap params = Arguments.createMap();
+                  params.putString("id", configId);
+                  params.putInt("bytesDownloaded", bytesDownloaded);
+                  params.putInt("bytesTotal", bytesTotal);
+
+                  progressReports.put(configId, params);
+                  configIdToPercent.put(configId, percent);
+                }
+
+                Date now = new Date();
+                if (
+                  now.getTime() - lastProgressReportedAt.getTime() > progressInterval &&
+                  progressReports.size() > 0
+                ) {
+                  Log.d(getName(), "RNBD: onProgress-3 " + configId + " " + bytesDownloaded + " " + bytesTotal);
+                  WritableArray reportsArray = Arguments.createArray();
+                  for (Object report : progressReports.values()) {
+                    reportsArray.pushMap((WritableMap) report);
+                  }
+                  ee.emit("downloadProgress", reportsArray);
+                  lastProgressReportedAt = now;
+                  progressReports.clear();
+                }
+              }
+            }
+           );
           onProgressThreads.put(config.id, onProgressTh);
           onProgressTh.start();
           Log.d(getName(), "RNBD: startReportingTasks-5 downloadId: " + downloadId);
@@ -394,7 +503,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     Log.d(getName(), "RNBD: pauseTask " + configId);
 
     synchronized (sharedLock) {
-      Long downloadId = condigIdToDownloadId.get(configId);
+      Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
         downloader.pauseDownload(downloadId);
       }
@@ -407,7 +516,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     Log.d(getName(), "RNBD: resumeTask " + configId);
 
     synchronized (sharedLock) {
-      Long downloadId = condigIdToDownloadId.get(configId);
+      Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
         downloader.resumeDownload(downloadId);
       }
@@ -419,7 +528,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     Log.d(getName(), "RNBD: stopTask-1 " + configId);
 
     synchronized (sharedLock) {
-      Long downloadId = condigIdToDownloadId.get(configId);
+      Long downloadId = configIdToDownloadId.get(configId);
       Log.d(getName(), "RNBD: stopTask-2 " + configId + " downloadId " + downloadId);
       if (downloadId != null) {
         // DELETES CONFIG HERE SO receiver WILL NOT THROW ERROR DOWNLOAD_FAILED TO THE
@@ -437,7 +546,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     Log.d(getName(), "RNBD: completeHandler-1 " + configId);
 
     synchronized (sharedLock) {
-      Long downloadId = condigIdToDownloadId.get(configId);
+      Long downloadId = configIdToDownloadId.get(configId);
       Log.d(getName(), "RNBD: completeHandler-2 " + configId + " downloadId " + downloadId);
       if (downloadId != null) {
         removeFromMaps(downloadId);
@@ -470,14 +579,19 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               params.putString("id", config.id);
               params.putString("metadata", config.metadata);
               params.putInt("state", stateMap.get(downloadStatus.getInt("status")));
-              params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
-              params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
+
+              int bytesDownloaded = downloadStatus.getInt("bytesDownloaded");
+              params.putInt("bytesDownloaded", bytesDownloaded);
+
+              int bytesTotal = downloadStatus.getInt("bytesTotal");
+              params.putInt("bytesTotal", bytesTotal);
 
               foundIds.pushMap(params);
 
               // TODO: MAYBE ADD headers
 
-              condigIdToDownloadId.put(config.id, downloadId);
+              configIdToDownloadId.put(config.id, downloadId);
+              configIdToPercent.put(config.id, (double) bytesDownloaded / bytesTotal);
 
               // TOREMOVE
               // config.reportedBegin = true;

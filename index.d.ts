@@ -9,7 +9,11 @@ export interface DownloadHeaders {
   [key: string]: string | null;
 }
 
-type SetHeaders = (h: DownloadHeaders) => void;
+type SetConfig = (
+  headers: DownloadHeaders,
+  progressInterval: number,
+  isLogsEnabled: boolean
+) => void;
 
 export interface BeginHandlerObject {
   expectedBytes: number;
@@ -102,7 +106,6 @@ export interface DownloadOption {
   metadata?: object;
   isAllowedOverRoaming?: boolean;
   isAllowedOverMetered?: boolean;
-  progressInterval?: number;
 }
 
 export type Download = (options: DownloadOption) => DownloadTask;
@@ -112,7 +115,7 @@ export interface Directories {
   documents: string;
 }
 
-export const setHeaders: SetHeaders
+export const setConfig: SetConfig
 export const checkForExistingDownloads: CheckForExistingDownloads
 export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning
 export const download: Download
@@ -120,7 +123,7 @@ export const completeHandler: CompleteHandler
 export const directories: Directories
 
 export interface RNBackgroundDownloader {
-  setHeaders: SetHeaders;
+  setConfig: SetConfig;
   checkForExistingDownloads: CheckForExistingDownloads;
   ensureDownloadsAreRunning: EnsureDownloadsAreRunning;
   download: Download;

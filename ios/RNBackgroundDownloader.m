@@ -10,6 +10,7 @@
 #import "RNBGDTaskConfig.h"
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
+#define CONFIG_MAP_KEY @"com.eko.config_map"
 
 static CompletionHandler storedCompletionHandler;
 
@@ -19,9 +20,11 @@ static CompletionHandler storedCompletionHandler;
     NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *taskToConfigMap;
     NSMutableDictionary<NSString *, NSURLSessionDownloadTask *> *idToTaskMap;
     NSMutableDictionary<NSString *, NSData *> *idToResumeDataMap;
+    NSMutableDictionary<NSString *, NSNumber *> *idToPercentMap;
     NSMutableDictionary<NSString *, NSDictionary *> *progressReports;
-    NSDate *lastProgressReport;
+    NSDate *lastProgressReportedAt;
     NSNumber *sharedLock;
+    float progressInterval; // IN SECONDS
     BOOL isNotificationCenterInited;
 }
 
@@ -65,8 +68,22 @@ RCT_EXPORT_MODULE();
         if (taskToConfigMap == nil) {
             taskToConfigMap = [[NSMutableDictionary alloc] init];
         }
-        idToTaskMap = [[NSMutableDictionary alloc] init];
+
+        NSDictionary *configMap = [self deserialize:[[NSUserDefaults standardUserDefaults] objectForKey:CONFIG_MAP_KEY]];
+        if (configMap != nil) {
+            for (NSString *key in configMap) {
+                if ([key isEqual: @"progressInterval"]) {
+                    progressInterval = [configMap[key] intValue];
+                }
+            }
+        }
+        if (isnan(progressInterval)) {
+            progressInterval = 1.0;
+        }
+
+        self->idToTaskMap = [[NSMutableDictionary alloc] init];
         idToResumeDataMap = [[NSMutableDictionary alloc] init];
+        idToPercentMap = [[NSMutableDictionary alloc] init];
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessonIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
         sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessonIdentifier];
@@ -83,7 +100,7 @@ RCT_EXPORT_MODULE();
         }
 
         progressReports = [[NSMutableDictionary alloc] init];
-        lastProgressReport = [[NSDate alloc] init];
+        lastProgressReportedAt = [[NSDate alloc] init];
         sharedLock = [NSNumber numberWithInt:1];
     }
     return self;
@@ -151,7 +168,8 @@ RCT_EXPORT_MODULE();
         [[NSUserDefaults standardUserDefaults] setObject:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         if (taskConfig) {
-            [idToTaskMap removeObjectForKey:taskConfig.id];
+            [self->idToTaskMap removeObjectForKey:taskConfig.id];
+            [idToPercentMap removeObjectForKey:taskConfig.id];
         }
         // TOREMOVE - GIVES ERROR IN JS ON HOT RELOAD
         // if (taskToConfigMap.count == 0) {
@@ -194,12 +212,24 @@ RCT_EXPORT_MODULE();
 
 #pragma mark - JS exported methods
 RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
-    NSLog(@"[RNBackgroundDownloader] - [download]");
+    NSLog(@"[RNBackgroundDownloader] - [download] - 1");
     NSString *identifier = options[@"id"];
     NSString *url = options[@"url"];
     NSString *destination = options[@"destination"];
     NSString *metadata = options[@"metadata"];
     NSDictionary *headers = options[@"headers"];
+
+
+    NSNumber *_progressInterval = options[@"progressInterval"];
+    if (_progressInterval) {
+        progressInterval = [_progressInterval intValue] / 1000; // progressInterval IN options SUPPLIED IN MILLISECONDS
+
+        NSDictionary *configMap = @{@"progressInterval": [NSNumber numberWithFloat:progressInterval]};
+        [[NSUserDefaults standardUserDefaults] setObject:[self serialize: configMap] forKey:CONFIG_MAP_KEY];
+    }
+
+
+    NSLog(@"[RNBackgroundDownloader] - [download] - 1 url %@ destination %@ progressInterval %f", url, destination, progressInterval);
     if (identifier == nil || url == nil || destination == nil) {
         NSLog(@"[RNBackgroundDownloader] - [Error] id, url and destination must be set");
         return;
@@ -225,17 +255,18 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
         [[NSUserDefaults standardUserDefaults] setObject:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
-        idToTaskMap[identifier] = task;
+        self->idToTaskMap[identifier] = task;
+        idToPercentMap[identifier] = @0.0;
 
         [task resume];
-        lastProgressReport = [[NSDate alloc] init];
+        lastProgressReportedAt = [[NSDate alloc] init];
     }
 }
 
 RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
     NSLog(@"[RNBackgroundDownloader] - [pauseTask]");
     @synchronized (sharedLock) {
-        NSURLSessionDownloadTask *task = idToTaskMap[identifier];
+        NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
         if (task != nil && task.state == NSURLSessionTaskStateRunning) {
             [task suspend];
         }
@@ -245,7 +276,7 @@ RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
 RCT_EXPORT_METHOD(resumeTask: (NSString *)identifier) {
     NSLog(@"[RNBackgroundDownloader] - [resumeTask]");
     @synchronized (sharedLock) {
-        NSURLSessionDownloadTask *task = idToTaskMap[identifier];
+        NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
         if (task != nil && task.state == NSURLSessionTaskStateSuspended) {
             [task resume];
         }
@@ -255,7 +286,7 @@ RCT_EXPORT_METHOD(resumeTask: (NSString *)identifier) {
 RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
     NSLog(@"[RNBackgroundDownloader] - [stopTask]");
     @synchronized (sharedLock) {
-        NSURLSessionDownloadTask *task = idToTaskMap[identifier];
+        NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
         if (task != nil) {
             [task cancel];
             [self removeTaskFromMap:task];
@@ -268,16 +299,16 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     [self lazyInitSession];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         NSMutableArray *idsFound = [[NSMutableArray alloc] init];
-        @synchronized (sharedLock) {
+        @synchronized (self->sharedLock) {
             for (NSURLSessionDownloadTask *foundTask in downloadTasks) {
                 NSURLSessionDownloadTask __strong *task = foundTask;
-                RNBGDTaskConfig *taskConfig = taskToConfigMap[@(task.taskIdentifier)];
+                RNBGDTaskConfig *taskConfig = self->taskToConfigMap[@(task.taskIdentifier)];
                 if (taskConfig) {
                     if ((task.state == NSURLSessionTaskStateCompleted || task.state == NSURLSessionTaskStateSuspended) && task.countOfBytesReceived < task.countOfBytesExpectedToReceive) {
                         if (task.error && task.error.userInfo[NSURLSessionDownloadTaskResumeData] != nil) {
-                            task = [urlSession downloadTaskWithResumeData:task.error.userInfo[NSURLSessionDownloadTaskResumeData]];
+                            task = [self->urlSession downloadTaskWithResumeData:task.error.userInfo[NSURLSessionDownloadTaskResumeData]];
                         } else {
-                            task = [urlSession downloadTaskWithURL:task.currentRequest.URL];
+                            task = [self->urlSession downloadTaskWithURL:task.currentRequest.URL];
                         }
                         [task resume];
                     }
@@ -290,8 +321,11 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                         @"bytesTotal": [NSNumber numberWithLongLong:task.countOfBytesExpectedToReceive]
                     }];
                     taskConfig.reportedBegin = YES;
-                    taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
-                    idToTaskMap[taskConfig.id] = task;
+                    self->taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
+                    self->idToTaskMap[taskConfig.id] = task;
+
+                    NSNumber *percent = task.countOfBytesExpectedToReceive > 0 ? [NSNumber numberWithFloat:(float)task.countOfBytesReceived/(float)task.countOfBytesExpectedToReceive] : @0.0;
+                    self->idToPercentMap[taskConfig.id] = percent;
                 } else {
                     [task cancel];
                 }
@@ -378,19 +412,24 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
                 taskCofig.reportedBegin = YES;
             }
 
-            progressReports[taskCofig.id] = @{
-                @"id": taskCofig.id,
-                @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten],
-                @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite]
-            };
+            NSNumber *prevPercent = idToPercentMap[taskCofig.id];
+            NSNumber *percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
+            if ([percent floatValue] - [prevPercent floatValue] > 0.01f) {
+                progressReports[taskCofig.id] = @{
+                    @"id": taskCofig.id,
+                    @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten],
+                    @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite]
+                };
+                idToPercentMap[taskCofig.id] = percent;
+            }
+
 
             NSDate *now = [[NSDate alloc] init];
-            // TODO: PROPOSE OPTION TO SET PROGRESS INTERVAL (ITS COMMON FOR ALL DOWNLOADS. ON ANDROID SIDE ITS PER DOWNLOAD. MAYBE CHANGE ANDROID TO BE COMMON AS WELL AND PREVENT IT SEND TOO OFTEN. ALSO SEND IT ONLY IF PROGRESS CHANGED - SEE PREV IMPLEMENTATION IN 2.10)
-            if ([now timeIntervalSinceDate:lastProgressReport] > 0.5 && progressReports.count > 0) {
+            if ([now timeIntervalSinceDate:lastProgressReportedAt] > progressInterval && progressReports.count > 0) {
                 if (self.bridge) {
                     [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
                 }
-                lastProgressReport = now;
+                lastProgressReportedAt = now;
                 [progressReports removeAllObjects];
             }
         }
@@ -436,15 +475,27 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
 
 #pragma mark - serialization
 - (NSData *)serialize: (id)obj {
-    return [NSKeyedArchiver archivedDataWithRootObject:obj];
+    NSError *error;
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:obj requiringSecureCoding:NO error:&error];
+
+    if (error) {
+        // Handle the error
+        NSLog(@"[RNBackgroundDownloader] Serialization error: %@", error);
+    }
+
+    return data;
 }
 
 - (id)deserialize: (NSData *)data {
-    if (data == nil) {
-        return nil;
+    NSError *error;
+    id obj = [NSKeyedUnarchiver unarchivedObjectOfClass:[NSObject class] fromData:data error:&error];
+
+    if (error) {
+        // Handle the error
+        NSLog(@"[RNBackgroundDownloader] Deserialization error: %@", error);
     }
 
-    return [NSKeyedUnarchiver unarchiveObjectWithData:data];
+    return obj;
 }
 
 @end
