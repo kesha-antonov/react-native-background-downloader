@@ -100,14 +100,14 @@ Failing to add this code will result in canceled background downloads. If Xcode 
 
 ```javascript
 import { Platform } from 'react-native'
-import { download, completeHandler } from '@kesha-antonov/react-native-background-downloader'
+import { download, completeHandler, directories } from '@kesha-antonov/react-native-background-downloader'
 
 const jobId = 'file123'
 
 let task = download({
   id: jobId,
   url: 'https://link-to-very.large/file.zip',
-  destination: `${RNBackgroundDownloader.directories.documents}/file.zip`,
+  destination: `${directories.documents}/file.zip`,
   metadata: {}
 }).begin(({ expectedBytes, headers }) => {
   console.log(`Going to download ${expectedBytes} bytes!`)
