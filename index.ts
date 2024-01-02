@@ -4,6 +4,7 @@ import DownloadTask from './lib/DownloadTask'
 const { RNBackgroundDownloader } = NativeModules
 const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloader)
 
+const MIN_PROGRESS_INTERVAL = 250
 const tasksMap = new Map()
 
 const config = {
@@ -53,10 +54,10 @@ export function setConfig({ headers, progressInterval, isLogsEnabled }) {
   if (typeof headers === 'object') config.headers = headers
 
   if (progressInterval != null)
-    if (typeof progressInterval === 'number' && progressInterval >= 200)
+    if (typeof progressInterval === 'number' && progressInterval >= MIN_PROGRESS_INTERVAL)
       config.progressInterval = progressInterval
     else
-      console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= 200. You passed ${progressInterval}`)
+      console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= ${MIN_PROGRESS_INTERVAL}. You passed ${progressInterval}`)
 
   if (typeof isLogsEnabled === 'boolean') config.isLogsEnabled = isLogsEnabled
 }
