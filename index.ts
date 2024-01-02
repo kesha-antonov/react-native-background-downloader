@@ -25,11 +25,11 @@ RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, ...rest }) => 
 })
 
 RNBackgroundDownloaderEmitter.addListener('downloadProgress', events => {
-  // log('[RNBackgroundDownloader] downloadProgress-1', events, tasksMap)
+  log('[RNBackgroundDownloader] downloadProgress-1', events, tasksMap)
   for (const event of events) {
     const { id, ...rest } = event
     const task = tasksMap.get(id)
-    // log('[RNBackgroundDownloader] downloadProgress-2', id, task)
+    log('[RNBackgroundDownloader] downloadProgress-2', id, task)
     task?.onProgress(rest)
   }
 })

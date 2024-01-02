@@ -38,7 +38,6 @@ public class OnProgress extends Thread {
 
   private void handleInterrupt() {
     try {
-      Log.d("RNBackgroundDownloader", "RNBD: OnProgress handleInterrupt. downloadId " + downloadId);
       if (cursor != null) {
         cursor.close();
       }
@@ -50,11 +49,8 @@ public class OnProgress extends Thread {
 
   @Override
   public void run() {
-    Log.d("RNBackgroundDownloader", "RNBD: OnProgress-1. downloadId " + downloadId);
     while (downloadId > 0) {
       try {
-        Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2. downloadId " + downloadId + " destination " + config.destination);
-
         cursor = downloader.downloadManager.query(query);
 
         if (!cursor.moveToFirst()) {
@@ -67,13 +63,10 @@ public class OnProgress extends Thread {
         }
 
         if (status == DownloadManager.STATUS_PAUSED) {
-          Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2.1. downloadId " + downloadId);
           Thread.sleep(5000);
         } else if (status == DownloadManager.STATUS_PENDING) {
-          Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2.2. downloadId " + downloadId);
           Thread.sleep(1000);
         } else {
-          Log.d("RNBackgroundDownloader", "RNBD: OnProgress-2.3. downloadId " + downloadId);
           Thread.sleep(250);
         }
 
@@ -90,9 +83,6 @@ public class OnProgress extends Thread {
           lastBytesDownloaded = bytesDownloaded;
         }
 
-        Log.d("RNBackgroundDownloader", "RNBD: OnProgress-3. downloadId " + downloadId + " bytesDownloaded "
-            + bytesDownloaded + " bytesTotal " + bytesTotal);
-
         if (lastBytesDownloaded > 0 && bytesTotal > 0) {
           callback.onProgress(config.id, lastBytesDownloaded, bytesTotal);
         }
@@ -102,11 +92,11 @@ public class OnProgress extends Thread {
 
       try {
         if (cursor != null) {
-          Log.d("RNBackgroundDownloader", "RNBD: OnProgress-5. downloadId " + downloadId);
           cursor.close();
-          Log.d("RNBackgroundDownloader", "RNBD: OnProgress-6. downloadId " + downloadId);
         }
       } catch (Exception e) {
+        e.printStackTrace();
+        Log.e("RNBackgroundDownloader", "RNBD: OnProgress e: " + Log.getStackTraceString(e));
         return;
       }
     }

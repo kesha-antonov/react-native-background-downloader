@@ -51,7 +51,6 @@ public class Downloader {
     }
 
     public int cancelDownload(long downloadId) {
-        Log.d("RNBackgroundDownloader", "Downloader cancelDownload " + downloadId);
         return downloadManager.remove(downloadId);
     }
 
