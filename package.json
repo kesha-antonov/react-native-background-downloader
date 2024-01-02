@@ -40,7 +40,7 @@
   "scripts": {
     "bump": "npm version patch",
     "lint": "eslint .",
-    "_prepublishOnly": "jest && npm run lint",
+    "prepublishOnly": "jest && npm run lint",
     "publish": "npm publish",
     "test": "jest"
   },
