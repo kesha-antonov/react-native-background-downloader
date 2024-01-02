@@ -163,10 +163,12 @@ for (let task of lostTasks) {
 ### Using custom headers
 If you need to send custom headers with your download request, you can do in it 2 ways:
 
-1) Globally using `RNBackgroundDownloader.setHeaders()`:
+1) Globally using `RNBackgroundDownloader.setConfig()`:
 ```javascript
-RNBackgroundDownloader.setHeaders({
-  Authorization: 'Bearer 2we$@$@Ddd223'
+RNBackgroundDownloader.setConfig({
+  headers: {
+    Authorization: 'Bearer 2we$@$@Ddd223',
+  }
 })
 ```
 This way, all downloads with have the given headers.
@@ -190,7 +192,7 @@ let task = RNBackgroundDownloader.download({
   console.log('Download canceled due to error: ', error)
 })
 ```
-Headers given in the `download` function are **merged** with the ones given in `setHeaders`.
+Headers given in the `download` function are **merged** with the ones given in `setConfig({ headers: { ... } })`.
 
 ## API
 
@@ -210,7 +212,7 @@ An object containing options properties
 | `url`         | String |    ✅     |    All    | URL to file you want to download |
 | `destination` | String |    ✅     |    All    | Where to copy the file to once the download is done |
 | `metadata`    | Object |           |    All    | Data to be preserved on reboot. |
-| `headers`     | Object |           |    All    | Costume headers to add to the download request. These are merged with the headers given in the `setHeaders` function |
+| `headers`     | Object |           |    All    | Costume headers to add to the download request. These are merged with the headers given in the `setConfig({ headers: { ... } })` function |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
 
@@ -228,11 +230,13 @@ Recommended to run at the init stage of the app.
 
 `DownloadTask[]` - Array of tasks that were running in the background so you can re-attach callbacks to them
 
-### `setHeaders(headers)`
+### `setConfig({})`
 
-Sets headers to use in all future downloads.
-
-**headers** - Object
+| Name           | Type   | Info                                                                                                 |
+| -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| `headers`     | Object | optional headers to use in all future downloads |
+| `progressInterval` | Number | Interval in which download progress sent from downloader. Number should be >= 250. It's in ms |
+| `isLogsEnabled`   | Boolean | Enables/disables logs in library |
 
 ### DownloadTask
 
