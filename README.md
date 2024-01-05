@@ -120,8 +120,8 @@ let task = download({
 
   // FINISH DOWNLOAD JOB
   completeHandler(jobId)
-}).error(error => {
-  console.log('Download canceled due to error: ', error);
+}).error(({ error, errorCode }) => {
+  console.log('Download canceled due to error: ', { error, errorCode });
 })
 
 // Pause the task
@@ -152,8 +152,8 @@ for (let task of lostTasks) {
     console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
   }).done(({ bytesDownloaded, bytesTotal }) => {
     console.log('Download is done!', { bytesDownloaded, bytesTotal })
-  }).error(error => {
-    console.log('Download canceled due to error: ', error)
+  }).error(({ error, errorCode }) => {
+    console.log('Download canceled due to error: ', { error, errorCode })
   })
 }
 ```
@@ -188,8 +188,8 @@ let task = RNBackgroundDownloader.download({
   console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
 }).done(({ bytesDownloaded, bytesTotal }) => {
   console.log('Download is done!', { bytesDownloaded, bytesTotal })
-}).error(error => {
-  console.log('Download canceled due to error: ', error)
+}).error(({ error, errorCode }) => {
+  console.log('Download canceled due to error: ', { error, errorCode })
 })
 ```
 Headers given in the `download` function are **merged** with the ones given in `setConfig({ headers: { ... } })`.
