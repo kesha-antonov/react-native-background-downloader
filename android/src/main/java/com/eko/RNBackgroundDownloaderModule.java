@@ -36,8 +36,6 @@ import javax.annotation.Nullable;
 import java.util.Set;
 import java.net.URL;
 import java.net.URLConnection;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -103,7 +101,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
           int status = downloadStatus.getInt("status");
 
-
           stopTrackingProgress(config.id);
 
           synchronized (sharedLock) {
@@ -113,7 +110,12 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 String localUri = downloadStatus.getString("localUri");
                 File file = new File(localUri);
                 File dest = new File(config.destination);
-                Files.move(file.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+                if (dest.exists()) {
+                  dest.delete();
+                }
+
+                file.renameTo(dest);
 
                 WritableMap params = Arguments.createMap();
                 params.putString("id", config.id);
@@ -157,7 +159,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     compatRegisterReceiver(reactContext, downloadReceiver, filter, true);
 
     // iterate over downloadIdToConfig
-    for(Map.Entry<Long, RNBGDTaskConfig> entry : downloadIdToConfig.entrySet()) {
+    for (Map.Entry<Long, RNBGDTaskConfig> entry : downloadIdToConfig.entrySet()) {
       Long downloadId = entry.getKey();
       RNBGDTaskConfig config = entry.getValue();
 
@@ -292,7 +294,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
         ObjectInputStream inputStream = new ObjectInputStream(new FileInputStream(file));
         Map<String, Object> config = (HashMap<String, Object>) inputStream.readObject();
         // iterate over config
-        for(Map.Entry<String, Object> entry : config.entrySet()) {
+        for (Map.Entry<String, Object> entry : config.entrySet()) {
           String key = entry.getKey();
 
           Object valueObj = entry.getValue();
@@ -357,7 +359,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, fileName);
 
     // TOREMOVE
-    // request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS.toString(), fileName);
+    // request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS.toString(),
+    // fileName);
     // request.setDestinationUri(Uri.parse(destination));
 
     if (headers != null) {
@@ -419,40 +422,37 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           onBeginTh.join();
 
           OnProgress onProgressTh = new OnProgress(
-            config,
-            downloadId,
-            downloader,
-            new ProgressCallback() {
-              @Override
-              public void onProgress(String configId, int bytesDownloaded, int bytesTotal) {
-                double prevPercent = configIdToPercent.get(configId);
-                double percent = (double) bytesDownloaded / bytesTotal;
-                if (percent - prevPercent > 0.01) {
-                  WritableMap params = Arguments.createMap();
-                  params.putString("id", configId);
-                  params.putInt("bytesDownloaded", bytesDownloaded);
-                  params.putInt("bytesTotal", bytesTotal);
+              config,
+              downloadId,
+              downloader,
+              new ProgressCallback() {
+                @Override
+                public void onProgress(String configId, int bytesDownloaded, int bytesTotal) {
+                  double prevPercent = configIdToPercent.get(configId);
+                  double percent = (double) bytesDownloaded / bytesTotal;
+                  if (percent - prevPercent > 0.01) {
+                    WritableMap params = Arguments.createMap();
+                    params.putString("id", configId);
+                    params.putInt("bytesDownloaded", bytesDownloaded);
+                    params.putInt("bytesTotal", bytesTotal);
 
-                  progressReports.put(configId, params);
-                  configIdToPercent.put(configId, percent);
-                }
-
-                Date now = new Date();
-                if (
-                  now.getTime() - lastProgressReportedAt.getTime() > progressInterval &&
-                  progressReports.size() > 0
-                ) {
-                  WritableArray reportsArray = Arguments.createArray();
-                  for (Object report : progressReports.values()) {
-                    reportsArray.pushMap((WritableMap) report);
+                    progressReports.put(configId, params);
+                    configIdToPercent.put(configId, percent);
                   }
-                  ee.emit("downloadProgress", reportsArray);
-                  lastProgressReportedAt = now;
-                  progressReports.clear();
+
+                  Date now = new Date();
+                  if (now.getTime() - lastProgressReportedAt.getTime() > progressInterval &&
+                      progressReports.size() > 0) {
+                    WritableArray reportsArray = Arguments.createArray();
+                    for (Object report : progressReports.values()) {
+                      reportsArray.pushMap((WritableMap) report);
+                    }
+                    ee.emit("downloadProgress", reportsArray);
+                    lastProgressReportedAt = now;
+                    progressReports.clear();
+                  }
                 }
-              }
-            }
-           );
+              });
           onProgressThreads.put(config.id, onProgressTh);
           onProgressTh.start();
         } catch (Exception e) {
@@ -506,7 +506,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
         removeFromMaps(downloadId);
-        // REMOVES DOWNLOAD FROM DownloadManager SO IT WOULD NOT BE RETURNED IN checkForExistingDownloads
+        // REMOVES DOWNLOAD FROM DownloadManager SO IT WOULD NOT BE RETURNED IN
+        // checkForExistingDownloads
         downloader.cancelDownload(downloadId);
       }
     }
