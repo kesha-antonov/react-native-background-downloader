@@ -255,7 +255,7 @@ A class representing a download task created by `RNBackgroundDownloader.download
 Finishes download job and informs OS that app can be closed in background if needed.
 After finishing download in background you have some time to process your JS logic and finish the job.
 
-### `ensureDownloadsAreRunning`
+### `ensureDownloadsAreRunning` (iOS only)
 
 Pauses and resumes all downloads - this is fix for stuck downloads. Use it when your app loaded and is ready for handling downloads (all your logic loaded and ready to handle download callbacks).
 
@@ -314,10 +314,10 @@ All callback methods return the current instance of the `DownloadTask` for chain
 | `done`     | { bytesDownloaded, bytesTotal } | Called when the download is done, the file is at the destination you've set |
 | `error`    | { error, errorCode } | Called when the download stops due to an error |
 
-### `pause()`
+### `pause()`  (iOS only)
 Pauses the download
 
-### `resume()`
+### `resume()`  (iOS only)
 Resumes a pause download
 
 ### `stop()`
