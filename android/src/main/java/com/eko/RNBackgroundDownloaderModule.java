@@ -25,6 +25,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.nio.channels.FileChannel;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -89,6 +90,19 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private static Object sharedLock = new Object();
 
+  private static void copyFile(File src, File dst) throws IOException {
+    FileChannel inChannel = new FileInputStream(src).getChannel();
+    FileChannel outChannel = new FileOutputStream(dst).getChannel();
+    try {
+      inChannel.transferTo(0, inChannel.size(), outChannel);
+    } finally {
+      if (inChannel != null)
+        inChannel.close();
+      if (outChannel != null)
+        outChannel.close();
+    }
+  }
+
   BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -111,11 +125,20 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 File file = new File(localUri);
                 File dest = new File(config.destination);
 
+                // REMOVE DEST FILE IF EXISTS
                 if (dest.exists()) {
                   dest.delete();
                 }
 
-                file.renameTo(dest);
+                // CREATE DESTINATION DIR IF NOT EXISTS
+                File destDir = new File(dest.getParent());
+                if (!destDir.exists()) {
+                  destDir.mkdirs();
+                }
+
+                // MOVE FILE
+                copyFile(file, dest);
+                file.delete();
 
                 WritableMap params = Arguments.createMap();
                 params.putString("id", config.id);
@@ -270,7 +293,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void saveConfigMap () {
+  private void saveConfigMap() {
     synchronized (sharedLock) {
       File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_config");
       try {
@@ -287,7 +310,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void loadConfigMap () {
+  private void loadConfigMap() {
     File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_config");
     if (file.exists()) {
       try {
