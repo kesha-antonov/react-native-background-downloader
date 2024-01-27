@@ -215,6 +215,7 @@ An object containing options properties
 | `headers`     | Object |           |    All    | Costume headers to add to the download request. These are merged with the headers given in the `setConfig({ headers: { ... } })` function |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
+| `showNotification`     | Boolean   |          |  Android  | Whether to show a download notification or not |
 
 **returns**
 

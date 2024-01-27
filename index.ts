@@ -121,6 +121,7 @@ type DownloadOptions = {
   metadata?: object,
   isAllowedOverRoaming?: boolean,
   isAllowedOverMetered?: boolean,
+  showNotification?: boolean;
 }
 
 export function download(options: DownloadOptions) {
@@ -137,6 +138,7 @@ export function download(options: DownloadOptions) {
 
   if (options.isAllowedOverRoaming == null) options.isAllowedOverRoaming = true
   if (options.isAllowedOverMetered == null) options.isAllowedOverMetered = true
+  if (options.showNotification == null) options.showNotification = false
 
   const task = new DownloadTask({
     id: options.id,
