@@ -124,10 +124,10 @@ let task = download({
   console.log('Download canceled due to error: ', { error, errorCode });
 })
 
-// Pause the task
+// Pause the task (iOS only)
 task.pause()
 
-// Resume after pause
+// Resume after pause (iOS only)
 task.resume()
 
 // Cancel the task
@@ -318,7 +318,7 @@ All callback methods return the current instance of the `DownloadTask` for chain
 Pauses the download
 
 ### `resume()`  (iOS only)
-Resumes a pause download
+Resumes a paused download
 
 ### `stop()`
 Stops the download for good and removes the file that was written so far
