@@ -361,7 +361,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
     boolean isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming");
     boolean isAllowedOverMetered = options.getBoolean("isAllowedOverMetered");
-    boolean showNotification = options.getBoolean("showNotification");
+    boolean isNotificationVisible = options.getBoolean("isNotificationVisible");
 
     if (id == null || url == null || destination == null) {
       Log.e(getName(), "id, url and destination must be set");
@@ -372,7 +372,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     final Request request = new Request(Uri.parse(url));
     request.setAllowedOverRoaming(isAllowedOverRoaming);
     request.setAllowedOverMetered(isAllowedOverMetered);
-    request.setNotificationVisibility(showNotification ? Request.VISIBILITY_VISIBLE : Request.VISIBILITY_HIDDEN);
+    request.setNotificationVisibility(isNotificationVisible ? Request.VISIBILITY_VISIBLE : Request.VISIBILITY_HIDDEN);
     request.setRequiresCharging(false);
 
     int uuid = (int) (System.currentTimeMillis() & 0xfffffff);
