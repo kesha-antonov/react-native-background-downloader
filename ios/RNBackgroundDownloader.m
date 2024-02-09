@@ -8,6 +8,7 @@
 //
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
+#import <MMKV/MMKV.h>
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
 #define CONFIG_MAP_KEY @"com.eko.config_map"
@@ -26,6 +27,8 @@ static CompletionHandler storedCompletionHandler;
     NSNumber *sharedLock;
     float progressInterval; // IN SECONDS
     BOOL isNotificationCenterInited;
+
+    MMKV *mmkv;
 }
 
 RCT_EXPORT_MODULE();
@@ -64,12 +67,16 @@ RCT_EXPORT_MODULE();
     NSLog(@"[RNBackgroundDownloader] - [init]");
     self = [super init];
     if (self) {
-        taskToConfigMap = [self deserialize:[[NSUserDefaults standardUserDefaults] objectForKey:ID_TO_CONFIG_MAP_KEY]];
+        [MMKV initializeMMKV:nil];
+
+        mmkv = [MMKV defaultMMKV];
+
+        taskToConfigMap = [self deserialize:[mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY]];
         if (taskToConfigMap == nil) {
             taskToConfigMap = [[NSMutableDictionary alloc] init];
         }
 
-        NSDictionary *configMap = [self deserialize:[[NSUserDefaults standardUserDefaults] objectForKey:CONFIG_MAP_KEY]];
+        NSDictionary *configMap = [self deserialize:[mmkv getDataForKey:CONFIG_MAP_KEY]];
         if (configMap != nil) {
             for (NSString *key in configMap) {
                 if ([key isEqual: @"progressInterval"]) {
@@ -165,7 +172,7 @@ RCT_EXPORT_MODULE();
         RNBGDTaskConfig *taskConfig = taskToConfigMap[taskId];
 
         [taskToConfigMap removeObjectForKey:taskId];
-        [[NSUserDefaults standardUserDefaults] setObject:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+        [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         if (taskConfig) {
             [self->idToTaskMap removeObjectForKey:taskConfig.id];
@@ -225,7 +232,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         progressInterval = [_progressInterval intValue] / 1000; // progressInterval IN options SUPPLIED IN MILLISECONDS
 
         NSDictionary *configMap = @{@"progressInterval": [NSNumber numberWithFloat:progressInterval]};
-        [[NSUserDefaults standardUserDefaults] setObject:[self serialize: configMap] forKey:CONFIG_MAP_KEY];
+        [mmkv setData:[self serialize: configMap] forKey:CONFIG_MAP_KEY];
     }
 
 
@@ -253,7 +260,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         RNBGDTaskConfig *taskConfig = [[RNBGDTaskConfig alloc] initWithDictionary: @{@"id": identifier, @"destination": destination, @"metadata": metadata}];
 
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
-        [[NSUserDefaults standardUserDefaults] setObject:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+        [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         self->idToTaskMap[identifier] = task;
         idToPercentMap[identifier] = @0.0;
