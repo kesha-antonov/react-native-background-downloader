@@ -23,36 +23,29 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.channels.FileChannel;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Scanner;
 
 import javax.annotation.Nullable;
-
-import java.util.Set;
-import java.net.URL;
-import java.net.URLConnection;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.util.LongSparseArray;
 
-import com.facebook.react.bridge.Callback;
-
-import java.util.ArrayList;
-import java.util.Arrays;
 import android.net.Uri;
 import android.webkit.MimeTypeMap;
 import android.database.Cursor;
 import android.os.Build;
-import android.os.Environment;
+// TOREMOVE
+// import android.os.Environment;
+
+import com.tencent.mmkv.MMKV;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
@@ -102,6 +95,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
         outChannel.close();
     }
   }
+
+  private static MMKV mmkv;
 
   BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
     @Override
@@ -172,6 +167,10 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
+
+    MMKV.initialize(reactContext);
+
+    mmkv = MMKV.mmkvWithID(getName());
 
     loadDownloadIdToConfigMap();
     loadConfigMap();
@@ -269,25 +268,26 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private void saveDownloadIdToConfigMap() {
     synchronized (sharedLock) {
-      File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_downloadIdToConfig");
-      try {
-        ObjectOutputStream outputStream = new ObjectOutputStream(new FileOutputStream(file));
-        outputStream.writeObject(downloadIdToConfig);
-        outputStream.flush();
-        outputStream.close();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
+      Gson gson = new Gson();
+      String str = gson.toJson(downloadIdToConfig);
+
+      mmkv.encode(getName() + "_downloadIdToConfig", str);
     }
   }
 
   private void loadDownloadIdToConfigMap() {
-    File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_downloadIdToConfig");
-    if (file.exists()) {
+    synchronized (sharedLock) {
       try {
-        ObjectInputStream inputStream = new ObjectInputStream(new FileInputStream(file));
-        downloadIdToConfig = (Map<Long, RNBGDTaskConfig>) inputStream.readObject();
-      } catch (IOException | ClassNotFoundException e) {
+        String str = mmkv.decodeString(getName() + "_downloadIdToConfig");
+        if (str != null) {
+          Gson gson = new Gson();
+
+          TypeToken<Map<Long, RNBGDTaskConfig>> mapType = new TypeToken<Map<Long, RNBGDTaskConfig>>() {
+          };
+
+          downloadIdToConfig = (Map<Long, RNBGDTaskConfig>) gson.fromJson(str, mapType);
+        }
+      } catch (Exception e) {
         e.printStackTrace();
       }
     }
@@ -295,52 +295,15 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private void saveConfigMap() {
     synchronized (sharedLock) {
-      File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_config");
-      try {
-        ObjectOutputStream outputStream = new ObjectOutputStream(new FileOutputStream(file));
-
-        Map<String, String> config = new HashMap<>();
-        config.put("progressInterval", Integer.toString(progressInterval));
-        outputStream.writeObject(config);
-        outputStream.flush();
-        outputStream.close();
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
+      mmkv.encode(getName() + "_progressInterval", progressInterval);
     }
   }
 
   private void loadConfigMap() {
-    File file = new File(this.getReactApplicationContext().getFilesDir(), getName() + "_config");
-    if (file.exists()) {
-      try {
-        ObjectInputStream inputStream = new ObjectInputStream(new FileInputStream(file));
-        Map<String, Object> config = (HashMap<String, Object>) inputStream.readObject();
-        // iterate over config
-        for (Map.Entry<String, Object> entry : config.entrySet()) {
-          String key = entry.getKey();
-
-          Object valueObj = entry.getValue();
-          String value = null;
-          if (valueObj instanceof Long) {
-            value = Long.toString((Long) valueObj);
-          } else if (valueObj instanceof String) {
-            value = (String) valueObj;
-          }
-
-          if (key.equals("progressInterval") && value != null) {
-            try {
-              int _progressInterval = Integer.parseInt(value);
-              if (_progressInterval > 0) {
-                progressInterval = _progressInterval;
-              }
-            } catch (NumberFormatException e) {
-              e.printStackTrace();
-            }
-          }
-        }
-      } catch (IOException | ClassNotFoundException e) {
-        e.printStackTrace();
+    synchronized (sharedLock) {
+      int _progressInterval = mmkv.decodeInt(getName() + "_progressInterval");
+      if (_progressInterval > 0) {
+        progressInterval = _progressInterval;
       }
     }
   }

@@ -67,9 +67,10 @@ RCT_EXPORT_MODULE();
     NSLog(@"[RNBackgroundDownloader] - [init]");
     self = [super init];
     if (self) {
+        // init MMKV in the main thread
         [MMKV initializeMMKV:nil];
 
-        mmkv = [MMKV defaultMMKV];
+        mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
         taskToConfigMap = [self deserialize:[mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY]];
         if (taskToConfigMap == nil) {
