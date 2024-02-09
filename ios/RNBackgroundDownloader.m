@@ -11,7 +11,7 @@
 #import <MMKV/MMKV.h>
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
-#define CONFIG_MAP_KEY @"com.eko.config_map"
+#define PROGRESS_INTERVAL_KEY @"progressInterval"
 
 static CompletionHandler storedCompletionHandler;
 
@@ -67,23 +67,24 @@ RCT_EXPORT_MODULE();
     NSLog(@"[RNBackgroundDownloader] - [init]");
     self = [super init];
     if (self) {
-        // init MMKV in the main thread
         [MMKV initializeMMKV:nil];
 
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
-        taskToConfigMap = [self deserialize:[mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY]];
+        NSData *taskToConfigMapData = [mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY];
+        if (taskToConfigMapData != nil) {
+            NSMutableDictionary *_taskToConfigMap = [self deserialize:taskToConfigMapData];
+            if (_taskToConfigMap != nil) {
+                taskToConfigMap = _taskToConfigMap;
+            }
+        }
         if (taskToConfigMap == nil) {
             taskToConfigMap = [[NSMutableDictionary alloc] init];
         }
 
-        NSDictionary *configMap = [self deserialize:[mmkv getDataForKey:CONFIG_MAP_KEY]];
-        if (configMap != nil) {
-            for (NSString *key in configMap) {
-                if ([key isEqual: @"progressInterval"]) {
-                    progressInterval = [configMap[key] intValue];
-                }
-            }
+        float _progressInterval = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
+        if (_progressInterval) {
+            progressInterval = _progressInterval;
         }
         if (isnan(progressInterval)) {
             progressInterval = 1.0;
@@ -232,8 +233,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     if (_progressInterval) {
         progressInterval = [_progressInterval intValue] / 1000; // progressInterval IN options SUPPLIED IN MILLISECONDS
 
-        NSDictionary *configMap = @{@"progressInterval": [NSNumber numberWithFloat:progressInterval]};
-        [mmkv setData:[self serialize: configMap] forKey:CONFIG_MAP_KEY];
+        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
 
 
