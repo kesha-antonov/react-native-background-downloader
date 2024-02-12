@@ -332,6 +332,12 @@ Stops the download for good and removes the file that was written so far
 
 An absolute path to the app's documents directory. It is recommended that you use this path as the target of downloaded files.
 
+## TODO
+
+- [ ] Write better examples - current kinda old and not very good
+- [ ] Check tests are up to date
+- [ ] Write better API for downloads - current kinda boilerplate
+
 ## Authors
 
 Developed by [Elad Gil](https://github.com/ptelad) of [Eko](http://www.helloeko.com)

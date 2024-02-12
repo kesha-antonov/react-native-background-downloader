@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react'
 import { StyleSheet, View, Text, FlatList, Platform } from 'react-native'
 import RNFS from 'react-native-fs'
-import RNBGD from '@kesha-antonov/react-native-background-downloader'
+import {
+  completeHandler,
+  directories,
+  checkForExistingDownloads,
+  download,
+} from '@kesha-antonov/react-native-background-downloader'
 import Slider from '@react-native-community/slider'
 import { ExButton, ExWrapper } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 
-const defaultDir = RNBGD.directories.documents
+const defaultDir = directories.documents
 
 const Footer = ({
   onStart,
@@ -54,26 +59,22 @@ const BasicExampleScreen = () => {
 
   const [downloadTasks, setDownloadTasks] = useState([])
 
-  useEffect(() => {
-    resumeExistingTasks()
-  }, [])
-
   /**
    * It is used to resume your incomplete or unfinished downloads.
    */
   const resumeExistingTasks = async () => {
-    const tasks = await RNBGD.checkForExistingDownloads()
-      .then(data => data)
-      .catch(err => {
-        console.log(`checkForExistingDownloads failed ${err}`)
-      })
+    try {
+      const tasks = await checkForExistingDownloads()
 
-    console.log(tasks)
+      console.log(tasks)
 
-    if (tasks.length > 0) {
-      tasks.map(task => process(task))
-      setDownloadTasks(prevState => [...prevState, ...tasks])
-      setIsStart(true)
+      if (tasks.length > 0) {
+        tasks.map(task => process(task))
+        setDownloadTasks(downloadTasks => [...downloadTasks, ...tasks])
+        setIsStart(true)
+      }
+    } catch (e) {
+      console.warn('checkForExistingDownloads e', e)
     }
   }
 
@@ -100,34 +101,34 @@ const BasicExampleScreen = () => {
 
     return task
       .begin(({ expectedBytes, headers }) => {
-        setDownloadTasks(prevState => {
-          prevState[index] = task
-          return [...prevState]
+        setDownloadTasks(downloadTasks => {
+          downloadTasks[index] = task
+          return [...downloadTasks]
         })
       })
-      .progress((percent, bytesWritten, totalBytes) => {
-        setDownloadTasks(prevState => {
-          prevState[index] = task
-          return [...prevState]
+      .progress(({ bytesDownloaded, bytesTotal }) => {
+        setDownloadTasks(downloadTasks => {
+          downloadTasks[index] = task
+          return [...downloadTasks]
         })
       })
       .done(() => {
         console.log(`Finished downloading: ${task.id}`)
-        setDownloadTasks(prevState => {
-          prevState[index] = task
-          return [...prevState]
+        setDownloadTasks(downloadTasks => {
+          downloadTasks[index] = task
+          return [...downloadTasks]
         })
 
-        Platform.OS === 'ios' && RNBGD.completeHandler(task.id)
+        completeHandler(task.id)
       })
       .error(err => {
         console.error(`Download ${task.id} has an error: ${err}`)
-        setDownloadTasks(prevState => {
-          prevState[index] = task
-          return [...prevState]
+        setDownloadTasks(downloadTasks => {
+          downloadTasks[index] = task
+          return [...downloadTasks]
         })
 
-        Platform.OS === 'ios' && RNBGD.completeHandler(task.id)
+        Platform.OS === 'ios' && completeHandler(task.id)
       })
   }
 
@@ -153,10 +154,10 @@ const BasicExampleScreen = () => {
     })
 
     const tasks = taskAttributes.map(taskAttribute =>
-      process(RNBGD.download(taskAttribute))
+      process(download(taskAttribute))
     )
 
-    setDownloadTasks(prevState => [...prevState, ...tasks])
+    setDownloadTasks(downloadTasks => [...downloadTasks, ...tasks])
     setIsStart(true)
   }
 
@@ -174,9 +175,9 @@ const BasicExampleScreen = () => {
     const { index, task } = getTask(id)
 
     task.pause()
-    setDownloadTasks(prevState => {
-      prevState[index] = task
-      return [...prevState]
+    setDownloadTasks(downloadTasks => {
+      downloadTasks[index] = task
+      return [...downloadTasks]
     })
   }
 
@@ -184,9 +185,9 @@ const BasicExampleScreen = () => {
     const { index, task } = getTask(id)
 
     task.resume()
-    setDownloadTasks(prevState => {
-      prevState[index] = task
-      return [...prevState]
+    setDownloadTasks(downloadTasks => {
+      downloadTasks[index] = task
+      return [...downloadTasks]
     })
   }
 
@@ -194,9 +195,9 @@ const BasicExampleScreen = () => {
     const { index, task } = getTask(id)
 
     task.stop()
-    setDownloadTasks(prevState => {
-      prevState[index] = task
-      return [...prevState]
+    setDownloadTasks(downloadTasks => {
+      downloadTasks[index] = task
+      return [...downloadTasks]
     })
   }
 
@@ -205,6 +206,10 @@ const BasicExampleScreen = () => {
     const task = downloadTasks[index]
     return { index, task }
   }
+
+  useEffect(() => {
+    resumeExistingTasks()
+  }, [])
 
   return (
     <ExWrapper>
@@ -247,9 +252,9 @@ const BasicExampleScreen = () => {
                 <Text>{item?.state}</Text>
                 <Slider
                   disabled={true}
-                  value={item?.bytesWritten}
+                  value={item?.bytesDownloaded}
                   minimumValue={0}
-                  maximumValue={item?.totalBytes}
+                  maximumValue={item?.bytesTotal}
                 />
               </View>
               <View>
