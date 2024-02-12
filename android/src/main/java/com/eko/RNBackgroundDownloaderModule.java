@@ -83,11 +83,12 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private static Object sharedLock = new Object();
 
-  private static void copyFile(File src, File dst) throws IOException {
+  private static void moveFile(File src, File dst) throws IOException {
     FileChannel inChannel = new FileInputStream(src).getChannel();
     FileChannel outChannel = new FileOutputStream(dst).getChannel();
     try {
       inChannel.transferTo(0, inChannel.size(), outChannel);
+      src.delete();
     } finally {
       if (inChannel != null)
         inChannel.close();
@@ -132,7 +133,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 }
 
                 // MOVE FILE
-                copyFile(file, dest);
+                moveFile(file, dest);
                 file.delete();
 
                 WritableMap params = Arguments.createMap();
