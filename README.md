@@ -334,9 +334,9 @@ An absolute path to the app's documents directory. It is recommended that you us
 
 ## TODO
 
-- [ ] Write better examples - current kinda old and not very good
-- [ ] Check tests are up to date
+- [ ] Write better examples - current kinda old and shallow
 - [ ] Write better API for downloads - current kinda boilerplate
+- [ ] Add more tests
 
 ## Authors
 

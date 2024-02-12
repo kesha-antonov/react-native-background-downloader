@@ -52,6 +52,9 @@
     "setupFiles": [
       "./__mocks__/RNBackgroundDownloader.js",
       "./node_modules/react-native/Libraries/EventEmitter/__mocks__/NativeEventEmitter.js"
+    ],
+    "roots": [
+      "./__tests__"
     ]
   },
   "devDependencies": {

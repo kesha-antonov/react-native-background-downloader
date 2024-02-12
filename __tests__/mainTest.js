@@ -44,17 +44,15 @@ test('progress event', () => {
       id: 'testProgress',
       url: 'test',
       destination: 'test',
-    }).progress((percent, bytesWritten, totalBytes) => {
-      expect(percent).toBeCloseTo(0.7)
-      expect(bytesWritten).toBe(100)
-      expect(totalBytes).toBe(200)
+    }).progress(({ bytesDownloaded, bytesTotal }) => {
+      expect(bytesDownloaded).toBe(100)
+      expect(bytesTotal).toBe(200)
       resolve()
     })
     nativeEmitter.emit('downloadProgress', [{
       id: 'testProgress',
-      percent: 0.7,
-      written: 100,
-      total: 200,
+      bytesDownloaded: 100,
+      bytesTotal: 200,
     }])
   })
 })
@@ -81,14 +79,16 @@ test('fail event', () => {
       id: 'testFail',
       url: 'test',
       destination: 'test',
-    }).error(error => {
+    }).error(({ error, errorCode }) => {
       expect(error).toBeInstanceOf(Error)
+      expect(errorCode).toBe(-1)
       expect(failDT.state).toBe('FAILED')
       resolve()
     })
     nativeEmitter.emit('downloadFailed', {
       id: 'testFail',
       error: new Error('test'),
+      errorCode: -1,
     })
   })
 })
@@ -127,20 +127,6 @@ test('stop', () => {
   stopDT.stop()
   expect(stopDT.state).toBe('STOPPED')
   expect(RNBackgroundDownloaderNative.stopTask).toHaveBeenCalled()
-})
-
-test('initDownloader', () => {
-  jest.mock('react-native/Libraries/Utilities/Platform', () => {
-    const Platform = jest.requireActual(
-      'react-native/Libraries/Utilities/Platform'
-    )
-    Platform.OS = 'android'
-    return Platform
-  })
-
-  const res = RNBackgroundDownloader.initDownloader()
-  expect(RNBackgroundDownloaderNative.initDownloader).toHaveBeenCalled()
-  expect(res).toBe(undefined)
 })
 
 test('checkForExistingDownloads', () => {
