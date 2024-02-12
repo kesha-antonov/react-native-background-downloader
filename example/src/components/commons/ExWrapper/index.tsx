@@ -1,6 +1,6 @@
-import React from 'react';
-import {StyleSheet} from 'react-native';
-import {SafeAreaViewProps, SafeAreaView} from 'react-native-safe-area-context';
+import React from 'react'
+import { StyleSheet } from 'react-native'
+import { SafeAreaViewProps, SafeAreaView } from 'react-native-safe-area-context'
 
 const ExWrapper = ({
   edges = ['bottom'],
@@ -12,14 +12,14 @@ const ExWrapper = ({
     <SafeAreaView style={[styles.wrapper, style]} edges={edges} {...props}>
       {children}
     </SafeAreaView>
-  );
-};
+  )
+}
 
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
     padding: 8,
   },
-});
+})
 
-export default ExWrapper;
+export default ExWrapper

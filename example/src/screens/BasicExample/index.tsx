@@ -1,12 +1,12 @@
-import React, {useEffect, useState} from 'react';
-import {StyleSheet, View, Text, FlatList, Platform} from 'react-native';
-import RNFS from 'react-native-fs';
-import RNBGD from '@kesha-antonov/react-native-background-downloader';
-import Slider from '@react-native-community/slider';
-import {ExButton, ExWrapper} from '../../components/commons';
-import {toast, uuid} from '../../utils';
+import React, { useEffect, useState } from 'react'
+import { StyleSheet, View, Text, FlatList, Platform } from 'react-native'
+import RNFS from 'react-native-fs'
+import RNBGD from '@kesha-antonov/react-native-background-downloader'
+import Slider from '@react-native-community/slider'
+import { ExButton, ExWrapper } from '../../components/commons'
+import { toast, uuid } from '../../utils'
 
-const defaultDir = RNBGD.directories.documents;
+const defaultDir = RNBGD.directories.documents
 
 const Footer = ({
   onStart,
@@ -19,18 +19,20 @@ const Footer = ({
 }) => {
   return (
     <View style={styles.headerWrapper} {...props}>
-      {isStart ? (
-        <ExButton title={'Stop'} onPress={onStop} />
-      ) : (
-        <ExButton title={'Start'} onPress={onStart} />
-      )}
+      {isStart
+        ? (
+          <ExButton title={'Stop'} onPress={onStop} />
+        )
+        : (
+          <ExButton title={'Start'} onPress={onStart} />
+        )}
 
       <ExButton title={'Reset'} onPress={onReset} />
       <ExButton title={'Clear'} onPress={onClear} />
       <ExButton title={'Read'} onPress={onRead} />
     </View>
-  );
-};
+  )
+}
 
 const BasicExampleScreen = () => {
   const [urlList] = useState([
@@ -46,15 +48,15 @@ const BasicExampleScreen = () => {
       id: uuid(),
       url: 'https://sabnzbd.org/tests/internetspeed/50MB.bin',
     },
-  ]);
+  ])
 
-  const [isStart, setIsStart] = useState(false);
+  const [isStart, setIsStart] = useState(false)
 
-  const [downloadTasks, setDownloadTasks] = useState([]);
+  const [downloadTasks, setDownloadTasks] = useState([])
 
   useEffect(() => {
-    resumeExistingTasks();
-  }, []);
+    resumeExistingTasks()
+  }, [])
 
   /**
    * It is used to resume your incomplete or unfinished downloads.
@@ -63,78 +65,77 @@ const BasicExampleScreen = () => {
     const tasks = await RNBGD.checkForExistingDownloads()
       .then(data => data)
       .catch(err => {
-        console.log(`checkForExistingDownloads failed ${err}`);
-      });
+        console.log(`checkForExistingDownloads failed ${err}`)
+      })
 
-    console.log(tasks);
+    console.log(tasks)
 
     if (tasks.length > 0) {
-      tasks.map(task => process(task));
-      setDownloadTasks(prevState => [...prevState, ...tasks]);
-      setIsStart(true);
+      tasks.map(task => process(task))
+      setDownloadTasks(prevState => [...prevState, ...tasks])
+      setIsStart(true)
     }
-  };
+  }
 
   const readStorage = async () => {
-    const files = await RNFS.readdir(defaultDir);
-    toast('Check logs');
-    console.log(`Downloaded files: ${files}`);
-  };
+    const files = await RNFS.readdir(defaultDir)
+    toast('Check logs')
+    console.log(`Downloaded files: ${files}`)
+  }
 
   const clearStorage = async () => {
-    const files = await RNFS.readdir(defaultDir);
+    const files = await RNFS.readdir(defaultDir)
 
-    if (files.length > 0) {
+    if (files.length > 0)
       await Promise.all(
-        files.map(file => RNFS.unlink(defaultDir + '/' + file)),
-      );
-    }
+        files.map(file => RNFS.unlink(defaultDir + '/' + file))
+      )
 
-    toast('Check logs');
-    console.log(`Deleted file count: ${files.length}`);
-  };
+    toast('Check logs')
+    console.log(`Deleted file count: ${files.length}`)
+  }
 
   const process = task => {
-    const {index} = getTask(task.id);
+    const { index } = getTask(task.id)
 
     return task
-      .begin(({expectedBytes, headers}) => {
+      .begin(({ expectedBytes, headers }) => {
         setDownloadTasks(prevState => {
-          prevState[index] = task;
-          return [...prevState];
-        });
+          prevState[index] = task
+          return [...prevState]
+        })
       })
       .progress((percent, bytesWritten, totalBytes) => {
         setDownloadTasks(prevState => {
-          prevState[index] = task;
-          return [...prevState];
-        });
+          prevState[index] = task
+          return [...prevState]
+        })
       })
       .done(() => {
-        console.log(`Finished downloading: ${task.id}`);
+        console.log(`Finished downloading: ${task.id}`)
         setDownloadTasks(prevState => {
-          prevState[index] = task;
-          return [...prevState];
-        });
+          prevState[index] = task
+          return [...prevState]
+        })
 
-        Platform.OS === 'ios' && RNBGD.completeHandler(task.id);
+        Platform.OS === 'ios' && RNBGD.completeHandler(task.id)
       })
       .error(err => {
-        console.error(`Download ${task.id} has an error: ${err}`);
+        console.error(`Download ${task.id} has an error: ${err}`)
         setDownloadTasks(prevState => {
-          prevState[index] = task;
-          return [...prevState];
-        });
+          prevState[index] = task
+          return [...prevState]
+        })
 
-        Platform.OS === 'ios' && RNBGD.completeHandler(task.id);
-      });
-  };
+        Platform.OS === 'ios' && RNBGD.completeHandler(task.id)
+      })
+  }
 
   const reset = () => {
-    stop();
-    setDownloadTasks([]);
-    setIsStart(false);
-  };
+    stop()
+    setDownloadTasks([])
+    setIsStart(false)
+  }
 
   const start = () => {
     /**
@@ -143,67 +144,67 @@ const BasicExampleScreen = () => {
      * For example; Path + File Name + .png
      */
     const taskAttributes = urlList.map(item => {
-      const destination = defaultDir + '/' + item.id;
+      const destination = defaultDir + '/' + item.id
       return {
         id: item.id,
         url: item.url,
-        destination: destination,
-      };
-    });
+        destination,
+      }
+    })
 
     const tasks = taskAttributes.map(taskAttribute =>
-      process(RNBGD.download(taskAttribute)),
-    );
+      process(RNBGD.download(taskAttribute))
+    )
 
-    setDownloadTasks(prevState => [...prevState, ...tasks]);
-    setIsStart(true);
-  };
+    setDownloadTasks(prevState => [...prevState, ...tasks])
+    setIsStart(true)
+  }
 
   const stop = () => {
     const tasks = downloadTasks.map(task => {
-      task.stop();
-      return task;
-    });
+      task.stop()
+      return task
+    })
 
-    setDownloadTasks(tasks);
-    setIsStart(false);
-  };
+    setDownloadTasks(tasks)
+    setIsStart(false)
+  }
 
   const pause = id => {
-    const {index, task} = getTask(id);
+    const { index, task } = getTask(id)
 
-    task.pause();
+    task.pause()
     setDownloadTasks(prevState => {
-      prevState[index] = task;
-      return [...prevState];
-    });
-  };
+      prevState[index] = task
+      return [...prevState]
+    })
+  }
 
   const resume = id => {
-    const {index, task} = getTask(id);
+    const { index, task } = getTask(id)
 
-    task.resume();
+    task.resume()
     setDownloadTasks(prevState => {
-      prevState[index] = task;
-      return [...prevState];
-    });
-  };
+      prevState[index] = task
+      return [...prevState]
+    })
+  }
 
   const cancel = id => {
-    const {index, task} = getTask(id);
+    const { index, task } = getTask(id)
 
-    task.stop();
+    task.stop()
     setDownloadTasks(prevState => {
-      prevState[index] = task;
-      return [...prevState];
-    });
-  };
+      prevState[index] = task
+      return [...prevState]
+    })
+  }
 
   const getTask = id => {
-    const index = downloadTasks.findIndex(task => task.id === id);
-    const task = downloadTasks[index];
-    return {index, task};
-  };
+    const index = downloadTasks.findIndex(task => task.id === id)
+    const task = downloadTasks[index]
+    return { index, task }
+  }
 
   return (
     <ExWrapper>
@@ -212,7 +213,7 @@ const BasicExampleScreen = () => {
         <FlatList
           data={urlList}
           keyExtractor={(item, index) => `url-${index}`}
-          renderItem={({index, item}) => (
+          renderItem={({ index, item }) => (
             <View style={styles.item}>
               <View style={styles.itemContent}>
                 <Text>Id: {item.id}</Text>
@@ -233,11 +234,11 @@ const BasicExampleScreen = () => {
         />
       </View>
       <FlatList
-        style={{flex: 1, flexGrow: 1}}
+        style={{ flex: 1, flexGrow: 1 }}
         data={downloadTasks}
-        renderItem={({item, index}) => {
-          const isEnd = ['STOPPED', 'DONE', 'FAILED'].includes(item.state);
-          const isDownloading = item.state === 'DOWNLOADING';
+        renderItem={({ item, index }) => {
+          const isEnd = ['STOPPED', 'DONE', 'FAILED'].includes(item.state)
+          const isDownloading = item.state === 'DOWNLOADING'
 
           return (
             <View style={styles.item}>
@@ -253,24 +254,26 @@ const BasicExampleScreen = () => {
               </View>
               <View>
                 {!isEnd &&
-                  (isDownloading ? (
-                    <ExButton title={'Pause'} onPress={() => pause(item.id)} />
-                  ) : (
-                    <ExButton
-                      title={'Resume'}
-                      onPress={() => resume(item.id)}
-                    />
-                  ))}
+                  (isDownloading
+                    ? (
+                      <ExButton title={'Pause'} onPress={() => pause(item.id)} />
+                    )
+                    : (
+                      <ExButton
+                        title={'Resume'}
+                        onPress={() => resume(item.id)}
+                      />
+                    ))}
                 <ExButton title={'Cancel'} onPress={() => cancel(item.id)} />
               </View>
             </View>
-          );
+          )
         }}
         keyExtractor={(item, index) => `task-${index}`}
       />
     </ExWrapper>
-  );
-};
+  )
+}
 
 const styles = StyleSheet.create({
   headerWrapper: {
@@ -297,6 +300,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
   },
-});
+})
 
-export default BasicExampleScreen;
+export default BasicExampleScreen

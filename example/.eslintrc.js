@@ -1,4 +1,5 @@
 module.exports = {
+  root: true,
   env: {
     es2020: true,
     jest: true,
