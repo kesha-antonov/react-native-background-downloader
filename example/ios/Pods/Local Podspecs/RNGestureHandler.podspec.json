@@ -1,0 +1,38 @@
+{
+  "name": "RNGestureHandler",
+  "version": "2.15.0",
+  "summary": "Experimental implementation of a new declarative API for gesture handling in react-native",
+  "homepage": "https://github.com/software-mansion/react-native-gesture-handler",
+  "license": "MIT",
+  "authors": {
+    "Krzysztof Magiera": "krzys.magiera@gmail.com"
+  },
+  "source": {
+    "git": "https://github.com/software-mansion/react-native-gesture-handler",
+    "tag": "2.15.0"
+  },
+  "source_files": "apple/**/*.{h,m,mm}",
+  "requires_arc": true,
+  "platforms": {
+    "ios": "9.0",
+    "tvos": "9.0",
+    "osx": "10.15",
+    "visionos": "1.0"
+  },
+  "compiler_flags": "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_CFG_NO_COROUTINES=1 -Wno-comma -Wno-shorten-64-to-32",
+  "dependencies": {
+    "React-Core": [
+
+    ],
+    "RCT-Folly": [
+      "2022.05.16.00"
+    ],
+    "glog": [
+
+    ]
+  },
+  "pod_target_xcconfig": {
+    "HEADER_SEARCH_PATHS": "\"$(PODS_ROOT)/boost\" \"$(PODS_ROOT)/Headers/Private/Yoga\"",
+    "CLANG_CXX_LANGUAGE_STANDARD": "c++20"
+  }
+}

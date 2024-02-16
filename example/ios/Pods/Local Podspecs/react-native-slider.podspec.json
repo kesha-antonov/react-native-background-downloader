@@ -1,0 +1,33 @@
+{
+  "name": "react-native-slider",
+  "version": "4.5.0",
+  "summary": "React Native component used to select a single value from a range of values.",
+  "license": "MIT",
+  "authors": "react-native-community",
+  "homepage": "https://github.com/callstack/react-native-slider#readme",
+  "platforms": {
+    "ios": "9.0",
+    "visionos": "1.0"
+  },
+  "source": {
+    "git": "https://github.com/callstack/react-native-slider.git",
+    "tag": "v4.5.0"
+  },
+  "source_files": "ios/**/*.{h,m,mm}",
+  "compiler_flags": "-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_CFG_NO_COROUTINES=1 -Wno-comma -Wno-shorten-64-to-32",
+  "dependencies": {
+    "React-Core": [
+
+    ],
+    "RCT-Folly": [
+      "2022.05.16.00"
+    ],
+    "glog": [
+
+    ]
+  },
+  "pod_target_xcconfig": {
+    "HEADER_SEARCH_PATHS": "\"$(PODS_ROOT)/boost\" \"$(PODS_ROOT)/Headers/Private/Yoga\"",
+    "CLANG_CXX_LANGUAGE_STANDARD": "c++20"
+  }
+}
