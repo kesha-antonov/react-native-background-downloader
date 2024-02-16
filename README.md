@@ -3,16 +3,16 @@
 [![npm version](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg)](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader)
 
 # @kesha-antonov/react-native-background-downloader
-## *Note - This is fork of https://github.com/EkoLabs/react-native-background-downloader maintained by https://github.com/kesha-antonov * ##
 
 A library for React-Native to help you download large files on iOS and Android both in the foreground and most importantly in the background.
 
 ### Why?
+
 On iOS, if you want to download big files no matter the state of your app, wether it's in the background or terminated by the OS, you have to use a system API called `NSURLSession`.
 
 This API handles your downloads separately from your app and only keeps it informed using delegates (Read: [Downloading Files in the Background](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background)).
 
-On Android we are simulating this process with [DownloadManager](https://developer.android.com/reference/android/app/DownloadManager)
+On Android we are using similar process with [DownloadManager](https://developer.android.com/reference/android/app/DownloadManager)
 
 The real challenge of using this method is making sure the app's UI is always up-to-date with the downloads that are happening in another process because your app might startup from scratch while the downloads are still running.
 
