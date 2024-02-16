@@ -338,9 +338,9 @@ An absolute path to the app's documents directory. It is recommended that you us
 
 ## Authors
 
-Developed by [Elad Gil](https://github.com/ptelad) of [Eko](http://www.helloeko.com)
+Re-written & maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 
-Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
+Originally developed by [Elad Gil](https://github.com/ptelad) of [Eko](http://www.helloeko.com)
 
 ## License
 Apache 2
