@@ -340,7 +340,7 @@ An absolute path to the app's documents directory. It is recommended that you us
 
 Re-written & maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 
-Originally developed by [Elad Gil](https://github.com/ptelad) of [Eko](http://www.helloeko.com)
+Originally developed by [Elad Gil](https://github.com/ptelad) of [Eko](https://github.com/ekolabs/react-native-background-downloader)
 
 ## License
 Apache 2
