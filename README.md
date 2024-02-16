@@ -18,8 +18,6 @@ The real challenge of using this method is making sure the app's UI is always up
 
 `@kesha-antonov/react-native-background-downloader` gives you an easy API to both downloading large files and re-attaching to those downloads once your app launches again.
 
-> **Please Note** - This library was created to better facilitate background downloading on iOS. If you're not aiming to to use the download-in-background functionality, there are better solutions like [RNFS.downloadFile()](https://github.com/itinance/react-native-fs#downloadfileoptions-downloadfileoptions--jobid-number-promise-promisedownloadresult-) which will results in a more stable download experience for your app.
-
 ## ToC
 
 - [Usage](#usage)
