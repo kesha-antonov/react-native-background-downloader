@@ -1635,10 +1635,10 @@
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
-"@kesha-antonov/react-native-background-downloader@^3.1.2-alpha.0":
-  version "3.1.2-alpha.0"
-  resolved "https://registry.yarnpkg.com/@kesha-antonov/react-native-background-downloader/-/react-native-background-downloader-3.1.2-alpha.0.tgz#9dd9c646ad9b575263a3305fec7568eb66e24cee"
-  integrity sha512-O1P3GVO+MVTWH//Up61n+uE/TfM1J11ox+RkaaX+Atr76p7ZrY9UwttEJMfFdi9fNtWv9N62HBXi7AjpuL5WSw==
+"@kesha-antonov/react-native-background-downloader@^3.1.2":
+  version "3.1.2"
+  resolved "https://registry.yarnpkg.com/@kesha-antonov/react-native-background-downloader/-/react-native-background-downloader-3.1.2.tgz#857c5c88798ed2b0f8a48930aa1c777cba8c4cc9"
+  integrity sha512-xBs1DyGOdGCSI7mfE7cT7V1Ecv6G99A4zh08o0q7/DXOqttX4tymiTQNuWQxW2dMe7clOHGjzeW1BLYwofSYNw==
 
 "@nicolo-ribaudo/eslint-scope-5-internals@5.1.1-v1":
   version "5.1.1-v1"

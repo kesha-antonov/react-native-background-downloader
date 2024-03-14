@@ -14,7 +14,7 @@
     "fresh": "yarn start --reset-cache"
   },
   "dependencies": {
-    "@kesha-antonov/react-native-background-downloader": "^3.1.2-alpha.0",
+    "@kesha-antonov/react-native-background-downloader": "^3.1.2",
     "@react-native-community/slider": "^4.5.0",
     "@react-navigation/native": "^6.1.16",
     "@react-navigation/stack": "^6.3.28",
