@@ -6,6 +6,7 @@ import {
   directories,
   checkForExistingDownloads,
   download,
+  setConfig,
 } from '@kesha-antonov/react-native-background-downloader'
 import Slider from '@react-native-community/slider'
 import { ExButton, ExWrapper } from '../../components/commons'
@@ -13,18 +14,22 @@ import { toast, uuid } from '../../utils'
 
 const defaultDir = directories.documents
 
+setConfig({
+  isLogsEnabled: true,
+})
+
 const Footer = ({
   onStart,
   onStop,
   onReset,
   onClear,
   onRead,
-  isStart,
+  isStarted,
   ...props
 }) => {
   return (
     <View style={styles.headerWrapper} {...props}>
-      {isStart
+      {isStarted
         ? (
           <ExButton title={'Stop'} onPress={onStop} />
         )
@@ -33,8 +38,8 @@ const Footer = ({
         )}
 
       <ExButton title={'Reset'} onPress={onReset} />
-      <ExButton title={'Clear'} onPress={onClear} />
-      <ExButton title={'Read'} onPress={onRead} />
+      <ExButton title={'Delete files'} onPress={onClear} />
+      <ExButton title={'List files'} onPress={onRead} />
     </View>
   )
 }
@@ -55,7 +60,7 @@ const BasicExampleScreen = () => {
     },
   ])
 
-  const [isStart, setIsStart] = useState(false)
+  const [isStarted, setIsStarted] = useState(false)
 
   const [downloadTasks, setDownloadTasks] = useState([])
 
@@ -71,7 +76,7 @@ const BasicExampleScreen = () => {
       if (tasks.length > 0) {
         tasks.map(task => process(task))
         setDownloadTasks(downloadTasks => [...downloadTasks, ...tasks])
-        setIsStart(true)
+        setIsStarted(true)
       }
     } catch (e) {
       console.warn('checkForExistingDownloads e', e)
@@ -101,19 +106,21 @@ const BasicExampleScreen = () => {
 
     return task
       .begin(({ expectedBytes, headers }) => {
+        console.log('task: begin', { id: task.id, expectedBytes, headers })
         setDownloadTasks(downloadTasks => {
           downloadTasks[index] = task
           return [...downloadTasks]
         })
       })
       .progress(({ bytesDownloaded, bytesTotal }) => {
+        console.log('task: progress', { id: task.id, bytesDownloaded, bytesTotal })
         setDownloadTasks(downloadTasks => {
           downloadTasks[index] = task
           return [...downloadTasks]
         })
       })
       .done(() => {
-        console.log(`Finished downloading: ${task.id}`)
+        console.log('task: done', { id: task.id })
         setDownloadTasks(downloadTasks => {
           downloadTasks[index] = task
           return [...downloadTasks]
@@ -121,21 +128,21 @@ const BasicExampleScreen = () => {
 
         completeHandler(task.id)
       })
-      .error(err => {
-        console.error(`Download ${task.id} has an error: ${err}`)
+      .error(e => {
+        console.error('task: error', { id: task.id, e })
         setDownloadTasks(downloadTasks => {
           downloadTasks[index] = task
           return [...downloadTasks]
         })
 
-        Platform.OS === 'ios' && completeHandler(task.id)
+        completeHandler(task.id)
       })
   }
 
   const reset = () => {
     stop()
     setDownloadTasks([])
-    setIsStart(false)
+    setIsStarted(false)
   }
 
   const start = () => {
@@ -158,7 +165,7 @@ const BasicExampleScreen = () => {
     )
 
     setDownloadTasks(downloadTasks => [...downloadTasks, ...tasks])
-    setIsStart(true)
+    setIsStarted(true)
   }
 
   const stop = () => {
@@ -168,7 +175,7 @@ const BasicExampleScreen = () => {
     })
 
     setDownloadTasks(tasks)
-    setIsStart(false)
+    setIsStarted(false)
   }
 
   const pause = id => {
@@ -228,7 +235,7 @@ const BasicExampleScreen = () => {
           )}
           ListFooterComponent={() => (
             <Footer
-              isStart={isStart}
+              isStarted={isStarted}
               onStart={start}
               onStop={stop}
               onReset={reset}
@@ -242,7 +249,7 @@ const BasicExampleScreen = () => {
         style={{ flex: 1, flexGrow: 1 }}
         data={downloadTasks}
         renderItem={({ item, index }) => {
-          const isEnd = ['STOPPED', 'DONE', 'FAILED'].includes(item.state)
+          const isEnded = ['STOPPED', 'DONE', 'FAILED'].includes(item.state)
           const isDownloading = item.state === 'DOWNLOADING'
 
           return (
@@ -258,7 +265,7 @@ const BasicExampleScreen = () => {
                 />
               </View>
               <View>
-                {!isEnd &&
+                {!isEnded &&
                   (isDownloading
                     ? (
                       <ExButton title={'Pause'} onPress={() => pause(item.id)} />
