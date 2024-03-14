@@ -2,6 +2,7 @@ package com.eko;
 
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
@@ -13,6 +14,9 @@ import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableNativeMap;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
+
 import android.util.Log;
 
 import static android.content.Context.DOWNLOAD_SERVICE;
@@ -21,6 +25,8 @@ public class Downloader {
 
     public DownloadManager downloadManager;
     private Context context;
+
+    private HashSet<String> alreadySentIntentDownloadIds = new HashSet<>();
 
     public Downloader(Context ctx) {
         context = ctx;
@@ -138,6 +144,20 @@ public class Downloader {
                         reasonText = "UNKNOWN";
                 }
                 break;
+
+            case DownloadManager.STATUS_SUCCESSFUL:
+                if(!alreadySentIntentDownloadIds.contains(downloadId)) {
+                    alreadySentIntentDownloadIds.add(downloadId);
+
+                    // broadcast the download complete to handle the case where the app was closed when the download was done
+                    Intent intent = new Intent(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+
+                    // You can add extras to the intent if needed
+                    intent.putExtra(DownloadManager.EXTRA_DOWNLOAD_ID, Long.parseLong(downloadId));
+                    context.sendBroadcast(intent);
+                }
+
+                break;
         }
 
         WritableMap result = Arguments.createMap();
@@ -147,8 +167,8 @@ public class Downloader {
         result.putInt("reason", reason);
         result.putString("reasonText", reasonText);
 
-        result.putInt("bytesDownloaded", Integer.parseInt(bytesDownloadedSoFar));
-        result.putInt("bytesTotal", Integer.parseInt(totalSizeBytes));
+        result.putDouble("bytesDownloaded", Long.parseLong(bytesDownloadedSoFar));
+        result.putDouble("bytesTotal", Long.parseLong(totalSizeBytes));
         result.putString("localUri", localUri);
 
         return result;
