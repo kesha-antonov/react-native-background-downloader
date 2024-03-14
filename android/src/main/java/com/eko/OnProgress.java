@@ -17,8 +17,8 @@ public class OnProgress extends Thread {
   private final DownloadManager.Query query;
   private final Downloader downloader;
   private Cursor cursor;
-  private int lastBytesDownloaded;
-  private int bytesTotal;
+  private long lastBytesDownloaded;
+  private long bytesTotal;
   private ProgressCallback callback;
 
   private RNBGDTaskConfig config;
@@ -72,10 +72,10 @@ public class OnProgress extends Thread {
 
         // get total bytes of the file
         if (bytesTotal <= 0) {
-          bytesTotal = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+          bytesTotal = (long)(cursor.getDouble(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)));
         }
 
-        int bytesDownloaded = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+        long bytesDownloaded = (long)(cursor.getDouble(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)));
 
         if (bytesTotal > 0 && bytesDownloaded == bytesTotal) {
           this.handleInterrupt();

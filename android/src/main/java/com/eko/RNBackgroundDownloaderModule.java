@@ -121,20 +121,23 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 File file = new File(localUri);
                 File dest = new File(config.destination);
 
-                // REMOVE DEST FILE IF EXISTS
-                if (dest.exists()) {
-                  dest.delete();
-                }
+                // only move if source file exists (to handle case if this intent is double called)
+                if(file.exists()) {
+                  // REMOVE DEST FILE IF EXISTS
+                  if (dest.exists()) {
+                    dest.delete();
+                  }
 
-                // CREATE DESTINATION DIR IF NOT EXISTS
-                File destDir = new File(dest.getParent());
-                if (!destDir.exists()) {
-                  destDir.mkdirs();
-                }
+                  // CREATE DESTINATION DIR IF NOT EXISTS
+                  File destDir = new File(dest.getParent());
+                  if (!destDir.exists()) {
+                    destDir.mkdirs();
+                  }
 
-                // MOVE FILE
-                moveFile(file, dest);
-                file.delete();
+                  // MOVE FILE
+                  moveFile(file, dest);
+                  file.delete();
+                }
 
                 WritableMap params = Arguments.createMap();
                 params.putString("id", config.id);
@@ -415,14 +418,14 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               downloader,
               new ProgressCallback() {
                 @Override
-                public void onProgress(String configId, int bytesDownloaded, int bytesTotal) {
-                  double prevPercent = configIdToPercent.get(configId);
+                public void onProgress(String configId, long bytesDownloaded, long bytesTotal) {
+                  double prevPercent = configIdToPercent.getOrDefault(configId, 0.0);
                   double percent = (double) bytesDownloaded / bytesTotal;
                   if (percent - prevPercent > 0.01) {
                     WritableMap params = Arguments.createMap();
                     params.putString("id", configId);
-                    params.putInt("bytesDownloaded", bytesDownloaded);
-                    params.putInt("bytesTotal", bytesTotal);
+                    params.putDouble("bytesDownloaded", bytesDownloaded);
+                    params.putDouble("bytesTotal", bytesTotal);
 
                     progressReports.put(configId, params);
                     configIdToPercent.put(configId, percent);
@@ -522,11 +525,11 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               params.putString("metadata", config.metadata);
               params.putInt("state", stateMap.get(downloadStatus.getInt("status")));
 
-              int bytesDownloaded = downloadStatus.getInt("bytesDownloaded");
-              params.putInt("bytesDownloaded", bytesDownloaded);
+              double bytesDownloaded = downloadStatus.getDouble("bytesDownloaded");
+              params.putDouble("bytesDownloaded", bytesDownloaded);
 
-              int bytesTotal = downloadStatus.getInt("bytesTotal");
-              params.putInt("bytesTotal", bytesTotal);
+              double bytesTotal = downloadStatus.getDouble("bytesTotal");
+              params.putDouble("bytesTotal", bytesTotal);
 
               foundIds.pushMap(params);
 

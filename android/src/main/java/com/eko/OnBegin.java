@@ -37,11 +37,11 @@ public class OnBegin extends Thread {
       con.getInputStream().close();
 
       WritableMap params = Arguments.createMap();
-      int contentLength = Integer.valueOf(headersMap.getString("Content-Length"));
+      long contentLength = Long.valueOf(headersMap.getString("Content-Length"));
 
       params.putString("id", config.id);
       params.putMap("headers", headersMap);
-      params.putInt("expectedBytes", contentLength);
+      params.putDouble("expectedBytes", contentLength);
 
       ee.emit("downloadBegin", params);
     } catch (Exception e) {
