@@ -1,11 +1,3 @@
-//
-//  RNFileBackgroundDownload.m
-//  EkoApp
-//
-//  Created by Elad Gil on 20/11/2017.
-//  Copyright © 2017 Eko. All rights reserved.
-//
-//
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
 #import <MMKV/MMKV.h>

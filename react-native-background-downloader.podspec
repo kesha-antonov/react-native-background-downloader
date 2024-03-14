@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.author       = package['author']
   s.homepage     = package['repository']['url']
   s.license      = package['license']
-  s.platform     = :ios, '12.4'
+  s.platform     = :ios, '13.4'
   s.source       = { git: 'https://github.com/kesha-antonov/react-native-background-downloader.git', tag: 'master' }
   s.source_files = 'ios/**/*.{h,m}'
   s.requires_arc = true
