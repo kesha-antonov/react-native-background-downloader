@@ -48,15 +48,15 @@ const BasicExampleScreen = () => {
   const [urlList] = useState([
     {
       id: uuid(),
-      url: 'https://proof.ovh.net/files/100Mb.dat',
-    },
-    {
-      id: uuid(),
       url: 'https://sabnzbd.org/tests/internetspeed/20MB.bin',
     },
     {
       id: uuid(),
       url: 'https://sabnzbd.org/tests/internetspeed/50MB.bin',
+    },
+    {
+      id: uuid(),
+      url: 'https://proof.ovh.net/files/100Mb.dat',
     },
   ])
 
