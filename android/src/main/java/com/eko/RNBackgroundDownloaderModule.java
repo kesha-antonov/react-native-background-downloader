@@ -24,6 +24,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -83,18 +87,11 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private static Object sharedLock = new Object();
 
-  private static void moveFile(File src, File dst) throws IOException {
-    FileChannel inChannel = new FileInputStream(src).getChannel();
-    FileChannel outChannel = new FileOutputStream(dst).getChannel();
-    try {
-      inChannel.transferTo(0, inChannel.size(), outChannel);
-      src.delete();
-    } finally {
-      if (inChannel != null)
-        inChannel.close();
-      if (outChannel != null)
-        outChannel.close();
-    }
+  private static void moveFile(String sourcePath, String destinationPath) throws IOException {
+    Path source = Paths.get(sourcePath);
+    Path destination = Paths.get(destinationPath);
+
+    Files.move(source, destination, StandardCopyOption.REPLACE_EXISTING);
   }
 
   private static MMKV mmkv;
@@ -123,20 +120,14 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
                 // only move if source file exists (to handle case if this intent is double called)
                 if(file.exists()) {
-                  // REMOVE DEST FILE IF EXISTS
-                  if (dest.exists()) {
-                    dest.delete();
-                  }
-
                   // CREATE DESTINATION DIR IF NOT EXISTS
                   File destDir = new File(dest.getParent());
                   if (!destDir.exists()) {
                     destDir.mkdirs();
                   }
 
-                  // MOVE FILE
-                  moveFile(file, dest);
-                  file.delete();
+                  // MOVE FILE (this deletes the source file)
+                  moveFile(file.getAbsolutePath(), dest.getAbsolutePath());
                 }
 
                 WritableMap params = Arguments.createMap();
