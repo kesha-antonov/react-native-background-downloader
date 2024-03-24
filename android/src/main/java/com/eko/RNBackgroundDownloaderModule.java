@@ -412,15 +412,14 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 public void onProgress(String configId, long bytesDownloaded, long bytesTotal) {
                   double prevPercent = configIdToPercent.getOrDefault(configId, 0.0);
                   double percent = (double) bytesDownloaded / bytesTotal;
-                  if (percent - prevPercent > 0.01) {
-                    WritableMap params = Arguments.createMap();
-                    params.putString("id", configId);
-                    params.putDouble("bytesDownloaded", bytesDownloaded);
-                    params.putDouble("bytesTotal", bytesTotal);
 
-                    progressReports.put(configId, params);
-                    configIdToPercent.put(configId, percent);
-                  }
+                  WritableMap params = Arguments.createMap();
+                  params.putString("id", configId);
+                  params.putDouble("bytesDownloaded", bytesDownloaded);
+                  params.putDouble("bytesTotal", bytesTotal);
+
+                  progressReports.put(configId, params);
+                  configIdToPercent.put(configId, percent);
 
                   Date now = new Date();
                   if (now.getTime() - lastProgressReportedAt.getTime() > progressInterval &&

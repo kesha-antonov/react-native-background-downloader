@@ -422,14 +422,13 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
 
             NSNumber *prevPercent = idToPercentMap[taskCofig.id];
             NSNumber *percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
-            if ([percent floatValue] - [prevPercent floatValue] > 0.01f) {
-                progressReports[taskCofig.id] = @{
-                    @"id": taskCofig.id,
-                    @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten],
-                    @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite]
-                };
-                idToPercentMap[taskCofig.id] = percent;
-            }
+
+            progressReports[taskCofig.id] = @{
+                @"id": taskCofig.id,
+                @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten],
+                @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite]
+            };
+            idToPercentMap[taskCofig.id] = percent;
 
 
             NSDate *now = [[NSDate alloc] init];
