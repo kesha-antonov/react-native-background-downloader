@@ -13,6 +13,8 @@ import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import android.app.DownloadManager;
 import android.app.DownloadManager.Request;
@@ -64,6 +66,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private static final int ERR_FILE_NOT_FOUND = 3;
   private static final int ERR_OTHERS = 100;
 
+  private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+
   private static Map<Integer, Integer> stateMap = new HashMap<Integer, Integer>() {
     {
       put(DownloadManager.STATUS_FAILED, TASK_CANCELING);
@@ -113,30 +117,48 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           synchronized (sharedLock) {
             switch (status) {
               case DownloadManager.STATUS_SUCCESSFUL: {
-                // MOVES FILE TO DESTINATION
-                String localUri = downloadStatus.getString("localUri");
-                File file = new File(localUri);
-                File dest = new File(config.destination);
+                executorService.submit(() -> {
+                  try {
+                    // MOVES FILE TO DESTINATION
+                    String localUri = downloadStatus.getString("localUri");
+                    File file = new File(localUri);
+                    File dest = new File(config.destination);
 
-                // only move if source file exists (to handle case if this intent is double called)
-                if(file.exists()) {
-                  // CREATE DESTINATION DIR IF NOT EXISTS
-                  File destDir = new File(dest.getParent());
-                  if (!destDir.exists()) {
-                    destDir.mkdirs();
+                    // only move if source file exists (to handle case if this intent is double called)
+                    if(file.exists()) {
+                      // CREATE DESTINATION DIR IF NOT EXISTS
+                      File destDir = new File(dest.getParent());
+                      if (!destDir.exists()) {
+                        destDir.mkdirs();
+                      }
+
+                      // MOVE FILE (this deletes the source file)
+                      moveFile(file.getAbsolutePath(), dest.getAbsolutePath());
+
+                      WritableMap params = Arguments.createMap();
+                      params.putString("id", config.id);
+                      params.putString("location", config.destination);
+                      params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
+                      params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
+
+                      ee.emit("downloadComplete", params);
+                    } else {
+                      // we emit again, this is to handle the case where the app was closed when the download finished
+                      // in this case, we only emit the download complete event so the next time the app opens, the frontend gets it
+                      WritableMap params = Arguments.createMap();
+                      params.putString("id", config.id);
+                      params.putString("location", config.destination);
+                      params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
+                      params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
+
+                      ee.emit("downloadComplete", params);
+                    }
+                  } catch (Exception e) {
+                    e.printStackTrace();
+                    Log.e(getName(), "Error moving file: " + e.getMessage());
+                    // Handle error - Make sure to emit events or log on the UI thread if necessary
                   }
-
-                  // MOVE FILE (this deletes the source file)
-                  moveFile(file.getAbsolutePath(), dest.getAbsolutePath());
-                }
-
-                WritableMap params = Arguments.createMap();
-                params.putString("id", config.id);
-                params.putString("location", config.destination);
-                params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
-                params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
-
-                ee.emit("downloadComplete", params);
+                });
                 break;
               }
               case DownloadManager.STATUS_FAILED: {
