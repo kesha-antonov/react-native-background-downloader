@@ -13,7 +13,7 @@ const config = {
   isLogsEnabled: false,
 }
 
-function log(...args) {
+function log (...args) {
   if (config.isLogsEnabled)
     console.log('[RNBackgroundDownloader]', ...args)
 }
@@ -50,7 +50,7 @@ RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }) =>
   tasksMap.delete(id)
 })
 
-export function setConfig({ headers, progressInterval, isLogsEnabled }) {
+export function setConfig ({ headers, progressInterval, isLogsEnabled }) {
   if (typeof headers === 'object') config.headers = headers
 
   if (progressInterval != null)
@@ -62,7 +62,7 @@ export function setConfig({ headers, progressInterval, isLogsEnabled }) {
   if (typeof isLogsEnabled === 'boolean') config.isLogsEnabled = isLogsEnabled
 }
 
-export function checkForExistingDownloads() {
+export function checkForExistingDownloads () {
   log('[RNBackgroundDownloader] checkForExistingDownloads-1')
   return RNBackgroundDownloader.checkForExistingDownloads()
     .then(foundTasks => {
@@ -92,7 +92,7 @@ export function checkForExistingDownloads() {
     })
 }
 
-export function ensureDownloadsAreRunning() {
+export function ensureDownloadsAreRunning () {
   log('[RNBackgroundDownloader] ensureDownloadsAreRunning')
   return checkForExistingDownloads()
     .then(tasks => {
@@ -104,7 +104,7 @@ export function ensureDownloadsAreRunning() {
     })
 }
 
-export function completeHandler(jobId: string) {
+export function completeHandler (jobId: string) {
   if (jobId == null) {
     console.warn('[RNBackgroundDownloader] completeHandler: jobId is empty')
     return
@@ -124,7 +124,7 @@ type DownloadOptions = {
   isNotificationVisible?: boolean;
 }
 
-export function download(options: DownloadOptions) {
+export function download (options: DownloadOptions) {
   log('[RNBackgroundDownloader] download', options)
   if (!options.id || !options.url || !options.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')

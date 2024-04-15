@@ -1,1 +1,0 @@
-../../../../../node_modules/@kesha-antonov/react-native-background-downloader/ios/RNBGDTaskConfig.h

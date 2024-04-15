@@ -1,6 +1,6 @@
 {
   "name": "@kesha-antonov/react-native-background-downloader",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "A library for React-Native to help you download large files on iOS and Android both in the foreground and most importantly in the background.",
   "keywords": [
     "react-native",
@@ -20,7 +20,7 @@
   },
   "contributors": [
     {
-      "name": "Elad Gil"
+      "name": "Kesha Antonov, Elad Gil"
     }
   ],
   "main": "index.ts",
@@ -58,36 +58,37 @@
     ]
   },
   "devDependencies": {
-    "@babel/core": "^7.23.7",
-    "@babel/eslint-parser": "^7.23.3",
-    "@babel/preset-env": "^7.23.7",
+    "@babel/core": "^7.24.0",
+    "@babel/eslint-parser": "^7.23.10",
+    "@babel/preset-env": "^7.24.0",
     "@babel/preset-typescript": "^7.23.3",
-    "@babel/runtime": "^7.23.7",
+    "@babel/runtime": "^7.24.0",
     "@react-native/babel-preset": "^0.74.0",
     "@react-native/eslint-config": "^0.74.0",
-    "@typescript-eslint/eslint-plugin": "^6.17.0",
-    "@typescript-eslint/parser": "^6.17.0",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
     "babel-jest": "^29.7.0",
-    "eslint": "^8.56.0",
+    "eslint": "^8.57.0",
     "eslint-config-standard": "^17.1.0",
     "eslint-config-standard-jsx": "^11.0.0",
     "eslint-plugin-import": "^2.29.1",
-    "eslint-plugin-n": "^16.6.1",
+    "eslint-plugin-jest": "^27.9.0",
+    "eslint-plugin-n": "^16.6.2",
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^6.1.1",
-    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react": "^7.34.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-standard": "^5.0.0",
-    "immer": "^10.0.3",
+    "immer": "^10.0.4",
     "jest": "^29.7.0",
     "lint-staged": ">=15",
     "metro-react-native-babel-preset": "^0.77.0",
     "react": "18.2.0",
-    "react-native": "0.73.1",
+    "react-native": "0.73.6",
     "react-native-fs": "^2.20.0",
     "react-native-vector-icons": "^10.0.3",
     "react-test-renderer": "18.2.0",
-    "typescript": "5.3.3"
+    "typescript": "5.4.2"
   },
   "peerDependencies": {
     "react-native": ">=0.57.0"

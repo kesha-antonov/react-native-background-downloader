@@ -66,6 +66,7 @@ export interface TaskInfoObject {
 export type TaskInfo = TaskInfoObject;
 
 export type DownloadTaskState =
+  | 'PENDING'
   | 'DOWNLOADING'
   | 'PAUSED'
   | 'DONE'
