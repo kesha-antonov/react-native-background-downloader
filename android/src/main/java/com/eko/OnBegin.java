@@ -15,8 +15,7 @@ public class OnBegin extends Thread {
   private RNBGDTaskConfig config;
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
-  public OnBegin(RNBGDTaskConfig config,
-      DeviceEventManagerModule.RCTDeviceEventEmitter ee) {
+  public OnBegin(RNBGDTaskConfig config, DeviceEventManagerModule.RCTDeviceEventEmitter ee) {
     this.config = config;
     this.ee = ee;
   }

@@ -1,6 +1,5 @@
 package com.eko;
 
-import android.annotation.SuppressLint;
 import android.util.Log;
 
 import com.facebook.react.bridge.Arguments;
@@ -17,8 +16,6 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 import android.app.DownloadManager;
 import android.app.DownloadManager.Request;
 
-import org.jetbrains.annotations.NotNull;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -26,7 +23,6 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -40,8 +36,6 @@ import android.net.Uri;
 import android.webkit.MimeTypeMap;
 import android.database.Cursor;
 import android.os.Build;
-// TOREMOVE
-// import android.os.Environment;
 
 import com.tencent.mmkv.MMKV;
 import com.google.gson.Gson;
@@ -71,7 +65,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   };
 
   private Downloader downloader;
-
+  private BroadcastReceiver downloadReceiver;
   private Map<String, Long> configIdToDownloadId = new HashMap<>();
   private Map<Long, RNBGDTaskConfig> downloadIdToConfig = new HashMap<>();
   private Map<String, Double> configIdToPercent = new HashMap<>();
@@ -80,97 +74,12 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private int progressInterval;
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
   private Map<String, OnProgress> onProgressThreads = new HashMap<>();
-
   private static Object sharedLock = new Object();
-
-  private static void moveFile(File src, File dst) throws IOException {
-    FileChannel inChannel = new FileInputStream(src).getChannel();
-    FileChannel outChannel = new FileOutputStream(dst).getChannel();
-    try {
-      inChannel.transferTo(0, inChannel.size(), outChannel);
-      src.delete();
-    } finally {
-      if (inChannel != null)
-        inChannel.close();
-      if (outChannel != null)
-        outChannel.close();
-    }
-  }
-
   private static MMKV mmkv;
-
-  BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
-    @Override
-    public void onReceive(Context context, Intent intent) {
-      try {
-        long downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-
-        RNBGDTaskConfig config = downloadIdToConfig.get(downloadId);
-
-        if (config != null) {
-          WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
-          int status = downloadStatus.getInt("status");
-
-          stopTrackingProgress(config.id);
-
-          synchronized (sharedLock) {
-            switch (status) {
-              case DownloadManager.STATUS_SUCCESSFUL: {
-                // MOVES FILE TO DESTINATION
-                String localUri = downloadStatus.getString("localUri");
-                File file = new File(localUri);
-                File dest = new File(config.destination);
-
-                // only move if source file exists (to handle case if this intent is double called)
-                if(file.exists()) {
-                  // REMOVE DEST FILE IF EXISTS
-                  if (dest.exists()) {
-                    dest.delete();
-                  }
-
-                  // CREATE DESTINATION DIR IF NOT EXISTS
-                  File destDir = new File(dest.getParent());
-                  if (!destDir.exists()) {
-                    destDir.mkdirs();
-                  }
-
-                  // MOVE FILE
-                  moveFile(file, dest);
-                  file.delete();
-                }
-
-                WritableMap params = Arguments.createMap();
-                params.putString("id", config.id);
-                params.putString("location", config.destination);
-                params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
-                params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
-
-                ee.emit("downloadComplete", params);
-                break;
-              }
-              case DownloadManager.STATUS_FAILED: {
-                Log.e(getName(), "Error in enqueue: " + downloadStatus.getInt("status") + ":"
-                    + downloadStatus.getInt("reason") + ":" + downloadStatus.getString("reasonText"));
-
-                WritableMap params = Arguments.createMap();
-                params.putString("id", config.id);
-                params.putInt("errorCode", downloadStatus.getInt("reason"));
-                params.putString("error", downloadStatus.getString("reasonText"));
-                ee.emit("downloadFailed", params);
-                break;
-              }
-            }
-          }
-        }
-      } catch (Exception e) {
-        e.printStackTrace();
-        Log.e(getName(), "downloadReceiver: onReceive. " + Log.getStackTraceString(e));
-      }
-    }
-  };
 
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
+    Log.e(getName(), "REV-CONSTRUCTOR");
 
     MMKV.initialize(reactContext);
 
@@ -180,42 +89,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     loadConfigMap();
 
     downloader = new Downloader(reactContext);
-
-    IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-    compatRegisterReceiver(reactContext, downloadReceiver, filter, true);
-
-    // iterate over downloadIdToConfig
-    for (Map.Entry<Long, RNBGDTaskConfig> entry : downloadIdToConfig.entrySet()) {
-      Long downloadId = entry.getKey();
-      RNBGDTaskConfig config = entry.getValue();
-
-      startReportingTasks(downloadId, config);
-    }
-  }
-
-  // TAKEN FROM
-  // https://github.com/facebook/react-native/pull/38256/files#diff-d5e21477eeadeb0c536d5870f487a8528f9a16ae928c397fec7b255805cc8ad3
-  private void compatRegisterReceiver(Context context, BroadcastReceiver receiver, IntentFilter filter,
-      boolean exported) {
-    if (Build.VERSION.SDK_INT >= 34 && context.getApplicationInfo().targetSdkVersion >= 34) {
-      context.registerReceiver(
-          receiver, filter, exported ? Context.RECEIVER_EXPORTED : Context.RECEIVER_NOT_EXPORTED);
-    } else {
-      context.registerReceiver(receiver, filter);
-    }
-  }
-
-  private void stopTrackingProgress(String configId) {
-    OnProgress onProgressTh = onProgressThreads.get(configId);
-    if (onProgressTh != null) {
-      onProgressTh.interrupt();
-      onProgressThreads.remove(configId);
-      configIdToPercent.remove(configId);
-    }
-  }
-
-  @Override
-  public void onCatalystInstanceDestroy() {
   }
 
   @Override
@@ -225,7 +98,17 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   @Override
   public void initialize() {
+    super.initialize();
+    Log.e(getName(), "REV-INITIALIZE");
     ee = getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+    registerDownloadReceiver();
+  }
+
+  @Override
+  public void onCatalystInstanceDestroy() {
+    super.onCatalystInstanceDestroy();
+    Log.e(getName(), "REV-DESTROY");
+    unregisterDownloadReceiver();
   }
 
   @ReactMethod
@@ -312,6 +195,117 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
+  // TAKEN FROM
+  // https://github.com/facebook/react-native/pull/38256/files#diff-d5e21477eeadeb0c536d5870f487a8528f9a16ae928c397fec7b255805cc8ad3
+  private void compatRegisterReceiver(Context context, BroadcastReceiver receiver, IntentFilter filter, boolean exported) {
+    if (Build.VERSION.SDK_INT >= 34) {
+      context.registerReceiver(receiver, filter, exported ? Context.RECEIVER_EXPORTED : Context.RECEIVER_NOT_EXPORTED);
+    } else {
+      context.registerReceiver(receiver, filter);
+    }
+  }
+
+  private void stopTrackingProgress(String configId) {
+    OnProgress onProgressTh = onProgressThreads.get(configId);
+    if (onProgressTh != null) {
+      onProgressTh.interrupt();
+      onProgressThreads.remove(configId);
+      configIdToPercent.remove(configId);
+    }
+  }
+
+  private static void moveFile(File src, File dst) throws IOException {
+    try (FileChannel inChannel = new FileInputStream(src).getChannel(); FileChannel outChannel = new FileOutputStream(dst).getChannel()) {
+      inChannel.transferTo(0, inChannel.size(), outChannel);
+      src.delete();
+    }
+  }
+
+  private void registerDownloadReceiver() {
+    Log.e(getName(), "REV-REGISTER");
+    downloadReceiver = new BroadcastReceiver() {
+      @Override
+      public void onReceive(Context context, Intent intent) {
+        try {
+          long downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+
+          RNBGDTaskConfig config = downloadIdToConfig.get(downloadId);
+
+          if (config != null) {
+            WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
+            int status = downloadStatus.getInt("status");
+
+            stopTrackingProgress(config.id);
+
+            synchronized (sharedLock) {
+              switch (status) {
+                case DownloadManager.STATUS_SUCCESSFUL: {
+                  // MOVES FILE TO DESTINATION
+                  String localUri = downloadStatus.getString("localUri");
+                  File file = new File(localUri);
+                  File dest = new File(config.destination);
+
+                  // only move if source file exists (to handle case if this intent is double called)
+                  if(file.exists()) {
+                    // REMOVE DEST FILE IF EXISTS
+                    if (dest.exists()) {
+                      dest.delete();
+                    }
+
+                    // CREATE DESTINATION DIR IF NOT EXISTS
+                    File destDir = new File(dest.getParent());
+                    if (!destDir.exists()) {
+                      destDir.mkdirs();
+                    }
+
+                    // MOVE FILE
+                    moveFile(file, dest);
+                    file.delete();
+                  }
+
+                  WritableMap params = Arguments.createMap();
+                  params.putString("id", config.id);
+                  params.putString("location", config.destination);
+                  params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
+                  params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
+
+                  ee.emit("downloadComplete", params);
+                  break;
+                }
+                case DownloadManager.STATUS_FAILED: {
+                  Log.e(getName(), "Error in enqueue: " + downloadStatus.getInt("status") + ":"
+                          + downloadStatus.getInt("reason") + ":" + downloadStatus.getString("reasonText"));
+
+                  WritableMap params = Arguments.createMap();
+                  params.putString("id", config.id);
+                  params.putInt("errorCode", downloadStatus.getInt("reason"));
+                  params.putString("error", downloadStatus.getString("reasonText"));
+                  ee.emit("downloadFailed", params);
+                  break;
+                }
+              }
+            }
+          }
+        } catch (Exception e) {
+          e.printStackTrace();
+          Log.e(getName(), "downloadReceiver: onReceive. " + Log.getStackTraceString(e));
+        }
+      }
+    };
+
+    Context context = getReactApplicationContext();
+    IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+    compatRegisterReceiver(context, downloadReceiver, filter, true);
+  }
+
+  private void unregisterDownloadReceiver() {
+    Log.e(getName(), "REV-UNREGISTER");
+    if (downloadReceiver != null) {
+      getReactApplicationContext().unregisterReceiver(downloadReceiver);
+      downloadReceiver = null;
+    }
+  }
+
   // JS Methods
   @ReactMethod
   public void download(ReadableMap options) {
@@ -340,7 +334,10 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     request.setAllowedOverRoaming(isAllowedOverRoaming);
     request.setAllowedOverMetered(isAllowedOverMetered);
     request.setNotificationVisibility(isNotificationVisible ? Request.VISIBILITY_VISIBLE : Request.VISIBILITY_HIDDEN);
-    request.setRequiresCharging(false);
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+      request.setRequiresCharging(false);
+    }
 
     int uuid = (int) (System.currentTimeMillis() & 0xfffffff);
     // GETS THE FILE EXTENSION FROM PATH
@@ -401,6 +398,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
             }
             if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
               Thread.currentThread().interrupt();
+              break;
             }
 
             Thread.sleep(500);
@@ -413,37 +411,37 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           onBeginTh.join();
 
           OnProgress onProgressTh = new OnProgress(
-              config,
-              downloadId,
-              downloader,
-              new ProgressCallback() {
-                @Override
-                public void onProgress(String configId, long bytesDownloaded, long bytesTotal) {
-                  double prevPercent = configIdToPercent.getOrDefault(configId, 0.0);
-                  double percent = (double) bytesDownloaded / bytesTotal;
-                  if (percent - prevPercent > 0.01) {
-                    WritableMap params = Arguments.createMap();
-                    params.putString("id", configId);
-                    params.putDouble("bytesDownloaded", bytesDownloaded);
-                    params.putDouble("bytesTotal", bytesTotal);
+                  config,
+                  downloadId,
+                  downloader,
+                  new ProgressCallback() {
+                    @Override
+                    public void onProgress(String configId, long bytesDownloaded, long bytesTotal) {
+                      double prevPercent = configIdToPercent.containsKey(configId) ? configIdToPercent.get(configId) : 0.0;
+                      double percent = (double) bytesDownloaded / bytesTotal;
+                      if (percent - prevPercent > 0.01) {
+                        WritableMap params = Arguments.createMap();
+                        params.putString("id", configId);
+                        params.putDouble("bytesDownloaded", bytesDownloaded);
+                        params.putDouble("bytesTotal", bytesTotal);
 
-                    progressReports.put(configId, params);
-                    configIdToPercent.put(configId, percent);
-                  }
+                        progressReports.put(configId, params);
+                        configIdToPercent.put(configId, percent);
+                      }
 
-                  Date now = new Date();
-                  if (now.getTime() - lastProgressReportedAt.getTime() > progressInterval &&
-                      progressReports.size() > 0) {
-                    WritableArray reportsArray = Arguments.createArray();
-                    for (Object report : progressReports.values()) {
-                      reportsArray.pushMap((WritableMap) report);
+                      Date now = new Date();
+                      if (now.getTime() - lastProgressReportedAt.getTime() > progressInterval &&
+                              progressReports.size() > 0) {
+                        WritableArray reportsArray = Arguments.createArray();
+                        for (Object report : progressReports.values()) {
+                          reportsArray.pushMap((WritableMap) report);
+                        }
+                        ee.emit("downloadProgress", reportsArray);
+                        lastProgressReportedAt = now;
+                        progressReports.clear();
+                      }
                     }
-                    ee.emit("downloadProgress", reportsArray);
-                    lastProgressReportedAt = now;
-                    progressReports.clear();
-                  }
-                }
-              });
+                  });
           onProgressThreads.put(config.id, onProgressTh);
           onProgressTh.start();
         } catch (Exception e) {

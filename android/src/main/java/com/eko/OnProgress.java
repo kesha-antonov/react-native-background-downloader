@@ -1,16 +1,9 @@
 package com.eko;
 
-import java.util.HashMap;
 import android.app.DownloadManager;
 import android.util.Log;
 
-import com.eko.Downloader;
-import com.eko.RNBGDTaskConfig;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
 import android.database.Cursor;
-import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.WritableArray;
 
 public class OnProgress extends Thread {
   private final long downloadId;
@@ -23,17 +16,13 @@ public class OnProgress extends Thread {
 
   private RNBGDTaskConfig config;
 
-  public OnProgress(RNBGDTaskConfig config, long downloadId,
-      Downloader downloader,
-      ProgressCallback callback) {
+  public OnProgress(RNBGDTaskConfig config, long downloadId, Downloader downloader, ProgressCallback callback) {
     this.config = config;
     this.callback = callback;
-
     this.downloadId = downloadId;
+    this.downloader = downloader;
     this.query = new DownloadManager.Query();
     query.setFilterById(this.downloadId);
-
-    this.downloader = downloader;
   }
 
   private void handleInterrupt() {
