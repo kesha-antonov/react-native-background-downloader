@@ -86,8 +86,8 @@ RCT_EXPORT_MODULE();
         idToResumeDataMap = [[NSMutableDictionary alloc] init];
         idToPercentMap = [[NSMutableDictionary alloc] init];
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
-        NSString *sessonIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
-        sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessonIdentifier];
+        NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
+        sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessionIdentifier];
         sessionConfig.HTTPMaximumConnectionsPerHost = 4;
         sessionConfig.timeoutIntervalForRequest = 60 * 60; // MAX TIME TO GET NEW DATA IN REQUEST - 1 HOUR
         sessionConfig.timeoutIntervalForResource = 60 * 60 * 24; // MAX TIME TO DOWNLOAD RESOURCE - 1 DAY
@@ -183,8 +183,8 @@ RCT_EXPORT_MODULE();
 + (void)setCompletionHandlerWithIdentifier: (NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
     NSLog(@"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
     NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
-    NSString *sessonIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
-    if ([sessonIdentifier isEqualToString:identifier]) {
+    NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
+    if ([sessionIdentifier isEqualToString:identifier]) {
         storedCompletionHandler = completionHandler;
     }
 }
