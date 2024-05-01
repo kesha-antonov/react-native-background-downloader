@@ -18,7 +18,6 @@ public class Downloader {
 
     public DownloadManager downloadManager;
     private Context context;
-
     private HashSet<String> alreadySentIntentDownloadIds = new HashSet<>();
 
     public Downloader(Context ctx) {
@@ -46,6 +45,8 @@ public class Downloader {
                 result.putInt("reason", -1);
                 result.putString("reasonText", "COULD_NOT_FIND");
             }
+        } catch (Exception e) {
+            Log.e("RNBackgroundDownloader", "Downloader: " + Log.getStackTraceString(e));
         } finally {
             if (cursor != null) {
                 cursor.close();
@@ -56,8 +57,8 @@ public class Downloader {
     }
 
 
-    public int cancelDownload(long downloadId) {
-        return downloadManager.remove(downloadId);
+    public void cancelDownload(long downloadId) {
+        downloadManager.remove(downloadId);
     }
 
     // WAITING FOR THE FIX TO BE MERGED
@@ -125,50 +126,45 @@ public class Downloader {
 
 
     public WritableMap getDownloadStatus(Cursor cursor) {
-        try {
-            String downloadId = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID));
-            String localUri = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI));
-            String bytesDownloadedSoFar = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-            String totalSizeBytes = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-            int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-            int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
+        String downloadId = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID));
+        String localUri = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI));
+        String bytesDownloadedSoFar = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+        String totalSizeBytes = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+        int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+        int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
 
-            if (localUri != null) {
-                localUri = localUri.replace("file://", "");
-            }
-
-            String reasonText = "";
-
-            if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                if(!alreadySentIntentDownloadIds.contains(downloadId)) {
-                    alreadySentIntentDownloadIds.add(downloadId);
-
-                    // broadcast the download complete to handle the case where the app was closed when the download was done
-                    Intent intent = new Intent(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-
-                    // You can add extras to the intent if needed
-                    intent.putExtra(DownloadManager.EXTRA_DOWNLOAD_ID, Long.parseLong(downloadId));
-                    context.sendBroadcast(intent);
-                }
-            } else {
-                reasonText = getReasonText(status, reason);
-            }
-
-            WritableMap result = Arguments.createMap();
-
-            result.putString("downloadId", downloadId);
-            result.putInt("status", status);
-            result.putInt("reason", reason);
-            result.putString("reasonText", reasonText);
-
-            result.putDouble("bytesDownloaded", Long.parseLong(bytesDownloadedSoFar));
-            result.putDouble("bytesTotal", Long.parseLong(totalSizeBytes));
-            result.putString("localUri", localUri);
-
-            return result;
-        } catch (IllegalArgumentException e) {
-            Log.e("Downloader", "Error: " + e.getMessage());
-            throw e;
+        if (localUri != null) {
+            localUri = localUri.replace("file://", "");
         }
+
+        String reasonText = "";
+
+        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+            if(!alreadySentIntentDownloadIds.contains(downloadId)) {
+                alreadySentIntentDownloadIds.add(downloadId);
+
+                // broadcast the download complete to handle the case where the app was closed when the download was done
+                Intent intent = new Intent(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+
+                // You can add extras to the intent if needed
+                intent.putExtra(DownloadManager.EXTRA_DOWNLOAD_ID, Long.parseLong(downloadId));
+                context.sendBroadcast(intent);
+            }
+        } else {
+            reasonText = getReasonText(status, reason);
+        }
+
+        WritableMap result = Arguments.createMap();
+
+        result.putString("downloadId", downloadId);
+        result.putInt("status", status);
+        result.putInt("reason", reason);
+        result.putString("reasonText", reasonText);
+
+        result.putDouble("bytesDownloaded", Long.parseLong(bytesDownloadedSoFar));
+        result.putDouble("bytesTotal", Long.parseLong(totalSizeBytes));
+        result.putString("localUri", localUri);
+
+        return result;
     }
 }

@@ -1,6 +1,7 @@
 package com.eko;
 
 import android.app.DownloadManager;
+import android.os.SystemClock;
 import android.util.Log;
 
 import android.database.Cursor;
@@ -10,11 +11,11 @@ public class OnProgress extends Thread {
   private final DownloadManager.Query query;
   private final Downloader downloader;
   private Cursor cursor;
-  private long lastBytesDownloaded;
+  private long bytesDownloaded;
   private long bytesTotal;
   private ProgressCallback callback;
-
   private RNBGDTaskConfig config;
+  private boolean isRunning = true;
 
   public OnProgress(RNBGDTaskConfig config, long downloadId, Downloader downloader, ProgressCallback callback) {
     this.config = config;
@@ -25,69 +26,50 @@ public class OnProgress extends Thread {
     query.setFilterById(this.downloadId);
   }
 
-  private void handleInterrupt() {
-    try {
-      if (cursor != null) {
-        cursor.close();
-      }
-    } catch (Exception e) {
-      return;
-    }
-    this.interrupt();
-  }
-
   @Override
   public void run() {
-    while (downloadId > 0) {
+    while (isRunning) {
       try {
         cursor = downloader.downloadManager.query(query);
 
         if (!cursor.moveToFirst()) {
-          this.handleInterrupt();
+          isRunning = false;
+          break;
         }
 
-        int status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS));
+        int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
         if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
-          this.handleInterrupt();
+          isRunning = false;
+          break;
         }
 
-        if (status == DownloadManager.STATUS_PAUSED) {
-          Thread.sleep(5000);
-        } else if (status == DownloadManager.STATUS_PENDING) {
-          Thread.sleep(1000);
+        boolean isTotalByteCalculated = bytesTotal > 0;
+
+        if (!isTotalByteCalculated) {
+          int byteTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
+          bytesTotal = byteTotalIndex != -1 ? (long) cursor.getDouble(byteTotalIndex) : 0;
         } else {
-          Thread.sleep(250);
-        }
+          int byteDownloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
+          bytesDownloaded = byteDownloadedIndex != -1 ? (long) cursor.getDouble(byteDownloadedIndex) : 0;
 
-        // get total bytes of the file
-        if (bytesTotal <= 0) {
-          bytesTotal = (long)(cursor.getDouble(cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)));
-        }
+          if (bytesDownloaded == bytesTotal) {
+            isRunning = false;
+          } else {
+            bytesDownloaded = bytesTotal;
+          }
 
-        long bytesDownloaded = (long)(cursor.getDouble(cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)));
-
-        if (bytesTotal > 0 && bytesDownloaded == bytesTotal) {
-          this.handleInterrupt();
-        } else {
-          lastBytesDownloaded = bytesDownloaded;
-        }
-
-        if (lastBytesDownloaded > 0 && bytesTotal > 0) {
-          callback.onProgress(config.id, lastBytesDownloaded, bytesTotal);
+          callback.onProgress(config.id, bytesDownloaded, bytesTotal);
         }
       } catch (Exception e) {
-        return;
-      }
-
-      try {
+        isRunning = false;
+        Log.e("RNBackgroundDownloader", "OnProgress: " + Log.getStackTraceString(e));
+      } finally {
         if (cursor != null) {
           cursor.close();
         }
-      } catch (Exception e) {
-        e.printStackTrace();
-        Log.e("RNBackgroundDownloader", "RNBD: OnProgress e: " + Log.getStackTraceString(e));
-        return;
       }
+
+      SystemClock.sleep(250);
     }
   }
 }
