@@ -6,24 +6,32 @@ import android.util.Log;
 
 import android.database.Cursor;
 
+import java.util.HashMap;
+
 public class OnProgress extends Thread {
+  private final RNBGDTaskConfig config;
   private final long downloadId;
+  private final HashMap downloadParams;
+  private final ProgressCallback callback;
+  private long bytesDownloaded;
+  private long bytesTotal;
   private final DownloadManager.Query query;
   private final Downloader downloader;
   private Cursor cursor;
-  private long bytesDownloaded;
-  private long bytesTotal;
-  private ProgressCallback callback;
-  private RNBGDTaskConfig config;
   private boolean isRunning = true;
 
-  public OnProgress(RNBGDTaskConfig config, long downloadId, Downloader downloader, ProgressCallback callback) {
+  public OnProgress(RNBGDTaskConfig config, long downloadId, HashMap downloadParams, Downloader downloader, ProgressCallback callback) {
     this.config = config;
-    this.callback = callback;
     this.downloadId = downloadId;
+    this.downloadParams = downloadParams;
     this.downloader = downloader;
+    this.callback = callback;
     this.query = new DownloadManager.Query();
     query.setFilterById(this.downloadId);
+
+    Double expectedBytes = (Double) downloadParams.get("expectedBytes");
+    this.bytesDownloaded = 0;;
+    this.bytesTotal = expectedBytes != null ? expectedBytes.longValue() : 0;
   }
 
   @Override
@@ -43,22 +51,19 @@ public class OnProgress extends Thread {
           break;
         }
 
-        boolean isTotalByteCalculated = bytesTotal > 0;
+        int byteTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
+        long byteTotal = (long) cursor.getDouble(byteTotalIndex);
+        bytesTotal = byteTotal > 0 ? byteTotal : bytesTotal;
 
-        if (!isTotalByteCalculated) {
-          int byteTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
-          bytesTotal = byteTotalIndex != -1 ? (long) cursor.getDouble(byteTotalIndex) : 0;
-        } else {
-          int byteDownloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
-          bytesDownloaded = byteDownloadedIndex != -1 ? (long) cursor.getDouble(byteDownloadedIndex) : 0;
+        int byteDownloadedIndex = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
+        long byteDownloaded = (long) cursor.getDouble(byteDownloadedIndex);
+        bytesDownloaded = byteDownloaded > 0 ? byteDownloaded : bytesDownloaded;
 
-          if (bytesDownloaded == bytesTotal) {
-            isRunning = false;
-          } else {
-            bytesDownloaded = bytesTotal;
-          }
+        callback.onProgress(config.id, bytesDownloaded, bytesTotal);
 
-          callback.onProgress(config.id, bytesDownloaded, bytesTotal);
+        boolean completed = bytesTotal > 0 && bytesDownloaded > 0 && bytesDownloaded == bytesTotal;
+        if (completed) {
+          isRunning = false;
         }
       } catch (Exception e) {
         isRunning = false;

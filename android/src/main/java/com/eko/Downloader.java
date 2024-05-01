@@ -57,8 +57,8 @@ public class Downloader {
     }
 
 
-    public void cancelDownload(long downloadId) {
-        downloadManager.remove(downloadId);
+    public int cancelDownload(long downloadId) {
+        return downloadManager.remove(downloadId);
     }
 
     // WAITING FOR THE FIX TO BE MERGED

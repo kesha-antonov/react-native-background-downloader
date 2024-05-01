@@ -4,6 +4,7 @@ import android.util.Log;
 
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -14,10 +15,16 @@ import com.facebook.react.bridge.Arguments;
 public class OnBegin extends Thread {
   private final RNBGDTaskConfig config;
   private final DeviceEventManagerModule.RCTDeviceEventEmitter ee;
+  private HashMap params;
+
 
   public OnBegin(RNBGDTaskConfig config, DeviceEventManagerModule.RCTDeviceEventEmitter ee) {
     this.config = config;
     this.ee = ee;
+  }
+
+  public HashMap getParams() {
+    return params;
   }
 
   @Override
@@ -27,10 +34,9 @@ public class OnBegin extends Thread {
       URLConnection urlConnection = url.openConnection();
       Map<String, List<String>> headers = urlConnection.getHeaderFields();
       WritableMap headersMap = convertHeadersToWritableMap(headers);
-      long contentLength = getContentLength(headersMap);
-
-      WritableMap params = createParams(contentLength, headersMap);
-      ee.emit("downloadBegin", params);
+      WritableMap beginParams = createParams(headersMap);
+      params = beginParams.toHashMap();
+      ee.emit("downloadBegin", beginParams);
     } catch (Exception e) {
       Log.e("RNBackgroundDownloader", "OnBegin: " + Log.getStackTraceString(e));
     }
@@ -48,18 +54,28 @@ public class OnBegin extends Thread {
     return headersMap;
   }
 
-  private long getContentLength(WritableMap headersMap) {
-    if (headersMap != null && headersMap.hasKey("Content-Length")) {
-      return Long.valueOf(headersMap.getString("Content-Length"));
-    }
-    return -1;
+  private WritableMap createParams(WritableMap headersMap) {
+    long contentLength = getContentLength(headersMap);
+
+    WritableMap map = Arguments.createMap();
+    map.putString("id", config.id);
+    map.putMap("headers", headersMap);
+    map.putDouble("expectedBytes", contentLength);
+    return map;
   }
 
-  private WritableMap createParams(long contentLength, WritableMap headersMap) {
-    WritableMap params = Arguments.createMap();
-    params.putString("id", config.id);
-    params.putMap("headers", headersMap);
-    params.putDouble("expectedBytes", contentLength);
-    return params;
+
+  private long getContentLength(WritableMap headersMap) {
+    String contentLengthString = headersMap.getString("Content-Length");
+
+    if (contentLengthString != null) {
+      try {
+        return Long.parseLong(contentLengthString);
+      } catch (NumberFormatException e) {
+        return 0;
+      }
+    }
+
+    return 0;
   }
 }

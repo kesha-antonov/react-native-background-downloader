@@ -1,5 +1,6 @@
 package com.eko;
 
+import android.os.SystemClock;
 import android.util.Log;
 
 import com.facebook.react.bridge.Arguments;
@@ -270,8 +271,11 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                   break;
                 }
                 case DownloadManager.STATUS_FAILED: {
-                  Log.e(getName(), "onReceive: " + downloadStatus.getInt("status") + ":"
-                          + downloadStatus.getInt("reason") + ":" + downloadStatus.getString("reasonText"));
+                  Log.e(getName(), "onReceive: " +
+                          downloadStatus.getInt("status") + ":" +
+                          downloadStatus.getInt("reason") + ":" +
+                          downloadStatus.getString("reasonText")
+                  );
 
                   WritableMap params = Arguments.createMap();
                   params.putString("id", config.id);
@@ -301,7 +305,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  // JS Methods
   @ReactMethod
   public void download(ReadableMap options) {
     final String id = options.getString("id");
@@ -320,7 +323,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     boolean isNotificationVisible = options.getBoolean("isNotificationVisible");
 
     if (id == null || url == null || destination == null) {
-      Log.e(getName(),"Download: id, url and destination must be set.");
+      Log.e(getName(),"download: id, url and destination must be set.");
       return;
     }
 
@@ -334,7 +337,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
 
     int uuid = (int) (System.currentTimeMillis() & 0xfffffff);
-    // GETS THE FILE EXTENSION FROM PATH
     String extension = MimeTypeMap.getFileExtensionFromUrl(destination);
     String filename = uuid + "." + extension;
     request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, filename);
@@ -355,9 +357,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       configIdToPercent.put(id, 0.0);
       saveDownloadIdToConfigMap();
 
-      WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
-      int status = downloadStatus.getInt("status");
-
       if (config.reportedBegin) {
         return;
       }
@@ -373,68 +372,66 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
     // report begin & progress
     // overlaped with thread to not block main thread
-    new Thread(new Runnable() {
-      public void run() {
-        try {
-          while (true) {
-            WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
-            int status = downloadStatus.getInt("status");
+    new Thread(() -> {
+      try {
+        while (true) {
+          WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
+          int status = downloadStatus.getInt("status");
 
-            if (status == DownloadManager.STATUS_RUNNING) {
-              break;
-            }
-            if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
-              Thread.currentThread().interrupt();
-              break;
-            }
-
-            Thread.sleep(500);
+          if (status == DownloadManager.STATUS_RUNNING) {
+            break;
+          }
+          if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
+            Thread.currentThread().interrupt();
+            break;
           }
 
-          // EMIT BEGIN
-          OnBegin onBeginTh = new OnBegin(config, ee);
-          onBeginTh.start();
-          // wait for onBeginTh to finish
-          onBeginTh.join();
-
-          OnProgress onProgressTh = new OnProgress(
-                  config,
-                  downloadId,
-                  downloader,
-                  new ProgressCallback() {
-                    @Override
-                    public void onProgress(String configId, long bytesDownloaded, long bytesTotal) {
-                      double prevPercent = configIdToPercent.containsKey(configId) ? configIdToPercent.get(configId) : 0.0;
-                      double percent = bytesTotal > 0 ? (double) bytesDownloaded / bytesTotal : 0;
-
-                      if (percent - prevPercent > 0.01) {
-                        WritableMap params = Arguments.createMap();
-                        params.putString("id", configId);
-                        params.putDouble("bytesDownloaded", bytesDownloaded);
-                        params.putDouble("bytesTotal", bytesTotal);
-                        progressReports.put(configId, params);
-                        configIdToPercent.put(configId, percent);
-                      }
-
-                      Date now = new Date();
-                      boolean conditionTimeReport = now.getTime() - lastProgressReportedAt.getTime() > progressInterval;
-                      boolean conditionSizeReport = progressReports.size() > 0;
-                      if (conditionTimeReport && conditionSizeReport) {
-                        WritableArray reportsArray = Arguments.createArray();
-                        for (Object report : progressReports.values()) {
-                          reportsArray.pushMap((WritableMap) report);
-                        }
-                        ee.emit("downloadProgress", reportsArray);
-                        lastProgressReportedAt = now;
-                        progressReports.clear();
-                      }
-                    }
-                  });
-          onProgressThreads.put(config.id, onProgressTh);
-          onProgressTh.start();
-        } catch (Exception e) {
-          Log.e(getName(), "startReportingTasks: " + Log.getStackTraceString(e));
+          SystemClock.sleep(500);;
         }
+
+        OnBegin onBeginThread = new OnBegin(config, ee);
+        onBeginThread.start();
+        onBeginThread.join();
+
+        HashMap downloadParams = onBeginThread.getParams();
+
+        OnProgress onProgressThread = new OnProgress(
+                config,
+                downloadId,
+                downloadParams,
+                downloader,
+                (configId, bytesDownloaded, bytesTotal) -> {
+                  boolean prevPercentContain = configIdToPercent.containsKey(configId);
+                  double prevPercent = prevPercentContain ? configIdToPercent.get(configId) : 0;
+                  double percent = bytesTotal > 0 ? (double) bytesDownloaded / bytesTotal : 0;
+
+                  if (!prevPercentContain || percent - prevPercent > 0.01) {
+                    WritableMap params = Arguments.createMap();
+                    params.putString("id", configId);
+                    params.putDouble("bytesDownloaded", bytesDownloaded);
+                    params.putDouble("bytesTotal", bytesTotal);
+                    progressReports.put(configId, params);
+                    configIdToPercent.put(configId, percent);
+                  }
+
+                  Date now = new Date();
+                  boolean conditionContain = progressReports.containsKey(configId);
+                  boolean conditionInterval = now.getTime() - lastProgressReportedAt.getTime() > progressInterval;
+
+                  if (conditionContain && conditionInterval) {
+                    WritableArray reportsArray = Arguments.createArray();
+                    for (Object report : progressReports.values()) {
+                      reportsArray.pushMap((WritableMap) report);
+                    }
+                    ee.emit("downloadProgress", reportsArray);
+                    lastProgressReportedAt = now;
+                    progressReports.clear();
+                  }
+                });
+        onProgressThreads.put(config.id, onProgressThread);
+        onProgressThread.start();
+      } catch (Exception e) {
+        Log.e(getName(), "startReportingTasks: " + Log.getStackTraceString(e));
       }
     }).start();
   }
@@ -522,7 +519,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
               // TODO: MAYBE ADD headers
               configIdToDownloadId.put(config.id, downloadId);
-              configIdToPercent.put(config.id, (double) bytesDownloaded / bytesTotal);
+              configIdToPercent.put(config.id, bytesDownloaded / bytesTotal);
             } else {
               downloader.cancelDownload(downloadId);
             }
