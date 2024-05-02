@@ -140,7 +140,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     return constants;
   }
 
-  private void removeFromMaps(long downloadId) {
+  private void removeTaskFromMap(long downloadId) {
     synchronized (sharedLock) {
       RNBGDTaskConfig config = downloadIdToConfig.get(downloadId);
       if (config != null) {
@@ -386,7 +386,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
             break;
           }
 
-          SystemClock.sleep(500);;
+          SystemClock.sleep(500);
         }
 
         OnBegin onBeginThread = new OnBegin(config, ee);
@@ -465,7 +465,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       if (downloadId != null) {
         // DELETES CONFIG HERE SO receiver WILL NOT THROW ERROR DOWNLOAD_FAILED TO THE
         // USER
-        removeFromMaps(downloadId);
+        removeTaskFromMap(downloadId);
         stopTrackingProgress(configId);
 
         downloader.cancelDownload(downloadId);
@@ -478,7 +478,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
-        removeFromMaps(downloadId);
+        removeTaskFromMap(downloadId);
         // REMOVES DOWNLOAD FROM DownloadManager SO IT WOULD NOT BE RETURNED IN
         // checkForExistingDownloads
         downloader.cancelDownload(downloadId);

@@ -102,13 +102,25 @@ RCT_EXPORT_MODULE();
                                object:nil
                                queue:nil
                                usingBlock:^(NSNotification * _Nonnull note) { [self handleHotReload:note]; }];
-        [self lazyInitSession];
+        [self registerSession];
     }
     return self;
 }
 
-- (void)lazyInitSession {
-    NSLog(@"[RNBackgroundDownloader] - [lazyInitSession]");
+- (void) dealloc {
+    NSLog(@"[RNBackgroundDownloader] - [dealloc]");
+    [self unregisterSession];
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSNotificationCenter defaultCenter] removeObserver:reload];
+}
+
+- (void)handleHotReload:(NSNotification *)notification {
+    NSLog(@"[RNBackgroundDownloader] - [handleBridgeReload]");
+    [self unregisterSession];
+}
+
+- (void)registerSession {
+    NSLog(@"[RNBackgroundDownloader] - [registerSession]");
     @synchronized (sharedLock) {
         if (urlSession == nil) {
             urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
@@ -116,7 +128,15 @@ RCT_EXPORT_MODULE();
     }
 }
 
-- (void)lazyInitNotification {
+- (void)unregisterSession {
+    NSLog(@"[RNBackgroundDownloader] - [unregisterSession]");
+    if (urlSession) {
+        [urlSession invalidateAndCancel];
+        urlSession = nil;
+    }
+}
+
+- (void)lazyNotification {
     NSLog(@"[RNBackgroundDownloader] - [lazyInitNotification]");
     @synchronized (sharedLock) {
         if (isNotificationCenterInited != YES) {
@@ -129,26 +149,7 @@ RCT_EXPORT_MODULE();
     }
 }
 
-- (void)handleHotReload:(NSNotification *)notification {
-    NSLog(@"[RNBackgroundDownloader] - [handleBridgeReload]");
-    [urlSession invalidateAndCancel];
-    urlSession = nil;
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [[NSNotificationCenter defaultCenter] removeObserver:reload];
-}
-
-- (void) dealloc {
-    NSLog(@"[RNBackgroundDownloader] - [dealloc]");
-    if (urlSession) {
-        [urlSession invalidateAndCancel];
-        urlSession = nil;
-    }
-
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [[NSNotificationCenter defaultCenter] removeObserver:reload];
-}
-
-// NOTE: FIXES HANGING DOWNLOADS WHEN GOING TO BG
+// TODO: FIXES HANGING DOWNLOADS WHEN GOING TO BG
 - (void) resumeTasks:(NSNotification *) note {
     NSLog(@"[RNBackgroundDownloader] - [resumeTasks]");
     @synchronized (sharedLock) {
@@ -160,19 +161,10 @@ RCT_EXPORT_MODULE();
                 // completed - 3
 
                 if (task.state == NSURLSessionTaskStateRunning) {
-                    [task suspend]; // PAUSE
+                    [task suspend];
                     [task resume];
                 }
             }
-//            TODO: MAYBE ADD FOR OTHER TASKS TYPES
-//            for (NSURLSessionDataTask *task in dataTasks) {
-//                NSLog(@"[RNBackgroundDownloader] - [resumeTasks] 5");
-//                [task resume];
-//            }
-//            for (NSURLSessionUploadTask *task in dataTasks) {
-//                NSLog(@"[RNBackgroundDownloader] - [resumeTasks] 6");
-//                [task resume];
-//            }
         }];
     }
 }
@@ -190,11 +182,6 @@ RCT_EXPORT_MODULE();
             [self->idToTaskMap removeObjectForKey:taskConfig.id];
             [idToPercentMap removeObjectForKey:taskConfig.id];
         }
-        // TOREMOVE - GIVES ERROR IN JS ON HOT RELOAD
-        // if (taskToConfigMap.count == 0) {
-        //     [urlSession invalidateAndCancel];
-        //     urlSession = nil;
-        // }
     }
 }
 
@@ -261,7 +248,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     @synchronized (sharedLock) {
-        [self lazyInitNotification];
+        [self lazyNotification];
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {
             NSLog(@"[RNBackgroundDownloader] - [Error] failed to create download task");
@@ -314,7 +301,7 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
 
 RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     NSLog(@"[RNBackgroundDownloader] - [checkForExistingDownloads]");
-    [self lazyInitNotification];
+    [self lazyNotification];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         NSMutableArray *idsFound = [[NSMutableArray alloc] init];
         @synchronized (self->sharedLock) {
