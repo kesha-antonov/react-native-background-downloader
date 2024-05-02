@@ -63,24 +63,16 @@ RCT_EXPORT_MODULE();
 
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
+        NSMutableDictionary *taskToConfigMapScope = nil;
         NSData *taskToConfigMapData = [mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY];
-        if (taskToConfigMapData != nil) {
-            NSMutableDictionary *_taskToConfigMap = [self deserialize:taskToConfigMapData];
-            if (_taskToConfigMap != nil) {
-                taskToConfigMap = _taskToConfigMap;
-            }
-        }
-        if (taskToConfigMap == nil) {
-            taskToConfigMap = [[NSMutableDictionary alloc] init];
-        }
 
-        float _progressInterval = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
-        if (_progressInterval) {
-            progressInterval = _progressInterval;
+        if (taskToConfigMapData) {
+            taskToConfigMapScope = [self deserialize:taskToConfigMapData];
         }
-        if (isnan(progressInterval)) {
-            progressInterval = 1.0;
-        }
+        taskToConfigMap = taskToConfigMapScope != nil ? taskToConfigMapScope : [[NSMutableDictionary alloc] init];
+
+        float progressIntervalScope = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
+        progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
 
         self->idToTaskMap = [[NSMutableDictionary alloc] init];
         idToResumeDataMap = [[NSMutableDictionary alloc] init];
@@ -103,6 +95,7 @@ RCT_EXPORT_MODULE();
         progressReports = [[NSMutableDictionary alloc] init];
         lastProgressReportedAt = [[NSDate alloc] init];
         sharedLock = [NSNumber numberWithInt:1];
+        [self lazyInitSession];
     }
     return self;
 }
@@ -113,12 +106,18 @@ RCT_EXPORT_MODULE();
         if (urlSession == nil) {
             urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
         }
+    }
+}
+
+- (void)lazyInitNotification {
+    NSLog(@"[RNBackgroundDownloader] - [lazyInitNotification]");
+    @synchronized (sharedLock) {
         if (isNotificationCenterInited != YES) {
             isNotificationCenterInited = YES;
             [[NSNotificationCenter defaultCenter] addObserver:self
-                                                selector:@selector(resumeTasks:)
-                                                name:UIApplicationWillEnterForegroundNotification
-                                                object:nil];
+                                                     selector:@selector(resumeTasks:)
+                                                         name:UIApplicationWillEnterForegroundNotification
+                                                       object:nil];
         }
     }
 }
@@ -243,7 +242,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     @synchronized (sharedLock) {
-        [self lazyInitSession];
+        [self lazyInitNotification];
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {
             NSLog(@"[RNBackgroundDownloader] - [Error] failed to create download task");
@@ -296,7 +295,7 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
 
 RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     NSLog(@"[RNBackgroundDownloader] - [checkForExistingDownloads]");
-    [self lazyInitSession];
+    [self lazyInitNotification];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         NSMutableArray *idsFound = [[NSMutableArray alloc] init];
         @synchronized (self->sharedLock) {
