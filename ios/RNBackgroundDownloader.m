@@ -1,6 +1,7 @@
+#import <React/RCTBridge.h>
+#import <MMKV/MMKV.h>
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
-#import <MMKV/MMKV.h>
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
@@ -8,6 +9,7 @@
 static CompletionHandler storedCompletionHandler;
 
 @implementation RNBackgroundDownloader {
+    RCTBridge *reload;
     NSURLSession *urlSession;
     NSURLSessionConfiguration *sessionConfig;
     NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *taskToConfigMap;
@@ -95,6 +97,11 @@ RCT_EXPORT_MODULE();
         progressReports = [[NSMutableDictionary alloc] init];
         lastProgressReportedAt = [[NSDate alloc] init];
         sharedLock = [NSNumber numberWithInt:1];
+        reload = (RCTBridge *)[NSNotificationCenter.defaultCenter
+                               addObserverForName:RCTJavaScriptWillStartLoadingNotification
+                               object:nil
+                               queue:nil
+                               usingBlock:^(NSNotification * _Nonnull note) { [self handleHotReload:note]; }];
         [self lazyInitSession];
     }
     return self;
@@ -115,18 +122,30 @@ RCT_EXPORT_MODULE();
         if (isNotificationCenterInited != YES) {
             isNotificationCenterInited = YES;
             [[NSNotificationCenter defaultCenter] addObserver:self
-                                                     selector:@selector(resumeTasks:)
-                                                         name:UIApplicationWillEnterForegroundNotification
-                                                       object:nil];
+                                                  selector:@selector(resumeTasks:)
+                                                  name:UIApplicationWillEnterForegroundNotification
+                                                  object:nil];
         }
     }
 }
 
-- (void) dealloc {
-    NSLog(@"[RNBackgroundDownloader] - [dealloc]");
+- (void)handleHotReload:(NSNotification *)notification {
+    NSLog(@"[RNBackgroundDownloader] - [handleBridgeReload]");
     [urlSession invalidateAndCancel];
     urlSession = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSNotificationCenter defaultCenter] removeObserver:reload];
+}
+
+- (void) dealloc {
+    NSLog(@"[RNBackgroundDownloader] - [dealloc]");
+    if (urlSession) {
+        [urlSession invalidateAndCancel];
+        urlSession = nil;
+    }
+
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSNotificationCenter defaultCenter] removeObserver:reload];
 }
 
 // NOTE: FIXES HANGING DOWNLOADS WHEN GOING TO BG
