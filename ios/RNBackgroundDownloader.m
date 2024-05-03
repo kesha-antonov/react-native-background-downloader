@@ -1,7 +1,6 @@
-#import <React/RCTBridge.h>
-#import <MMKV/MMKV.h>
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
+#import <MMKV/MMKV.h>
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
@@ -9,20 +8,18 @@
 static CompletionHandler storedCompletionHandler;
 
 @implementation RNBackgroundDownloader {
-    RCTBridge *reload;
+    MMKV *mmkv;
     NSURLSession *urlSession;
     NSURLSessionConfiguration *sessionConfig;
+    NSNumber *sharedLock;
     NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *taskToConfigMap;
     NSMutableDictionary<NSString *, NSURLSessionDownloadTask *> *idToTaskMap;
     NSMutableDictionary<NSString *, NSData *> *idToResumeDataMap;
     NSMutableDictionary<NSString *, NSNumber *> *idToPercentMap;
     NSMutableDictionary<NSString *, NSDictionary *> *progressReports;
     NSDate *lastProgressReportedAt;
-    NSNumber *sharedLock;
-    float progressInterval; // IN SECONDS
-    BOOL isNotificationCenterInited;
-
-    MMKV *mmkv;
+    float progressInterval;
+    BOOL isBridgeListenerInited;
 }
 
 RCT_EXPORT_MODULE();
@@ -65,13 +62,8 @@ RCT_EXPORT_MODULE();
 
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
-        NSMutableDictionary *taskToConfigMapScope = nil;
         NSData *taskToConfigMapData = [mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY];
-
-        if (taskToConfigMapData) {
-            taskToConfigMapScope = [self deserialize:taskToConfigMapData];
-        }
-        taskToConfigMap = taskToConfigMapScope != nil ? taskToConfigMapScope : [[NSMutableDictionary alloc] init];
+        taskToConfigMap = [self deserialize:taskToConfigMapData] ?: [[NSMutableDictionary alloc] init];
 
         float progressIntervalScope = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
         progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
@@ -97,12 +89,8 @@ RCT_EXPORT_MODULE();
         progressReports = [[NSMutableDictionary alloc] init];
         lastProgressReportedAt = [[NSDate alloc] init];
         sharedLock = [NSNumber numberWithInt:1];
-        reload = (RCTBridge *)[NSNotificationCenter.defaultCenter
-                               addObserverForName:RCTJavaScriptWillStartLoadingNotification
-                               object:nil
-                               queue:nil
-                               usingBlock:^(NSNotification * _Nonnull note) { [self handleHotReload:note]; }];
         [self registerSession];
+        [self registerBridgeListener];
     }
     return self;
 }
@@ -110,13 +98,13 @@ RCT_EXPORT_MODULE();
 - (void) dealloc {
     NSLog(@"[RNBackgroundDownloader] - [dealloc]");
     [self unregisterSession];
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [[NSNotificationCenter defaultCenter] removeObserver:reload];
+    [self unregisterBridgeListener];
 }
 
-- (void)handleHotReload:(NSNotification *)notification {
-    NSLog(@"[RNBackgroundDownloader] - [handleBridgeReload]");
+- (void)handleBridgeHotReload:(NSNotification *) note {
+    NSLog(@"[RNBackgroundDownloader] - [handleBridgeHotReload]");
     [self unregisterSession];
+    [self unregisterBridgeListener];
 }
 
 - (void)registerSession {
@@ -136,22 +124,35 @@ RCT_EXPORT_MODULE();
     }
 }
 
-- (void)lazyNotification {
-    NSLog(@"[RNBackgroundDownloader] - [lazyInitNotification]");
+- (void)registerBridgeListener {
+    NSLog(@"[RNBackgroundDownloader] - [registerBridgeListener]");
     @synchronized (sharedLock) {
-        if (isNotificationCenterInited != YES) {
-            isNotificationCenterInited = YES;
+        if (isBridgeListenerInited != YES) {
+            isBridgeListenerInited = YES;
             [[NSNotificationCenter defaultCenter] addObserver:self
-                                                  selector:@selector(resumeTasks:)
+                                                  selector:@selector(handleBridgeResumeTasks:)
                                                   name:UIApplicationWillEnterForegroundNotification
+                                                  object:nil];
+
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                  selector:@selector(handleBridgeHotReload:)
+                                                  name:RCTJavaScriptWillStartLoadingNotification
                                                   object:nil];
         }
     }
 }
 
+- (void)unregisterBridgeListener {
+    NSLog(@"[RNBackgroundDownloader] - [unregisterBridgeListener]");
+    if (isBridgeListenerInited == YES) {
+        [[NSNotificationCenter defaultCenter] removeObserver:self];
+        isBridgeListenerInited = NO;
+    }
+}
+
 // TODO: FIXES HANGING DOWNLOADS WHEN GOING TO BG
-- (void) resumeTasks:(NSNotification *) note {
-    NSLog(@"[RNBackgroundDownloader] - [resumeTasks]");
+- (void) handleBridgeResumeTasks:(NSNotification *) note {
+    NSLog(@"[RNBackgroundDownloader] - [handleBridgeResumeTasks]");
     @synchronized (sharedLock) {
         [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
             for (NSURLSessionDownloadTask *task in downloadTasks) {
@@ -179,41 +180,10 @@ RCT_EXPORT_MODULE();
         [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         if (taskConfig) {
-            [self->idToTaskMap removeObjectForKey:taskConfig.id];
+            [self -> idToTaskMap removeObjectForKey:taskConfig.id];
             [idToPercentMap removeObjectForKey:taskConfig.id];
         }
     }
-}
-
-+ (void)setCompletionHandlerWithIdentifier: (NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
-    NSLog(@"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
-    NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
-    NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
-    if ([sessionIdentifier isEqualToString:identifier]) {
-        storedCompletionHandler = completionHandler;
-    }
-}
-
-- (NSError *)getServerError: (nonnull NSURLSessionDownloadTask *)downloadTask {
-  NSLog(@"[RNBackgroundDownloader] - [getServerError]");
-  NSError *serverError;
-  NSInteger httpStatusCode = [((NSHTTPURLResponse *)downloadTask.response) statusCode];
-  if(httpStatusCode != 200) {
-      serverError = [NSError errorWithDomain:NSURLErrorDomain
-                                        code:httpStatusCode
-                                    userInfo:@{NSLocalizedDescriptionKey: [NSHTTPURLResponse localizedStringForStatusCode: httpStatusCode]}];
-  }
-  return serverError;
-}
-
-- (BOOL)saveDownloadedFile: (nonnull RNBGDTaskConfig *) taskConfig downloadURL:(nonnull NSURL *)location error:(NSError **)saveError {
-  NSLog(@"[RNBackgroundDownloader] - [saveDownloadedFile]");
-  NSFileManager *fileManager = [NSFileManager defaultManager];
-  NSURL *destURL = [NSURL fileURLWithPath:taskConfig.destination];
-  [fileManager createDirectoryAtURL:[destURL URLByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
-  [fileManager removeItemAtURL:destURL error:nil];
-
-  return [fileManager moveItemAtURL:location toURL:destURL error:saveError];
 }
 
 #pragma mark - JS exported methods
@@ -229,7 +199,6 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     NSNumber *_progressInterval = options[@"progressInterval"];
     if (_progressInterval) {
         progressInterval = [_progressInterval intValue] / 1000; // progressInterval IN options SUPPLIED IN MILLISECONDS
-
         [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
 
@@ -248,7 +217,6 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     @synchronized (sharedLock) {
-        [self lazyNotification];
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {
             NSLog(@"[RNBackgroundDownloader] - [Error] failed to create download task");
@@ -299,9 +267,22 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
     }
 }
 
+RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    NSLog(@"[RNBackgroundDownloader] - [completeHandlerIOS]");
+    [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+        if (storedCompletionHandler) {
+            storedCompletionHandler();
+            storedCompletionHandler = nil;
+        }
+    }];
+    resolve(nil);
+}
+
 RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     NSLog(@"[RNBackgroundDownloader] - [checkForExistingDownloads]");
-    [self lazyNotification];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         NSMutableArray *idsFound = [[NSMutableArray alloc] init];
         @synchronized (self->sharedLock) {
@@ -340,21 +321,6 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     }];
 }
 
-RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
-                  resolver:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
-{
-    NSLog(@"[RNBackgroundDownloader] - [completeHandlerIOS]");
-    [[NSOperationQueue mainQueue] addOperationWithBlock:^{
-        if (storedCompletionHandler) {
-            storedCompletionHandler();
-            storedCompletionHandler = nil;
-        }
-    }];
-    resolve(nil);
-}
-
-
 #pragma mark - NSURLSessionDownloadDelegate methods
 - (void)URLSession:(nonnull NSURLSession *)session downloadTask:(nonnull NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(nonnull NSURL *)location {
     NSLog(@"[RNBackgroundDownloader] - [didFinishDownloadingToURL]");
@@ -363,7 +329,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
         if (taskConfig != nil) {
             NSError *error = [self getServerError:downloadTask];
             if (error == nil) {
-                [self saveDownloadedFile:taskConfig downloadURL:location error:&error];
+                [self saveFile:taskConfig downloadURL:location error:&error];
             }
             if (self.bridge) {
                 if (error == nil) {
@@ -468,14 +434,37 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
 
 - (void)URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session {
     NSLog(@"[RNBackgroundDownloader] - [URLSessionDidFinishEventsForBackgroundURLSession]");
-   // USE completionHandler FROM JS INSTEAD OF THIS
-   // TOREMOVE
-   // if (storedCompletionHandler) {
-   //     [[NSOperationQueue mainQueue] addOperationWithBlock:^{
-   //         storedCompletionHandler();
-   //         storedCompletionHandler = nil;
-   //     }];
-   // }
+}
+
++ (void)setCompletionHandlerWithIdentifier: (NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
+    NSLog(@"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
+    NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
+    NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
+    if ([sessionIdentifier isEqualToString:identifier]) {
+        storedCompletionHandler = completionHandler;
+    }
+}
+
+- (NSError *)getServerError: (nonnull NSURLSessionDownloadTask *)downloadTask {
+  NSLog(@"[RNBackgroundDownloader] - [getServerError]");
+  NSError *serverError;
+  NSInteger httpStatusCode = [((NSHTTPURLResponse *)downloadTask.response) statusCode];
+  if(httpStatusCode != 200) {
+      serverError = [NSError errorWithDomain:NSURLErrorDomain
+                                        code:httpStatusCode
+                                    userInfo:@{NSLocalizedDescriptionKey: [NSHTTPURLResponse localizedStringForStatusCode: httpStatusCode]}];
+  }
+  return serverError;
+}
+
+- (BOOL)saveFile: (nonnull RNBGDTaskConfig *) taskConfig downloadURL:(nonnull NSURL *)location error:(NSError **)saveError {
+  NSLog(@"[RNBackgroundDownloader] - [saveFile]");
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  NSURL *destURL = [NSURL fileURLWithPath:taskConfig.destination];
+  [fileManager createDirectoryAtURL:[destURL URLByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+  [fileManager removeItemAtURL:destURL error:nil];
+
+  return [fileManager moveItemAtURL:location toURL:destURL error:saveError];
 }
 
 #pragma mark - serialization

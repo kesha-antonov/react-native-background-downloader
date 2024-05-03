@@ -1,4 +1,4 @@
-package com.eko;
+package com.eko.handlers;
 
 import android.app.DownloadManager;
 import android.os.SystemClock;
@@ -6,32 +6,36 @@ import android.util.Log;
 
 import android.database.Cursor;
 
-import java.util.HashMap;
+import com.eko.Downloader;
+import com.eko.interfaces.ProgressCallback;
+import com.eko.RNBGDTaskConfig;
 
 public class OnProgress extends Thread {
   private final RNBGDTaskConfig config;
+  private final Downloader downloader;
   private final long downloadId;
-  private final HashMap downloadParams;
-  private final ProgressCallback callback;
   private long bytesDownloaded;
   private long bytesTotal;
+  private final ProgressCallback callback;
   private final DownloadManager.Query query;
-  private final Downloader downloader;
   private Cursor cursor;
   private boolean isRunning = true;
 
-  public OnProgress(RNBGDTaskConfig config, long downloadId, HashMap downloadParams, Downloader downloader, ProgressCallback callback) {
+  public OnProgress(
+          RNBGDTaskConfig config,
+          Downloader downloader,
+          long downloadId,
+          long bytesDownloaded,
+          long bytesTotal,
+          ProgressCallback callback
+  ) {
     this.config = config;
-    this.downloadId = downloadId;
-    this.downloadParams = downloadParams;
     this.downloader = downloader;
+    this.downloadId = downloadId;
+    this.bytesDownloaded = bytesDownloaded;
+    this.bytesTotal = bytesTotal;
     this.callback = callback;
-    this.query = new DownloadManager.Query();
-    query.setFilterById(this.downloadId);
-
-    Double expectedBytes = (Double) downloadParams.get("expectedBytes");
-    this.bytesDownloaded = 0;;
-    this.bytesTotal = expectedBytes != null ? expectedBytes.longValue() : 0;
+    this.query = new DownloadManager.Query().setFilterById(this.downloadId);
   }
 
   @Override
