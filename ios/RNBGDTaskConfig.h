@@ -1,11 +1,3 @@
-//
-//  TaskConfig.h
-//  EkoApp
-//
-//  Created by Elad Gil on 21/11/2017.
-//  Copyright © 2017 Eko. All rights reserved.
-//
-
 #import <Foundation/Foundation.h>
 
 @interface RNBGDTaskConfig : NSObject <NSCoding, NSSecureCoding>

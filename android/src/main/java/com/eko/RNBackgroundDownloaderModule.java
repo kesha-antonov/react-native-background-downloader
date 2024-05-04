@@ -60,7 +60,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private static final int ERR_FILE_NOT_FOUND = 3;
   private static final int ERR_OTHERS = 100;
 
-  private static Map<Integer, Integer> stateMap = new HashMap<Integer, Integer>() {
+  private static final Map<Integer, Integer> stateMap = new HashMap<Integer, Integer>() {
     {
       put(DownloadManager.STATUS_FAILED, TASK_CANCELING);
       put(DownloadManager.STATUS_PAUSED, TASK_SUSPENDED);
@@ -78,8 +78,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private Map<String, Long> configIdToDownloadId = new HashMap<>();
   private Map<String, Double> configIdToPercent = new HashMap<>();
   private Map<String, WritableMap> progressReports = new HashMap<>();
+  private int progressInterval = 0;
   private Date lastProgressReportedAt = new Date();
-  private int progressInterval;
   private Map<String, OnProgress> onProgressThreads = new HashMap<>();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
@@ -104,12 +104,14 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   @Nullable
   @Override
   public Map<String, Object> getConstants() {
+    Context context =  this.getReactApplicationContext();
     Map<String, Object> constants = new HashMap<>();
-    File externalDirectory = this.getReactApplicationContext().getExternalFilesDir(null);
+
+    File externalDirectory = context.getExternalFilesDir(null);
     if (externalDirectory != null) {
       constants.put("documents", externalDirectory.getAbsolutePath());
     } else {
-      constants.put("documents", this.getReactApplicationContext().getFilesDir().getAbsolutePath());
+      constants.put("documents", context.getFilesDir().getAbsolutePath());
     }
 
     constants.put("TaskRunning", TASK_RUNNING);
@@ -134,12 +136,14 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   }
 
   private void registerDownloadReceiver() {
+    Context context = getReactApplicationContext();
+    IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+
     downloadReceiver = new BroadcastReceiver() {
       @Override
       public void onReceive(Context context, Intent intent) {
         try {
           long downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-
           RNBGDTaskConfig config = downloadIdToConfig.get(downloadId);
 
           if (config != null) {
@@ -167,18 +171,12 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       }
     };
 
-    Context context = getReactApplicationContext();
-    IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-    compatRegisterReceiver(context, downloadReceiver, filter, true);
-  }
-
-  // TAKEN FROM
-  // https://github.com/facebook/react-native/pull/38256/files#diff-d5e21477eeadeb0c536d5870f487a8528f9a16ae928c397fec7b255805cc8ad3
-  private void compatRegisterReceiver(Context context, BroadcastReceiver receiver, IntentFilter filter, boolean exported) {
+    // TAKEN FROM
+    // https://github.com/facebook/react-native/pull/38256/files#diff-d5e21477eeadeb0c536d5870f487a8528f9a16ae928c397fec7b255805cc8ad3
     if (Build.VERSION.SDK_INT >= 34) {
-      context.registerReceiver(receiver, filter, exported ? Context.RECEIVER_EXPORTED : Context.RECEIVER_NOT_EXPORTED);
+      context.registerReceiver(downloadReceiver, filter, Context.RECEIVER_EXPORTED);
     } else {
-      context.registerReceiver(receiver, filter);
+      context.registerReceiver(downloadReceiver, filter);
     }
   }
 
@@ -225,7 +223,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       return;
     }
 
-    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata);
     final Request request = new Request(Uri.parse(url));
     request.setAllowedOverRoaming(isAllowedOverRoaming);
     request.setAllowedOverMetered(isAllowedOverMetered);
@@ -233,11 +230,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       request.setRequiresCharging(false);
     }
-
-    int uuid = (int) (System.currentTimeMillis() & 0xfffffff);
-    String extension = MimeTypeMap.getFileExtensionFromUrl(destination);
-    String filename = uuid + "." + extension;
-    request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, filename);
 
     if (headers != null) {
       ReadableMapKeySetIterator it = headers.keySetIterator();
@@ -247,7 +239,13 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       }
     }
 
+    int uuid = (int) (System.currentTimeMillis() & 0xfffffff);
+    String extension = MimeTypeMap.getFileExtensionFromUrl(destination);
+    String filename = uuid + "." + extension;
+    request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, filename);
+
     long downloadId = downloader.queueDownload(request);
+    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata);
 
     synchronized (sharedLock) {
       configIdToDownloadId.put(id, downloadId);
@@ -255,15 +253,13 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       configIdToPercent.put(id, 0.0);
       saveDownloadIdToConfigMap();
 
-      if (config.reportedBegin) {
-        return;
-      }
+      if (config.reportedBegin) return;
 
       startReportingTasks(downloadId, config);
     }
   }
 
-  // TODO: NOT WORKING WITH DownloadManager FOR NOW
+  // TODO: Not working with DownloadManager for now.
   @ReactMethod
   public void pauseTask(String configId) {
     synchronized (sharedLock) {
@@ -274,7 +270,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  // TODO: NOT WORKING WITH DownloadManager FOR NOW
+  // TODO: Not working with DownloadManager for now.
   @ReactMethod
   public void resumeTask(String configId) {
     synchronized (sharedLock) {
@@ -290,11 +286,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
-        // DELETES CONFIG HERE SO receiver WILL NOT THROW ERROR DOWNLOAD_FAILED TO THE
-        // USER
         removeTaskFromMap(downloadId);
         stopTrackingProgress(configId);
-
         downloader.cancelDownload(downloadId);
       }
     }
@@ -306,8 +299,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
         removeTaskFromMap(downloadId);
-        // REMOVES DOWNLOAD FROM DownloadManager SO IT WOULD NOT BE RETURNED IN
-        // checkForExistingDownloads
         downloader.cancelDownload(downloadId);
       }
     }
@@ -344,7 +335,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
               foundIds.pushMap(params);
 
-              // TODO: MAYBE ADD headers
               configIdToDownloadId.put(config.id, downloadId);
               configIdToPercent.put(config.id, bytesDownloaded / bytesTotal);
             } else {
@@ -375,20 +365,13 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     downloadIdToConfig.put(downloadId, config);
     saveDownloadIdToConfigMap();
 
-    // report begin & progress
-    // overlaped with thread to not block main thread
     new Thread(() -> {
       try {
         while (true) {
           WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
           int status = downloadStatus.getInt("status");
-          if (status == DownloadManager.STATUS_RUNNING) {
-            break;
-          } else if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
-            Thread.currentThread().interrupt();
-            break;
-          }
-
+          if (status == DownloadManager.STATUS_RUNNING) break;
+          if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) Thread.currentThread().interrupt();
           SystemClock.sleep(500);
         }
 
@@ -396,9 +379,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
         onBeginThread.start();
         onBeginThread.join();
 
-        Double expectedBytes = (Double) onBeginThread.getParams().get("expectedBytes");
         long bytesDownloaded = 0;
-        long bytesTotal = expectedBytes != null ? expectedBytes.longValue() : 0;
+        long bytesTotal = onBeginThread.getBytesExpected();
 
         OnProgress onProgressThread = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
         onProgressThreads.put(config.id, onProgressThread);
@@ -412,7 +394,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private void onBeginDownload(String configId, WritableMap headers, long expectedBytes) {
     WritableMap params = Arguments.createMap();
     params.putString("id", configId);
-    params.putMap("location", headers);
+    params.putMap("headers", headers);
     params.putDouble("expectedBytes", expectedBytes);
     ee.emit("downloadBegin", params);
   }
@@ -437,8 +419,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
     if (conditionContain && conditionInterval) {
       WritableArray reportsArray = Arguments.createArray();
-      for (Object report : progressReports.values()) {
-        reportsArray.pushMap((WritableMap) report);
+      for (WritableMap report : progressReports.values()) {
+        reportsArray.pushMap(report);
       }
       ee.emit("downloadProgress", reportsArray);
       lastProgressReportedAt = now;
@@ -451,20 +433,16 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     File file = new File(localUri);
     File dest = new File(config.destination);
 
-    // only move if source file exists (to handle case if this intent is double called)
     if(file.exists()) {
-      // REMOVE DEST FILE IF EXISTS
       if (dest.exists()) {
         dest.delete();
       }
 
-      // CREATE DESTINATION DIR IF NOT EXISTS
       File destDir = new File(dest.getParent());
       if (!destDir.exists()) {
         destDir.mkdirs();
       }
 
-      // MOVE FILE
       moveFile(file, dest);
       file.delete();
     }
@@ -478,7 +456,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   }
 
   private void onFailedDownload(RNBGDTaskConfig config, WritableMap downloadStatus) {
-    Log.e(getName(), "onReceive: " +
+    Log.e(getName(), "onFailedDownload: " +
             downloadStatus.getInt("status") + ":" +
             downloadStatus.getInt("reason") + ":" +
             downloadStatus.getString("reasonText")

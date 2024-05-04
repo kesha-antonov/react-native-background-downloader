@@ -17,9 +17,10 @@ static CompletionHandler storedCompletionHandler;
     NSMutableDictionary<NSString *, NSData *> *idToResumeDataMap;
     NSMutableDictionary<NSString *, NSNumber *> *idToPercentMap;
     NSMutableDictionary<NSString *, NSDictionary *> *progressReports;
-    NSDate *lastProgressReportedAt;
     float progressInterval;
+    NSDate *lastProgressReportedAt;
     BOOL isBridgeListenerInited;
+    BOOL isJavascriptLoaded;
 }
 
 RCT_EXPORT_MODULE();
@@ -59,18 +60,8 @@ RCT_EXPORT_MODULE();
     self = [super init];
     if (self) {
         [MMKV initializeMMKV:nil];
-
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
-        NSData *taskToConfigMapData = [mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY];
-        taskToConfigMap = [self deserialize:taskToConfigMapData] ?: [[NSMutableDictionary alloc] init];
-
-        float progressIntervalScope = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
-        progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
-
-        self->idToTaskMap = [[NSMutableDictionary alloc] init];
-        idToResumeDataMap = [[NSMutableDictionary alloc] init];
-        idToPercentMap = [[NSMutableDictionary alloc] init];
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
         sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessionIdentifier];
@@ -86,9 +77,19 @@ RCT_EXPORT_MODULE();
             sessionConfig.allowsExpensiveNetworkAccess = YES;
         }
 
-        progressReports = [[NSMutableDictionary alloc] init];
-        lastProgressReportedAt = [[NSDate alloc] init];
         sharedLock = [NSNumber numberWithInt:1];
+
+        NSData *taskToConfigMapData = [mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY];
+        taskToConfigMap = [self deserialize:taskToConfigMapData] ?: [[NSMutableDictionary alloc] init];
+        self->idToTaskMap = [[NSMutableDictionary alloc] init];
+        idToResumeDataMap = [[NSMutableDictionary alloc] init];
+        idToPercentMap = [[NSMutableDictionary alloc] init];
+
+        progressReports = [[NSMutableDictionary alloc] init];
+        float progressIntervalScope = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
+        progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
+        lastProgressReportedAt = [[NSDate alloc] init];
+
         [self registerSession];
         [self registerBridgeListener];
     }
@@ -105,6 +106,11 @@ RCT_EXPORT_MODULE();
     NSLog(@"[RNBackgroundDownloader] - [handleBridgeHotReload]");
     [self unregisterSession];
     [self unregisterBridgeListener];
+}
+
+- (void)handleBridgeJavascriptLoad:(NSNotification *) note {
+    NSLog(@"[RNBackgroundDownloader] - [handleBridgeJavascriptLoad]");
+    isJavascriptLoaded = YES;
 }
 
 - (void)registerSession {
@@ -131,12 +137,17 @@ RCT_EXPORT_MODULE();
             isBridgeListenerInited = YES;
             [[NSNotificationCenter defaultCenter] addObserver:self
                                                   selector:@selector(handleBridgeResumeTasks:)
-                                                  name:UIApplicationWillEnterForegroundNotification
+                                                  name:UIApplicationDidEnterBackgroundNotification
                                                   object:nil];
 
             [[NSNotificationCenter defaultCenter] addObserver:self
                                                   selector:@selector(handleBridgeHotReload:)
                                                   name:RCTJavaScriptWillStartLoadingNotification
+                                                  object:nil];
+
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                  selector:@selector(handleBridgeJavascriptLoad:)
+                                                  name:RCTJavaScriptDidLoadNotification
                                                   object:nil];
         }
     }
@@ -150,7 +161,6 @@ RCT_EXPORT_MODULE();
     }
 }
 
-// TODO: FIXES HANGING DOWNLOADS WHEN GOING TO BG
 - (void) handleBridgeResumeTasks:(NSNotification *) note {
     NSLog(@"[RNBackgroundDownloader] - [handleBridgeResumeTasks]");
     @synchronized (sharedLock) {
@@ -160,7 +170,6 @@ RCT_EXPORT_MODULE();
                 // suspended - 1
                 // canceling - 2
                 // completed - 3
-
                 if (task.state == NSURLSessionTaskStateRunning) {
                     [task suspend];
                     [task resume];
@@ -195,13 +204,11 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     NSString *metadata = options[@"metadata"];
     NSDictionary *headers = options[@"headers"];
 
-
-    NSNumber *_progressInterval = options[@"progressInterval"];
-    if (_progressInterval) {
-        progressInterval = [_progressInterval intValue] / 1000; // progressInterval IN options SUPPLIED IN MILLISECONDS
+    NSNumber *progressIntervalScope = options[@"progressInterval"];
+    if (progressIntervalScope) {
+        progressInterval = [progressIntervalScope intValue] / 1000;
         [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
-
 
     NSLog(@"[RNBackgroundDownloader] - [download] - 1 url %@ destination %@ progressInterval %f", url, destination, progressInterval);
     if (identifier == nil || url == nil || destination == nil) {
@@ -331,10 +338,9 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             if (error == nil) {
                 [self saveFile:taskConfig downloadURL:location error:&error];
             }
-            if (self.bridge) {
+            if (self.bridge && isJavascriptLoaded) {
                 if (error == nil) {
                     NSDictionary *responseHeaders = ((NSHTTPURLResponse *)downloadTask.response).allHeaderFields;
-                    // TODO: SEND bytesDownloaded AND bytesTotal
                     [self sendEventWithName:@"downloadComplete" body:@{
                         @"id": taskConfig.id,
                         @"headers": responseHeaders,
@@ -373,7 +379,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             // NSLog(@"[RNBackgroundDownloader] - [didWriteData] destination - %@", taskCofig.destination);
             if (!taskCofig.reportedBegin) {
                 NSDictionary *responseHeaders = ((NSHTTPURLResponse *)downloadTask.response).allHeaderFields;
-                if (self.bridge) {
+                if (self.bridge && isJavascriptLoaded) {
                     [self sendEventWithName:@"downloadBegin" body:@{
                         @"id": taskCofig.id,
                         @"expectedBytes": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite],
@@ -397,7 +403,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 
             NSDate *now = [[NSDate alloc] init];
             if ([now timeIntervalSinceDate:lastProgressReportedAt] > progressInterval && progressReports.count > 0) {
-                if (self.bridge) {
+                if (self.bridge && isJavascriptLoaded) {
                     [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
                 }
                 lastProgressReportedAt = now;
@@ -417,7 +423,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
         if (taskCofig == nil)
             return;
 
-        if (self.bridge) {
+        if (self.bridge && isJavascriptLoaded) {
             [self sendEventWithName:@"downloadFailed" body:@{
                 @"id": taskCofig.id,
                 @"error": [error localizedDescription],
@@ -425,7 +431,6 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                 @"errorCode": @-1
             }];
         }
-        // IF WE CAN'T RESUME TO DOWNLOAD LATER
         if (error.userInfo[NSURLSessionDownloadTaskResumeData] == nil) {
             [self removeTaskFromMap:task];
         }
@@ -473,7 +478,6 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     NSData *data = [NSKeyedArchiver archivedDataWithRootObject:obj requiringSecureCoding:NO error:&error];
 
     if (error) {
-        // Handle the error
         NSLog(@"[RNBackgroundDownloader] Serialization error: %@", error);
     }
 
@@ -485,7 +489,6 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     id obj = [NSKeyedUnarchiver unarchivedObjectOfClass:[NSObject class] fromData:data error:&error];
 
     if (error) {
-        // Handle the error
         NSLog(@"[RNBackgroundDownloader] Deserialization error: %@", error);
     }
 

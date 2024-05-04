@@ -4,7 +4,6 @@ import android.util.Log;
 
 import java.net.URL;
 import java.net.URLConnection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -17,16 +16,16 @@ import com.facebook.react.bridge.Arguments;
 public class OnBegin extends Thread {
   private final RNBGDTaskConfig config;
   private final BeginCallback callback;
-  private HashMap params;
-
+  private long bytesExpected;
 
   public OnBegin(RNBGDTaskConfig config, BeginCallback callback) {
     this.config = config;
     this.callback = callback;
+    this.bytesExpected = 0;
   }
 
-  public HashMap getParams() {
-    return params;
+  public long getBytesExpected() {
+    return bytesExpected;
   }
 
   @Override
@@ -34,34 +33,25 @@ public class OnBegin extends Thread {
     try {
       URL url = new URL(config.url);
       URLConnection urlConnection = url.openConnection();
-      Map<String, List<String>> headers = urlConnection.getHeaderFields();
-
-      String id = config.id;
-      WritableMap headersMap = convertHeadersToWritableMap(headers);
-      long expectedBytes = getContentLength(headersMap);
-
-      WritableMap map = Arguments.createMap();
-      map.putString("id", id);
-      map.putMap("headers", headersMap);
-      map.putDouble("expectedBytes", expectedBytes);
-
-      params = map.toHashMap();
-      callback.onBegin(config.id, headersMap, expectedBytes);
+      Map<String, List<String>> urlHeaders = urlConnection.getHeaderFields();
+      WritableMap headers = convertMapToWritableMap(urlHeaders);
+      bytesExpected = getContentLength(headers);
+      callback.onBegin(config.id, headers, bytesExpected);
     } catch (Exception e) {
       Log.e("RNBackgroundDownloader", "OnBegin: " + Log.getStackTraceString(e));
     }
   }
 
-  private WritableMap convertHeadersToWritableMap(Map<String, List<String>> headers) {
-    WritableMap headersMap = Arguments.createMap();
-    for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+  private WritableMap convertMapToWritableMap(Map<String, List<String>> map) {
+    WritableMap writableMap = Arguments.createMap();
+    for (Map.Entry<String, List<String>> entry : map.entrySet()) {
       String key = entry.getKey();
       List<String> values = entry.getValue();
       if (values != null && !values.isEmpty()) {
-        headersMap.putString(key, values.get(0));
+        writableMap.putString(key, values.get(0));
       }
     }
-    return headersMap;
+    return writableMap;
   }
 
   private long getContentLength(WritableMap headersMap) {

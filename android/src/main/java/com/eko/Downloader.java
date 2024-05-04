@@ -16,7 +16,7 @@ import static android.content.Context.DOWNLOAD_SERVICE;
 
 public class Downloader {
     public DownloadManager downloadManager;
-    private Context context;
+    private final Context context;
     private HashSet<String> alreadySentIntentDownloadIds = new HashSet<>();
 
     public Downloader(Context ctx) {
