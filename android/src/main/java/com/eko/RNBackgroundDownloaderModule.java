@@ -13,6 +13,8 @@ import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import android.app.DownloadManager;
 import android.app.DownloadManager.Request;
@@ -24,6 +26,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -60,6 +66,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private static final int ERR_FILE_NOT_FOUND = 3;
   private static final int ERR_OTHERS = 100;
 
+  private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+
   private static Map<Integer, Integer> stateMap = new HashMap<Integer, Integer>() {
     {
       put(DownloadManager.STATUS_FAILED, TASK_CANCELING);
@@ -83,18 +91,11 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private static Object sharedLock = new Object();
 
-  private static void moveFile(File src, File dst) throws IOException {
-    FileChannel inChannel = new FileInputStream(src).getChannel();
-    FileChannel outChannel = new FileOutputStream(dst).getChannel();
-    try {
-      inChannel.transferTo(0, inChannel.size(), outChannel);
-      src.delete();
-    } finally {
-      if (inChannel != null)
-        inChannel.close();
-      if (outChannel != null)
-        outChannel.close();
-    }
+  private static void moveFile(String sourcePath, String destinationPath) throws IOException {
+    Path source = Paths.get(sourcePath);
+    Path destination = Paths.get(destinationPath);
+
+    Files.move(source, destination, StandardCopyOption.REPLACE_EXISTING);
   }
 
   private static MMKV mmkv;
@@ -116,36 +117,48 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           synchronized (sharedLock) {
             switch (status) {
               case DownloadManager.STATUS_SUCCESSFUL: {
-                // MOVES FILE TO DESTINATION
-                String localUri = downloadStatus.getString("localUri");
-                File file = new File(localUri);
-                File dest = new File(config.destination);
+                executorService.submit(() -> {
+                  try {
+                    // MOVES FILE TO DESTINATION
+                    String localUri = downloadStatus.getString("localUri");
+                    File file = new File(localUri);
+                    File dest = new File(config.destination);
 
-                // only move if source file exists (to handle case if this intent is double called)
-                if(file.exists()) {
-                  // REMOVE DEST FILE IF EXISTS
-                  if (dest.exists()) {
-                    dest.delete();
+                    // only move if source file exists (to handle case if this intent is double called)
+                    if(file.exists()) {
+                      // CREATE DESTINATION DIR IF NOT EXISTS
+                      File destDir = new File(dest.getParent());
+                      if (!destDir.exists()) {
+                        destDir.mkdirs();
+                      }
+
+                      // MOVE FILE (this deletes the source file)
+                      moveFile(file.getAbsolutePath(), dest.getAbsolutePath());
+
+                      WritableMap params = Arguments.createMap();
+                      params.putString("id", config.id);
+                      params.putString("location", config.destination);
+                      params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
+                      params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
+
+                      ee.emit("downloadComplete", params);
+                    } else {
+                      // we emit again, this is to handle the case where the app was closed when the download finished
+                      // in this case, we only emit the download complete event so the next time the app opens, the frontend gets it
+                      WritableMap params = Arguments.createMap();
+                      params.putString("id", config.id);
+                      params.putString("location", config.destination);
+                      params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
+                      params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
+
+                      ee.emit("downloadComplete", params);
+                    }
+                  } catch (Exception e) {
+                    e.printStackTrace();
+                    Log.e(getName(), "Error moving file: " + e.getMessage());
+                    // Handle error - Make sure to emit events or log on the UI thread if necessary
                   }
-
-                  // CREATE DESTINATION DIR IF NOT EXISTS
-                  File destDir = new File(dest.getParent());
-                  if (!destDir.exists()) {
-                    destDir.mkdirs();
-                  }
-
-                  // MOVE FILE
-                  moveFile(file, dest);
-                  file.delete();
-                }
-
-                WritableMap params = Arguments.createMap();
-                params.putString("id", config.id);
-                params.putString("location", config.destination);
-                params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
-                params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
-
-                ee.emit("downloadComplete", params);
+                });
                 break;
               }
               case DownloadManager.STATUS_FAILED: {
@@ -421,15 +434,14 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 public void onProgress(String configId, long bytesDownloaded, long bytesTotal) {
                   double prevPercent = configIdToPercent.getOrDefault(configId, 0.0);
                   double percent = (double) bytesDownloaded / bytesTotal;
-                  if (percent - prevPercent > 0.01) {
-                    WritableMap params = Arguments.createMap();
-                    params.putString("id", configId);
-                    params.putDouble("bytesDownloaded", bytesDownloaded);
-                    params.putDouble("bytesTotal", bytesTotal);
 
-                    progressReports.put(configId, params);
-                    configIdToPercent.put(configId, percent);
-                  }
+                  WritableMap params = Arguments.createMap();
+                  params.putString("id", configId);
+                  params.putDouble("bytesDownloaded", bytesDownloaded);
+                  params.putDouble("bytesTotal", bytesTotal);
+
+                  progressReports.put(configId, params);
+                  configIdToPercent.put(configId, percent);
 
                   Date now = new Date();
                   if (now.getTime() - lastProgressReportedAt.getTime() > progressInterval &&
