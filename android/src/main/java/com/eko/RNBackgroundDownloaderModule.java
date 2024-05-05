@@ -127,6 +127,13 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     super.initialize();
     ee = getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     registerDownloadReceiver();
+
+    // TODO: Another method can be developed for the operation of this place.
+    for (Map.Entry<Long, RNBGDTaskConfig> entry : downloadIdToConfig.entrySet()) {
+      Long downloadId = entry.getKey();
+      RNBGDTaskConfig config = entry.getValue();
+      resumeTasks(downloadId, config);
+    }
   }
 
   @Override
@@ -185,6 +192,37 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       getReactApplicationContext().unregisterReceiver(downloadReceiver);
       downloadReceiver = null;
     }
+  }
+
+  private void resumeTasks(Long downloadId, RNBGDTaskConfig config) {
+    config.reportedBegin = true;
+    downloadIdToConfig.put(downloadId, config);
+    saveDownloadIdToConfigMap();
+
+    new Thread(() -> {
+      try {
+        while (true) {
+          WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
+          int status = downloadStatus.getInt("status");
+          if (status == DownloadManager.STATUS_RUNNING) break;
+          if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) Thread.currentThread().interrupt();
+          SystemClock.sleep(500);
+        }
+
+        OnBegin onBeginThread = new OnBegin(config, this::onBeginDownload);
+        onBeginThread.start();
+        onBeginThread.join();
+
+        long bytesDownloaded = 0;
+        long bytesTotal = onBeginThread.getBytesExpected();
+
+        OnProgress onProgressThread = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
+        onProgressThreads.put(config.id, onProgressThread);
+        onProgressThread.start();
+      } catch (Exception e) {
+        Log.e(getName(), "startReportingTasks: " + Log.getStackTraceString(e));
+      }
+    }).start();
   }
 
   private void removeTaskFromMap(long downloadId) {
@@ -255,7 +293,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
       if (config.reportedBegin) return;
 
-      startReportingTasks(downloadId, config);
+      resumeTasks(downloadId, config);
     }
   }
 
@@ -359,37 +397,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void removeListeners(Integer count) {}
-
-  private void startReportingTasks(Long downloadId, RNBGDTaskConfig config) {
-    config.reportedBegin = true;
-    downloadIdToConfig.put(downloadId, config);
-    saveDownloadIdToConfigMap();
-
-    new Thread(() -> {
-      try {
-        while (true) {
-          WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
-          int status = downloadStatus.getInt("status");
-          if (status == DownloadManager.STATUS_RUNNING) break;
-          if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) Thread.currentThread().interrupt();
-          SystemClock.sleep(500);
-        }
-
-        OnBegin onBeginThread = new OnBegin(config, this::onBeginDownload);
-        onBeginThread.start();
-        onBeginThread.join();
-
-        long bytesDownloaded = 0;
-        long bytesTotal = onBeginThread.getBytesExpected();
-
-        OnProgress onProgressThread = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
-        onProgressThreads.put(config.id, onProgressThread);
-        onProgressThread.start();
-      } catch (Exception e) {
-        Log.e(getName(), "startReportingTasks: " + Log.getStackTraceString(e));
-      }
-    }).start();
-  }
 
   private void onBeginDownload(String configId, WritableMap headers, long expectedBytes) {
     WritableMap params = Arguments.createMap();

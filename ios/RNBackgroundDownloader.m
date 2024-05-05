@@ -55,7 +55,7 @@ RCT_EXPORT_MODULE();
     };
 }
 
-- (id) init {
+- (id)init {
     NSLog(@"[RNBackgroundDownloader] - [init]");
     self = [super init];
     if (self) {
@@ -96,7 +96,7 @@ RCT_EXPORT_MODULE();
     return self;
 }
 
-- (void) dealloc {
+- (void)dealloc {
     NSLog(@"[RNBackgroundDownloader] - [dealloc]");
     [self unregisterSession];
     [self unregisterBridgeListener];
@@ -106,11 +106,6 @@ RCT_EXPORT_MODULE();
     NSLog(@"[RNBackgroundDownloader] - [handleBridgeHotReload]");
     [self unregisterSession];
     [self unregisterBridgeListener];
-}
-
-- (void)handleBridgeJavascriptLoad:(NSNotification *) note {
-    NSLog(@"[RNBackgroundDownloader] - [handleBridgeJavascriptLoad]");
-    isJavascriptLoaded = YES;
 }
 
 - (void)registerSession {
@@ -136,8 +131,8 @@ RCT_EXPORT_MODULE();
         if (isBridgeListenerInited != YES) {
             isBridgeListenerInited = YES;
             [[NSNotificationCenter defaultCenter] addObserver:self
-                                                  selector:@selector(handleBridgeResumeTasks:)
-                                                  name:UIApplicationDidEnterBackgroundNotification
+                                                  selector:@selector(handleBridgeAppEnterForeground:)
+                                                  name:UIApplicationWillEnterForegroundNotification
                                                   object:nil];
 
             [[NSNotificationCenter defaultCenter] addObserver:self
@@ -161,9 +156,19 @@ RCT_EXPORT_MODULE();
     }
 }
 
-- (void) handleBridgeResumeTasks:(NSNotification *) note {
-    NSLog(@"[RNBackgroundDownloader] - [handleBridgeResumeTasks]");
+- (void)handleBridgeJavascriptLoad:(NSNotification *) note {
+    NSLog(@"[RNBackgroundDownloader] - [handleBridgeJavascriptLoad]");
+    isJavascriptLoaded = YES;
+}
+
+- (void)handleBridgeAppEnterForeground:(NSNotification *) note {
+    NSLog(@"[RNBackgroundDownloader] - [handleBridgeAppEnterForeground]");
+    [self resumeTasks];
+}
+
+- (void)resumeTasks {
     @synchronized (sharedLock) {
+        NSLog(@"[RNBackgroundDownloader] - [resumeTasks]");
         [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
             for (NSURLSessionDownloadTask *task in downloadTasks) {
                 // running - 0
