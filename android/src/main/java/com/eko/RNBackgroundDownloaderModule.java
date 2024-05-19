@@ -1,6 +1,5 @@
 package com.eko;
 
-import android.os.SystemClock;
 import android.util.Log;
 
 import com.eko.handlers.OnBegin;
@@ -77,10 +76,10 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private Map<Long, RNBGDTaskConfig> downloadIdToConfig = new HashMap<>();
   private Map<String, Long> configIdToDownloadId = new HashMap<>();
   private Map<String, Double> configIdToPercent = new HashMap<>();
+  private Map<String, OnProgress> configIdToProgressThreads = new HashMap<>();
   private Map<String, WritableMap> progressReports = new HashMap<>();
   private int progressInterval = 0;
   private Date lastProgressReportedAt = new Date();
-  private Map<String, OnProgress> onProgressThreads = new HashMap<>();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
@@ -127,13 +126,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     super.initialize();
     ee = getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
     registerDownloadReceiver();
-
-    // TODO: Another method can be developed for the operation of this place.
-    for (Map.Entry<Long, RNBGDTaskConfig> entry : downloadIdToConfig.entrySet()) {
-      Long downloadId = entry.getKey();
-      RNBGDTaskConfig config = entry.getValue();
-      resumeTasks(downloadId, config);
-    }
   }
 
   @Override
@@ -157,7 +149,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
             WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
             int status = downloadStatus.getInt("status");
 
-            stopTrackingProgress(config.id);
+            stopTaskProgress(config.id);
 
             synchronized (sharedLock) {
               switch (status) {
@@ -178,8 +170,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       }
     };
 
-    // TAKEN FROM
-    // https://github.com/facebook/react-native/pull/38256/files#diff-d5e21477eeadeb0c536d5870f487a8528f9a16ae928c397fec7b255805cc8ad3
     if (Build.VERSION.SDK_INT >= 34) {
       context.registerReceiver(downloadReceiver, filter, Context.RECEIVER_EXPORTED);
     } else {
@@ -199,30 +189,20 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     downloadIdToConfig.put(downloadId, config);
     saveDownloadIdToConfigMap();
 
-    new Thread(() -> {
-      try {
-        while (true) {
-          WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
-          int status = downloadStatus.getInt("status");
-          if (status == DownloadManager.STATUS_RUNNING) break;
-          if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) Thread.currentThread().interrupt();
-          SystemClock.sleep(500);
-        }
+    try {
+      OnBegin onBeginThread = new OnBegin(config, this::onBeginDownload);
+      onBeginThread.start();
+      onBeginThread.join();
 
-        OnBegin onBeginThread = new OnBegin(config, this::onBeginDownload);
-        onBeginThread.start();
-        onBeginThread.join();
+      long bytesDownloaded = 0;
+      long bytesTotal = onBeginThread.getBytesExpected();
 
-        long bytesDownloaded = 0;
-        long bytesTotal = onBeginThread.getBytesExpected();
-
-        OnProgress onProgressThread = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
-        onProgressThreads.put(config.id, onProgressThread);
-        onProgressThread.start();
-      } catch (Exception e) {
-        Log.e(getName(), "startReportingTasks: " + Log.getStackTraceString(e));
-      }
-    }).start();
+      OnProgress onProgressThread = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
+      configIdToProgressThreads.put(config.id, onProgressThread);
+      onProgressThread.start();
+    } catch (Exception e) {
+      Log.e(getName(), "resumeTasks: " + Log.getStackTraceString(e));
+    }
   }
 
   private void removeTaskFromMap(long downloadId) {
@@ -231,9 +211,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
       if (config != null) {
         configIdToDownloadId.remove(config.id);
-        downloadIdToConfig.remove(downloadId);
         configIdToPercent.remove(config.id);
-
+        downloadIdToConfig.remove(downloadId);
         saveDownloadIdToConfigMap();
       }
     }
@@ -282,13 +261,13 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     String filename = uuid + "." + extension;
     request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, filename);
 
-    long downloadId = downloader.queueDownload(request);
+    long downloadId = downloader.download(request);
     RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata);
 
     synchronized (sharedLock) {
       configIdToDownloadId.put(id, downloadId);
-      downloadIdToConfig.put(downloadId, config);
       configIdToPercent.put(id, 0.0);
+      downloadIdToConfig.put(downloadId, config);
       saveDownloadIdToConfigMap();
 
       if (config.reportedBegin) return;
@@ -324,8 +303,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
+        stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
-        stopTrackingProgress(configId);
         downloader.cancelDownload(downloadId);
       }
     }
@@ -336,6 +315,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
+        stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
         downloader.cancelDownload(downloadId);
       }
@@ -344,14 +324,14 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void checkForExistingDownloads(final Promise promise) {
-    WritableArray foundIds = Arguments.createArray();
+    WritableArray foundTasks = Arguments.createArray();
 
     synchronized (sharedLock) {
       Cursor cursor = null;
 
       try {
-        DownloadManager.Query downloadQuery = new DownloadManager.Query();
-        cursor = downloader.downloadManager.query(downloadQuery);
+        DownloadManager.Query query = new DownloadManager.Query();
+        cursor = downloader.downloadManager.query(query);
 
         if (cursor.moveToFirst()) {
           do {
@@ -371,7 +351,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               double bytesTotal = downloadStatus.getDouble("bytesTotal");
               params.putDouble("bytesTotal", bytesTotal);
 
-              foundIds.pushMap(params);
+              foundTasks.pushMap(params);
 
               configIdToDownloadId.put(config.id, downloadId);
               configIdToPercent.put(config.id, bytesDownloaded / bytesTotal);
@@ -389,7 +369,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       }
     }
 
-    promise.resolve(foundIds);
+    promise.resolve(foundTasks);
   }
 
   @ReactMethod
@@ -441,17 +421,10 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     File dest = new File(config.destination);
 
     if(file.exists()) {
-      if (dest.exists()) {
-        dest.delete();
-      }
-
+      if (dest.exists()) dest.delete();
       File destDir = new File(dest.getParent());
-      if (!destDir.exists()) {
-        destDir.mkdirs();
-      }
-
+      if (!destDir.exists()) destDir.mkdirs();
       moveFile(file, dest);
-      file.delete();
     }
 
     WritableMap params = Arguments.createMap();
@@ -514,16 +487,16 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void stopTrackingProgress(String configId) {
-    OnProgress onProgressThread = onProgressThreads.get(configId);
+  private void stopTaskProgress(String configId) {
+    OnProgress onProgressThread = configIdToProgressThreads.get(configId);
     if (onProgressThread != null) {
       onProgressThread.interrupt();
-      onProgressThreads.remove(configId);
       configIdToPercent.remove(configId);
+      configIdToProgressThreads.remove(configId);
     }
   }
 
-  private static void moveFile(File src, File dst) {
+  private void moveFile(File src, File dst) {
     try (FileChannel inChannel = new FileInputStream(src).getChannel(); FileChannel outChannel = new FileOutputStream(dst).getChannel()) {
       inChannel.transferTo(0, inChannel.size(), outChannel);
       src.delete();

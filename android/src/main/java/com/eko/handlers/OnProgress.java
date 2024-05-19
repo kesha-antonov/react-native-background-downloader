@@ -39,8 +39,16 @@ public class OnProgress extends Thread {
   }
 
   @Override
+  public void interrupt() {
+    super.interrupt();
+    isRunning = false;
+  }
+
+  @Override
   public void run() {
     while (isRunning) {
+      int status = -1;
+
       try {
         cursor = downloader.downloadManager.query(query);
 
@@ -49,7 +57,7 @@ public class OnProgress extends Thread {
           break;
         }
 
-        int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+        status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
         if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
           isRunning = false;
           break;
@@ -78,7 +86,13 @@ public class OnProgress extends Thread {
         }
       }
 
-      SystemClock.sleep(250);
+      if (status == DownloadManager.STATUS_PAUSED) {
+        SystemClock.sleep(2000);
+      } else if (status == DownloadManager.STATUS_PENDING) {
+        SystemClock.sleep(1000);
+      } else {
+        SystemClock.sleep(250);
+      }
     }
   }
 }
