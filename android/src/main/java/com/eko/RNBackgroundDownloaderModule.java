@@ -189,20 +189,22 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     downloadIdToConfig.put(downloadId, config);
     saveDownloadIdToConfigMap();
 
-    try {
-      OnBegin onBeginThread = new OnBegin(config, this::onBeginDownload);
-      onBeginThread.start();
-      onBeginThread.join();
+    new Thread(() -> {
+      try {
+        OnBegin onBeginThread = new OnBegin(config, this::onBeginDownload);
+        onBeginThread.start();
+        onBeginThread.join();
 
-      long bytesDownloaded = 0;
-      long bytesTotal = onBeginThread.getBytesExpected();
+        long bytesDownloaded = 0;
+        long bytesTotal = onBeginThread.getBytesExpected();
 
-      OnProgress onProgressThread = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
-      configIdToProgressThreads.put(config.id, onProgressThread);
-      onProgressThread.start();
-    } catch (Exception e) {
-      Log.e(getName(), "resumeTasks: " + Log.getStackTraceString(e));
-    }
+        OnProgress onProgressThread = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
+        configIdToProgressThreads.put(config.id, onProgressThread);
+        onProgressThread.start();
+      } catch (Exception e) {
+        Log.e(getName(), "resumeTasks: " + Log.getStackTraceString(e));
+      }
+    }).start();
   }
 
   private void removeTaskFromMap(long downloadId) {
