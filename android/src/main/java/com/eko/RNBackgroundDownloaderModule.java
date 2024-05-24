@@ -307,7 +307,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       if (downloadId != null) {
         stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
-        downloader.cancelDownload(downloadId);
+        delay(() -> downloader.cancelDownload(downloadId), 500);
       }
     }
   }
@@ -319,7 +319,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       if (downloadId != null) {
         stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
-        downloader.cancelDownload(downloadId);
+        delay(() -> downloader.cancelDownload(downloadId), 500);
       }
     }
   }
@@ -505,5 +505,9 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  private void delay(Runnable task, long delay) {
+    new Handler(Looper.getMainLooper()).postDelayed(task, delay);
   }
 }
