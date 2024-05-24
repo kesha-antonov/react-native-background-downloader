@@ -286,7 +286,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
-        downloader.pauseDownload(downloadId);
+        downloader.pause(downloadId);
       }
     }
   }
@@ -297,7 +297,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
-        downloader.resumeDownload(downloadId);
+        downloader.resume(downloadId);
       }
     }
   }
@@ -309,7 +309,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       if (downloadId != null) {
         stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
-        delay(() -> downloader.cancelDownload(downloadId), 500);
+        delay(() -> downloader.cancel(downloadId), 500);
       }
     }
   }
@@ -321,7 +321,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       if (downloadId != null) {
         stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
-        delay(() -> downloader.cancelDownload(downloadId), 500);
+        delay(() -> downloader.cancel(downloadId), 500);
       }
     }
   }
@@ -360,7 +360,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               configIdToDownloadId.put(config.id, downloadId);
               configIdToPercent.put(config.id, bytesDownloaded / bytesTotal);
             } else {
-              downloader.cancelDownload(downloadId);
+              downloader.cancel(downloadId);
             }
           } while (cursor.moveToNext());
         }

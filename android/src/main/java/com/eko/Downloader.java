@@ -24,13 +24,13 @@ public class Downloader {
         return downloadManager.enqueue(request);
     }
 
-    public int cancelDownload(long downloadId) {
+    public int cancel(long downloadId) {
         return downloadManager.remove(downloadId);
     }
 
     // WAITING FOR THE FIX TO BE MERGED
     // https://android-review.googlesource.com/c/platform/packages/providers/DownloadProvider/+/2089866
-    public void pauseDownload(long downloadId) {
+    public void pause(long downloadId) {
         // ContentValues values = new ContentValues();
         // values.put(Downloads.Impl.COLUMN_CONTROL, Downloads.Impl.CONTROL_PAUSED);
         // values.put(Downloads.Impl.COLUMN_STATUS,
@@ -39,7 +39,7 @@ public class Downloader {
         // ids[0]), values, null, null)
     }
 
-    public void resumeDownload(long downloadId) {
+    public void resume(long downloadId) {
         // ContentValues values = new ContentValues();
         // values.put(Downloads.Impl.COLUMN_STATUS, Downloads.Impl.STATUS_PENDING);
         // values.put(Downloads.Impl.COLUMN_CONTROL, Downloads.Impl.CONTROL_RUN);
