@@ -49,7 +49,7 @@ public class OnProgress extends Thread {
       int status = -1;
 
       DownloadManager.Query query = new DownloadManager.Query();
-      query.setFilterById(this.downloadId);
+      query.setFilterById(downloadId);
       Cursor cursor = downloader.downloadManager.query(query);
 
       try {

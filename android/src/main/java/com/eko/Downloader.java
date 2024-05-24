@@ -27,9 +27,9 @@ public class Downloader {
     public int cancelDownload(long downloadId) {
         return downloadManager.remove(downloadId);
     }
+
     // WAITING FOR THE FIX TO BE MERGED
     // https://android-review.googlesource.com/c/platform/packages/providers/DownloadProvider/+/2089866
-
     public void pauseDownload(long downloadId) {
         // ContentValues values = new ContentValues();
         // values.put(Downloads.Impl.COLUMN_CONTROL, Downloads.Impl.CONTROL_PAUSED);
