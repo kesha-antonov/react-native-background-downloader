@@ -10,6 +10,8 @@ import com.eko.Downloader;
 import com.eko.interfaces.ProgressCallback;
 import com.eko.RNBGDTaskConfig;
 
+import java.util.Objects;
+
 public class OnProgress extends Thread {
   private final RNBGDTaskConfig config;
   private final Downloader downloader;
@@ -17,8 +19,6 @@ public class OnProgress extends Thread {
   private long bytesDownloaded;
   private long bytesTotal;
   private final ProgressCallback callback;
-  private final DownloadManager.Query query;
-  private Cursor cursor;
   private boolean isRunning = true;
 
   public OnProgress(
@@ -35,7 +35,6 @@ public class OnProgress extends Thread {
     this.bytesDownloaded = bytesDownloaded;
     this.bytesTotal = bytesTotal;
     this.callback = callback;
-    this.query = new DownloadManager.Query().setFilterById(this.downloadId);
   }
 
   @Override
@@ -49,18 +48,18 @@ public class OnProgress extends Thread {
     while (isRunning) {
       int status = -1;
 
-      try {
-        cursor = downloader.downloadManager.query(query);
+      DownloadManager.Query query = new DownloadManager.Query();
+      query.setFilterById(this.downloadId);
+      Cursor cursor = downloader.downloadManager.query(query);
 
+      try {
         if (!cursor.moveToFirst()) {
-          isRunning = false;
-          break;
+          throw new Exception("LoopBreaker");
         }
 
         status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
         if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_SUCCESSFUL) {
-          isRunning = false;
-          break;
+          throw new Exception("LoopBreaker");
         }
 
         int byteTotalIndex = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
@@ -79,7 +78,10 @@ public class OnProgress extends Thread {
         }
       } catch (Exception e) {
         isRunning = false;
-        Log.e("RNBackgroundDownloader", "OnProgress: " + Log.getStackTraceString(e));
+
+        if (!Objects.equals(e.getMessage(), "LoopBreaker")) {
+          Log.e("RNBackgroundDownloader", "OnProgress: " + Log.getStackTraceString(e));
+        }
       } finally {
         if (cursor != null) {
           cursor.close();
