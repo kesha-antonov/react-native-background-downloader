@@ -83,6 +83,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private int progressInterval = 0;
   private Date lastProgressReportedAt = new Date();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
+  private final Handler handler = new Handler(Looper.getMainLooper());
 
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -509,7 +510,15 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void delay(Runnable task, long delay) {
-    new Handler(Looper.getMainLooper()).postDelayed(task, delay);
+  private boolean delay(Runnable task, long delay) {
+    Runnable runnable = new Runnable() {
+      @Override
+      public void run() {
+        task.run();
+        handler.removeCallbacks(this);
+      }
+    };
+
+    return handler.postDelayed(runnable, delay);
   }
 }
