@@ -6,6 +6,7 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.eko.interfaces.BeginCallback;
 import com.eko.RNBGDTaskConfig;
@@ -34,7 +35,9 @@ public class OnBegin extends Thread {
       URL url = new URL(config.url);
       URLConnection urlConnection = url.openConnection();
       Map<String, List<String>> urlHeaders = urlConnection.getHeaderFields();
-      WritableMap headers = convertMapToWritableMap(urlHeaders);
+      WritableMap headers = getHeaders(urlConnection, urlHeaders);
+      urlConnection.getInputStream().close();
+
       bytesExpected = getContentLength(headers);
       callback.onBegin(config.id, headers, bytesExpected);
     } catch (Exception e) {
@@ -42,16 +45,16 @@ public class OnBegin extends Thread {
     }
   }
 
-  private WritableMap convertMapToWritableMap(Map<String, List<String>> map) {
-    WritableMap writableMap = Arguments.createMap();
-    for (Map.Entry<String, List<String>> entry : map.entrySet()) {
-      String key = entry.getKey();
-      List<String> values = entry.getValue();
-      if (values != null && !values.isEmpty()) {
-        writableMap.putString(key, values.get(0));
-      }
+  private WritableMap getHeaders(URLConnection urlConnection, Map<String, List<String>> urlHeaders) {
+    WritableMap headers = Arguments.createMap();
+
+    Set<String> keys = urlHeaders.keySet();
+    for (String key : keys) {
+      String val = urlConnection.getHeaderField(key);
+      headers.putString(key, val);
     }
-    return writableMap;
+
+    return headers;
   }
 
   private long getContentLength(WritableMap headersMap) {
