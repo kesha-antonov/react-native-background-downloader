@@ -80,7 +80,9 @@ RCT_EXPORT_MODULE();
         sharedLock = [NSNumber numberWithInt:1];
 
         NSData *taskToConfigMapData = [mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY];
-        taskToConfigMap = [self deserialize:taskToConfigMapData] ?: [[NSMutableDictionary alloc] init];
+        NSMutableDictionary *taskToConfigMapDataDefault = [[NSMutableDictionary alloc] init];
+        NSMutableDictionary *taskToConfigMapDataDecoded = taskToConfigMapData != nil ? [self deserialize:taskToConfigMapData] : nil;
+        taskToConfigMap = taskToConfigMapDataDecoded != nil ? taskToConfigMapDataDecoded : taskToConfigMapDataDefault;
         self->idToTaskMap = [[NSMutableDictionary alloc] init];
         idToResumeDataMap = [[NSMutableDictionary alloc] init];
         idToPercentMap = [[NSMutableDictionary alloc] init];
@@ -235,7 +237,12 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
             return;
         }
 
-        RNBGDTaskConfig *taskConfig = [[RNBGDTaskConfig alloc] initWithDictionary: @{@"id": identifier, @"destination": destination, @"metadata": metadata}];
+        RNBGDTaskConfig *taskConfig = [[RNBGDTaskConfig alloc] initWithDictionary: @{
+            @"id": identifier,
+            @"url": url,
+            @"destination": destination,
+            @"metadata": metadata
+        }];
 
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
         [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
@@ -478,26 +485,29 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 }
 
 #pragma mark - serialization
-- (NSData *)serialize: (id)obj {
-    NSError *error;
-    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:obj requiringSecureCoding:NO error:&error];
+- (NSData *)serialize:(NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *)taskMap {
+    NSError *error = nil;
+    NSData *taskMapRaw = [NSKeyedArchiver archivedDataWithRootObject:taskMap requiringSecureCoding:YES error:&error];
 
     if (error) {
         NSLog(@"[RNBackgroundDownloader] Serialization error: %@", error);
+        return nil;
     }
 
-    return data;
+    return taskMapRaw;
 }
 
-- (id)deserialize: (NSData *)data {
-    NSError *error;
-    id obj = [NSKeyedUnarchiver unarchivedObjectOfClass:[NSObject class] fromData:data error:&error];
+- (NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *)deserialize:(NSData *)taskMapRaw {
+    NSError *error = nil;
+    NSSet *classes = [NSSet setWithObjects:[RNBGDTaskConfig class], [NSMutableDictionary class], [NSNumber class], [NSString class], nil];
+    NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *taskMap = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:taskMapRaw error:&error];
 
     if (error) {
         NSLog(@"[RNBackgroundDownloader] Deserialization error: %@", error);
+        return nil;
     }
 
-    return obj;
+    return taskMap;
 }
 
 @end
