@@ -83,6 +83,7 @@ RCT_EXPORT_MODULE();
         NSMutableDictionary *taskToConfigMapDataDefault = [[NSMutableDictionary alloc] init];
         NSMutableDictionary *taskToConfigMapDataDecoded = taskToConfigMapData != nil ? [self deserialize:taskToConfigMapData] : nil;
         taskToConfigMap = taskToConfigMapDataDecoded != nil ? taskToConfigMapDataDecoded : taskToConfigMapDataDefault;
+        NSLog(@"INIT: %@", taskToConfigMap);
         self->idToTaskMap = [[NSMutableDictionary alloc] init];
         idToResumeDataMap = [[NSMutableDictionary alloc] init];
         idToPercentMap = [[NSMutableDictionary alloc] init];
@@ -92,7 +93,6 @@ RCT_EXPORT_MODULE();
         progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
         lastProgressReportedAt = [[NSDate alloc] init];
 
-        [self registerSession];
         [self registerBridgeListener];
     }
     return self;
@@ -110,7 +110,7 @@ RCT_EXPORT_MODULE();
     [self unregisterBridgeListener];
 }
 
-- (void)registerSession {
+- (void)lazyRegisterSession {
     NSLog(@"[RNBackgroundDownloader] - [registerSession]");
     @synchronized (sharedLock) {
         if (urlSession == nil) {
@@ -231,6 +231,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     @synchronized (sharedLock) {
+        [self lazyRegisterSession];
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {
             NSLog(@"[RNBackgroundDownloader] - [Error] failed to create download task");
@@ -302,15 +303,37 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId
 
 RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     NSLog(@"[RNBackgroundDownloader] - [checkForExistingDownloads]");
+    [self lazyRegisterSession];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
+        NSLog(@"DOWNLOADINGS %@", downloadTasks);
         NSMutableArray *idsFound = [[NSMutableArray alloc] init];
         @synchronized (self->sharedLock) {
+            [NSThread sleepForTimeInterval:0.1f];
             for (NSURLSessionDownloadTask *foundTask in downloadTasks) {
                 NSURLSessionDownloadTask __strong *task = foundTask;
-                RNBGDTaskConfig *taskConfig = self->taskToConfigMap[@(task.taskIdentifier)];
+                //RNBGDTaskConfig *taskConfig = self->taskToConfigMap[@(task.taskIdentifier)];
+
+                // Retrieve the task config using the URL as the key
+                NSURL *taskURL = task.currentRequest.URL;
+                NSString *taskURLString = [taskURL absoluteString];
+                NSLog(@"TASK URL %@", taskURL);
+                NSLog(@"TASKS %@", self->taskToConfigMap);
+                RNBGDTaskConfig *taskConfig = nil;
+
+                for (NSNumber *key in self->taskToConfigMap) {
+                    RNBGDTaskConfig *config = self->taskToConfigMap[key];
+                    NSLog(@"CONFIG URL %@", config.url);
+                    if ([config.url isEqualToString:taskURLString]) {
+                        NSLog(@"CONFIG URL EQUAL %@", taskURL);
+                        taskConfig = config;
+                        break;
+                    }
+                }
+
+                NSLog(@"CONFIG %@", taskConfig);
                 if (taskConfig) {
                     if ((task.state == NSURLSessionTaskStateCompleted || task.state == NSURLSessionTaskStateSuspended) && task.countOfBytesReceived < task.countOfBytesExpectedToReceive) {
-                        if (task.error && task.error.userInfo[NSURLSessionDownloadTaskResumeData] != nil) {
+                        if (task.error && task.error.code == -999 && task.error.userInfo[NSURLSessionDownloadTaskResumeData] != nil) {
                             task = [self->urlSession downloadTaskWithResumeData:task.error.userInfo[NSURLSessionDownloadTaskResumeData]];
                         } else {
                             task = [self->urlSession downloadTaskWithURL:task.currentRequest.URL];
@@ -435,15 +458,15 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
         if (taskCofig == nil)
             return;
 
-        if (self.bridge && isJavascriptLoaded) {
-            [self sendEventWithName:@"downloadFailed" body:@{
-                @"id": taskCofig.id,
-                @"error": [error localizedDescription],
-                // TODO
-                @"errorCode": @-1
-            }];
-        }
-        if (error.userInfo[NSURLSessionDownloadTaskResumeData] == nil) {
+        if (error != nil && error.code != -999) {
+            if (self.bridge && isJavascriptLoaded) {
+                [self sendEventWithName:@"downloadFailed" body:@{
+                    @"id": taskCofig.id,
+                    @"error": [error localizedDescription],
+                    // TODO
+                    @"errorCode": @-1
+                }];
+            }
             [self removeTaskFromMap:task];
         }
     }
