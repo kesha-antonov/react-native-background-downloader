@@ -533,4 +533,21 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     return taskMap;
 }
 
+- (NSString *)toRelativePath:(NSString *)path {
+    // [FULLPATH]/data/Containers/Bundle/Application/[ID36]
+    NSString *bunlePath = [[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent];
+    // [FULLPATH]/data/Containers/Data/Application/[ID36]
+    NSString *dataPath = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject] stringByDeletingLastPathComponent];
+
+    if ([path hasPrefix:bunlePath]) {
+        return [path substringFromIndex:[bunlePath length]];
+    }
+
+    if ([path hasPrefix:dataPath]) {
+        return [path substringFromIndex:[dataPath length]];
+    }
+
+    return nil;
+}
+
 @end
