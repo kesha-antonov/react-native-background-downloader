@@ -224,6 +224,8 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:url]];
+
+    [request setValue:identifier forHTTPHeaderField:@"configId"];
     if (headers != nil) {
         for (NSString *headerKey in headers) {
             [request setValue:[headers valueForKey:headerKey] forHTTPHeaderField:headerKey];
@@ -232,6 +234,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 
     @synchronized (sharedLock) {
         [self lazyRegisterSession];
+
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {
             NSLog(@"[RNBackgroundDownloader] - [Error] failed to create download task");
@@ -311,20 +314,17 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             [NSThread sleepForTimeInterval:0.1f];
             for (NSURLSessionDownloadTask *foundTask in downloadTasks) {
                 NSURLSessionDownloadTask __strong *task = foundTask;
-                //RNBGDTaskConfig *taskConfig = self->taskToConfigMap[@(task.taskIdentifier)];
+                NSDictionary *headers = task.currentRequest.allHTTPHeaderFields;
+                NSString *configId = headers[@"configId"];
+                NSLog(@"CONFIG ID %@", configId);
 
-                // Retrieve the task config using the URL as the key
-                NSURL *taskURL = task.currentRequest.URL;
-                NSString *taskURLString = [taskURL absoluteString];
-                NSLog(@"TASK URL %@", taskURL);
-                NSLog(@"TASKS %@", self->taskToConfigMap);
                 RNBGDTaskConfig *taskConfig = nil;
 
                 for (NSNumber *key in self->taskToConfigMap) {
                     RNBGDTaskConfig *config = self->taskToConfigMap[key];
-                    NSLog(@"CONFIG URL %@", config.url);
-                    if ([config.url isEqualToString:taskURLString]) {
-                        NSLog(@"CONFIG URL EQUAL %@", taskURL);
+                    NSLog(@"LOOP CONFIG ID %@", config.id);
+                    if ([config.id isEqualToString:configId]) {
+                        NSLog(@"LOOP CONFIG ID EQUAL %@ == %@", configId, config.id);
                         taskConfig = config;
                         break;
                     }
