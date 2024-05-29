@@ -533,21 +533,56 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     return taskMap;
 }
 
-- (NSString *)toRelativePath:(NSString *)path {
+- (NSString *)getRootPathFromPath:(NSString *)path {
     // [FULLPATH]/data/Containers/Bundle/Application/[ID36]
-    NSString *bunlePath = [[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent];
+    NSString *bundlePath = [[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent];
+    NSString *bundlePathWithoutUuid = [self getPathWithoutSuffixUuid:bundlePath];
     // [FULLPATH]/data/Containers/Data/Application/[ID36]
     NSString *dataPath = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject] stringByDeletingLastPathComponent];
+    NSString *dataPathWithoutUuid = [self getPathWithoutSuffixUuid:dataPath];
 
-    if ([path hasPrefix:bunlePath]) {
-        return [path substringFromIndex:[bunlePath length]];
+    if ([path hasPrefix:bundlePathWithoutUuid]) {
+        return bundlePath;
     }
 
-    if ([path hasPrefix:dataPath]) {
+    if ([path hasPrefix:dataPathWithoutUuid]) {
+        return dataPath;
+    }
+
+    return nil;
+}
+
+- (NSString *)getRelativeFilePathFromPath:(NSString *)path {
+    // [FULLPATH]/data/Containers/Bundle/Application/[UUID]
+    NSString *bundlePath = [[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent];
+    NSString *bundlePathWithoutUuid = [self getPathWithoutSuffixUuid:bundlePath];
+
+    // [FULLPATH]/data/Containers/Data/Application/[UUID]
+    NSString *dataPath = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject] stringByDeletingLastPathComponent];
+    NSString *dataPathWithoutUuid = [self getPathWithoutSuffixUuid:dataPath];
+
+    if ([path hasPrefix:bundlePathWithoutUuid]) {
+        return [path substringFromIndex:[bundlePath length]];
+    }
+
+    if ([path hasPrefix:dataPathWithoutUuid]) {
         return [path substringFromIndex:[dataPath length]];
     }
 
     return nil;
+}
+
+- (NSString *)getPathWithoutSuffixUuid:(NSString *)path {
+    NSString *pattern = @"^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$";
+    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:nil];
+
+    NSString *pathSuffix = [path lastPathComponent];
+    NSTextCheckingResult *pathSuffixIsUuid = [regex firstMatchInString:pathSuffix options:0 range:NSMakeRange(0, [pathSuffix length])];
+    if (pathSuffixIsUuid) {
+        return [path stringByDeletingLastPathComponent];
+    }
+
+    return path;
 }
 
 @end
