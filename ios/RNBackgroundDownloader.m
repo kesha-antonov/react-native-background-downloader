@@ -366,10 +366,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                         @"bytesTotal": [NSNumber numberWithLongLong:task.countOfBytesExpectedToReceive]
                     }];
                     taskConfig.reportedBegin = YES;
-                    // Maybe actions that can be taken for development.
-                    // TODO: (Download) Keep task.taskIdentifier value with the downloadId key in RNBGDTaskConfig.
-                    // TODO: (Here) Use config.downloadId instead of task.taskIdentifier.
-                    self->taskToConfigMap[taskIdentifier] = taskConfig;
+                    self->taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
                     self->idToTaskMap[taskConfig.id] = task;
                     self->idToPercentMap[taskConfig.id] = percent;
                 } else {
@@ -400,7 +397,6 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                     [self sendEventWithName:@"downloadComplete" body:@{
                         @"id": taskConfig.id,
                         @"headers": responseHeaders,
-                        // Here, it may be necessary to use relative path conversion.
                         @"location": taskConfig.destination,
                         @"bytesDownloaded": [NSNumber numberWithLongLong:downloadTask.countOfBytesReceived],
                         @"bytesTotal": [NSNumber numberWithLongLong:downloadTask.countOfBytesExpectedToReceive]
