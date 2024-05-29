@@ -401,7 +401,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                         @"id": taskConfig.id,
                         @"headers": responseHeaders,
                         // Here, it may be necessary to use relative path conversion.
-                        @"location": fileAbsolutePath,
+                        @"location": taskConfig.destination,
                         @"bytesDownloaded": [NSNumber numberWithLongLong:downloadTask.countOfBytesReceived],
                         @"bytesTotal": [NSNumber numberWithLongLong:downloadTask.countOfBytesExpectedToReceive]
                     }];
