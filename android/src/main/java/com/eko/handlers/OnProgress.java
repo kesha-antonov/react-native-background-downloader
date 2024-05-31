@@ -56,15 +56,14 @@ public class OnProgress extends Thread {
 
         status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
         switch (status) {
-          case DownloadManager.STATUS_SUCCESSFUL -> {
+          case DownloadManager.STATUS_SUCCESSFUL:
             stopLoop();
             return;
-          }
-          case DownloadManager.STATUS_FAILED, DownloadManager.STATUS_PAUSED -> {
+          case DownloadManager.STATUS_FAILED:
+          case DownloadManager.STATUS_PAUSED:
             int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
             String reasonText = downloader.getReasonText(status, reason);
             throw new Exception(reasonText);
-          }
         }
 
         boolean completed = updateProgress(cursor);
@@ -107,10 +106,13 @@ public class OnProgress extends Thread {
   }
 
   private long getSleepDuration(int status) {
-    return switch (status) {
-      case DownloadManager.STATUS_PAUSED -> 2000;
-      case DownloadManager.STATUS_PENDING -> 1000;
-      default -> 250;
-    };
+    switch (status) {
+      case DownloadManager.STATUS_PAUSED:
+        return 2000;
+      case DownloadManager.STATUS_PENDING:
+        return 1000;
+      default:
+        return 250;
+    }
   }
 }

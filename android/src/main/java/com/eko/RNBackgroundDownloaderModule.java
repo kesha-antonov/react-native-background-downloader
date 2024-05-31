@@ -6,6 +6,7 @@ import android.util.Log;
 
 import com.eko.handlers.OnBegin;
 import com.eko.handlers.OnProgress;
+import com.eko.utils.FileUtils;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -22,15 +23,15 @@ import android.app.DownloadManager;
 import android.app.DownloadManager.Request;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import javax.annotation.Nullable;
 
@@ -62,7 +63,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private static final int ERR_NO_WRITE_PERMISSION = 2;
   private static final int ERR_FILE_NOT_FOUND = 3;
   private static final int ERR_OTHERS = 100;
-
+  private final ExecutorService executorService = Executors.newSingleThreadExecutor();
   private static final Map<Integer, Integer> stateMap = new HashMap<Integer, Integer>() {
     {
       put(DownloadManager.STATUS_FAILED, TASK_CANCELING);
@@ -437,7 +438,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     // TODO: We need to move it to a more suitable location. [NOT TESTED]
     // Feedback if any error occurs after downloading the file.
     try {
-      setFileChangesBeforeCompletion(localUri, config.destination);
+      Future<Boolean> future = setFileChangesBeforeCompletion(localUri, config.destination);
+      future.get();
     } catch (Exception e) {
       WritableMap newDownloadStatus = Arguments.createMap();
       newDownloadStatus.putString("downloadId", downloadStatus.getString("downloadId"));
@@ -513,49 +515,46 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void setFileChangesBeforeCompletion(String targetSrc, String destinationSrc) throws Exception {
-    File file = new File(targetSrc);
-    File destination = new File(destinationSrc);
-    File destinationDir = null;
-
-    try {
-      if(file.exists()) {
-        if (destination.exists()) {
-          destination.delete();
+  // TODO: TEST
+  private Future<Boolean> setFileChangesBeforeCompletion(String targetSrc, String destinationSrc) {
+    return executorService.submit(() -> {
+      File file = new File(targetSrc);
+      File destination = new File(destinationSrc);
+      File destinationParent = null;
+      try {
+        if(file.exists()) {
+          FileUtils.rm(destination);
+          destinationParent = FileUtils.mkdirParent(destination);
+          FileUtils.mv(file, destination);
         }
-
-        File destinationParent = new File(destination.getParent());
-        if (!destinationParent.exists()) {
-          destinationDir = destinationParent;
-          destinationParent.mkdirs();
-        }
-
-        moveFile(file, destination);
+      } catch (IOException e) {
+        FileUtils.rm(file);
+        FileUtils.rm(destination);
+        FileUtils.rm(destinationParent);
+        throw new Exception(e);
       }
-    } catch (IOException e) {
-      file.delete();
-      destination.delete();
-      if (destinationDir != null) destinationDir.delete();
-      throw new Exception(e);
-    }
+
+      return true;
+    });
   }
 
-  private void moveFile(File targetFile, File destinationFile) throws IOException {
-    try (
-            FileChannel inChannel = new FileInputStream(targetFile).getChannel();
-            FileChannel outChannel = new FileOutputStream(destinationFile).getChannel()
-    ) {
-      long bytesTransferred = 0;
-      long totalBytes = inChannel.size();
-      while (bytesTransferred < totalBytes) {
-        long remainingBytes = totalBytes - bytesTransferred;
-        long chunkSize = Math.min(remainingBytes, Integer.MAX_VALUE);
-        long transferredBytes = inChannel.transferTo(bytesTransferred, chunkSize, outChannel);
-        bytesTransferred += transferredBytes;
-      }
-      targetFile.delete();
-    }
-  }
+//  private void setFileChangesBeforeCompletion(String targetSrc, String destinationSrc) throws Exception {
+//    File file = new File(targetSrc);
+//    File destination = new File(destinationSrc);
+//    File destinationParent = null;
+//    try {
+//      if(file.exists()) {
+//        FileUtils.rm(destination);
+//        destinationParent = FileUtils.mkdirParent(destination);
+//        FileUtils.mv(file, destination);
+//      }
+//    } catch (IOException e) {
+//      FileUtils.rm(file);
+//      FileUtils.rm(destination);
+//      FileUtils.rm(destinationParent);
+//      throw new Exception(e);
+//    }
+//  }
 
   private boolean delay(Runnable task, long delay) {
     Runnable runnable = new Runnable() {

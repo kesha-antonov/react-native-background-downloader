@@ -110,26 +110,43 @@ public class Downloader {
     }
 
     public String getReasonText(int status, int reason) {
-        return switch (status) {
-            case DownloadManager.STATUS_FAILED -> switch (reason) {
-                case DownloadManager.ERROR_CANNOT_RESUME -> "ERROR_CANNOT_RESUME";
-                case DownloadManager.ERROR_DEVICE_NOT_FOUND -> "ERROR_DEVICE_NOT_FOUND";
-                case DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "ERROR_FILE_ALREADY_EXISTS";
-                case DownloadManager.ERROR_FILE_ERROR -> "ERROR_FILE_ERROR";
-                case DownloadManager.ERROR_HTTP_DATA_ERROR -> "ERROR_HTTP_DATA_ERROR";
-                case DownloadManager.ERROR_INSUFFICIENT_SPACE -> "ERROR_INSUFFICIENT_SPACE";
-                case DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "ERROR_TOO_MANY_REDIRECTS";
-                case DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "ERROR_UNHANDLED_HTTP_CODE";
-                default -> "ERROR_UNKNOWN";
-            };
-            case DownloadManager.STATUS_PAUSED -> switch (reason) {
-                case DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "PAUSED_QUEUED_FOR_WIFI";
-                case DownloadManager.PAUSED_UNKNOWN -> "PAUSED_UNKNOWN";
-                case DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "PAUSED_WAITING_FOR_NETWORK";
-                case DownloadManager.PAUSED_WAITING_TO_RETRY -> "PAUSED_WAITING_TO_RETRY";
-                default -> "UNKNOWN";
-            };
-            default -> "UNKNOWN";
-        };
+        switch (status) {
+            case DownloadManager.STATUS_FAILED:
+                switch (reason) {
+                    case DownloadManager.ERROR_CANNOT_RESUME:
+                        return "ERROR_CANNOT_RESUME";
+                    case DownloadManager.ERROR_DEVICE_NOT_FOUND:
+                        return "ERROR_DEVICE_NOT_FOUND";
+                    case DownloadManager.ERROR_FILE_ALREADY_EXISTS:
+                        return "ERROR_FILE_ALREADY_EXISTS";
+                    case DownloadManager.ERROR_FILE_ERROR:
+                        return "ERROR_FILE_ERROR";
+                    case DownloadManager.ERROR_HTTP_DATA_ERROR:
+                        return "ERROR_HTTP_DATA_ERROR";
+                    case DownloadManager.ERROR_INSUFFICIENT_SPACE:
+                        return "ERROR_INSUFFICIENT_SPACE";
+                    case DownloadManager.ERROR_TOO_MANY_REDIRECTS:
+                        return "ERROR_TOO_MANY_REDIRECTS";
+                    case DownloadManager.ERROR_UNHANDLED_HTTP_CODE:
+                        return "ERROR_UNHANDLED_HTTP_CODE";
+                    default:
+                        return "ERROR_UNKNOWN";
+                }
+            case DownloadManager.STATUS_PAUSED:
+                switch (reason) {
+                    case DownloadManager.PAUSED_QUEUED_FOR_WIFI:
+                        return "PAUSED_QUEUED_FOR_WIFI";
+                    case DownloadManager.PAUSED_UNKNOWN:
+                        return "PAUSED_UNKNOWN";
+                    case DownloadManager.PAUSED_WAITING_FOR_NETWORK:
+                        return "PAUSED_WAITING_FOR_NETWORK";
+                    case DownloadManager.PAUSED_WAITING_TO_RETRY:
+                        return "PAUSED_WAITING_TO_RETRY";
+                    default:
+                        return "UNKNOWN";
+                }
+            default:
+                return "UNKNOWN";
+        }
     }
 }
