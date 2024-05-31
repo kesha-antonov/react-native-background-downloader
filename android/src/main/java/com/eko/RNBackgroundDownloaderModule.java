@@ -434,7 +434,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private void onSuccessfulDownload(RNBGDTaskConfig config, WritableMap downloadStatus) {
     String localUri = downloadStatus.getString("localUri");
 
-    // TODO: We need to move it to a more suitable location.
+    // TODO: We need to move it to a more suitable location. [NOT TESTED]
     // Feedback if any error occurs after downloading the file.
     try {
       setFileChangesBeforeCompletion(localUri, config.destination);
@@ -513,7 +513,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void setFileChangesBeforeCompletion(String targetSrc, String destinationSrc) {
+  private void setFileChangesBeforeCompletion(String targetSrc, String destinationSrc) throws Exception {
     File file = new File(targetSrc);
     File destination = new File(destinationSrc);
     File destinationDir = null;
@@ -536,7 +536,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       file.delete();
       destination.delete();
       if (destinationDir != null) destinationDir.delete();
-      throw new RuntimeException(e);
+      throw new Exception(e);
     }
   }
 
