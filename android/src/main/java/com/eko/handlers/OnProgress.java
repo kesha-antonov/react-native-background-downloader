@@ -4,20 +4,22 @@ import android.app.DownloadManager;
 import android.os.SystemClock;
 
 import android.database.Cursor;
-import android.util.Log;
 
 import com.eko.Downloader;
 import com.eko.interfaces.ProgressCallback;
 import com.eko.RNBGDTaskConfig;
 
-public class OnProgress extends Thread {
+import java.util.concurrent.Callable;
+
+public class OnProgress implements Callable<OnProgressState> {
   private final RNBGDTaskConfig config;
   private final Downloader downloader;
   private final long downloadId;
   private long bytesDownloaded;
   private long bytesTotal;
   private final ProgressCallback callback;
-  private boolean isRunning = true;
+  private volatile boolean isRunning = true;
+  private volatile boolean isCompleted = true;
 
   public OnProgress(
           RNBGDTaskConfig config,
@@ -36,13 +38,7 @@ public class OnProgress extends Thread {
   }
 
   @Override
-  public void interrupt() {
-    super.interrupt();
-    stopLoop();
-  }
-
-  @Override
-  public void run() {
+  public OnProgressState call() throws Exception {
     while (isRunning) {
       int status = -1;
       DownloadManager.Query query = new DownloadManager.Query();
@@ -50,40 +46,47 @@ public class OnProgress extends Thread {
 
       try (Cursor cursor = downloader.downloadManager.query(query)) {
         if (!cursor.moveToFirst()) {
-          stopLoop();
-          return;
+          stopLoopWithFail();
+          break;
         }
 
+        // TODO: Maybe we can write some logic in the pause codes here.
+        //       For example; PAUSED_WAITING_TO_RETRY attempts count?
         status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-        switch (status) {
-          case DownloadManager.STATUS_SUCCESSFUL:
-            stopLoop();
-            return;
-          case DownloadManager.STATUS_FAILED:
-          case DownloadManager.STATUS_PAUSED:
-            int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
-            String reasonText = downloader.getReasonText(status, reason);
-            throw new Exception(reasonText);
+        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+          stopLoopWithSuccess();
+          break;
+        }
+        if (status == DownloadManager.STATUS_FAILED) {
+          int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
+          String reasonText = downloader.getReasonText(status, reason);
+          throw new Exception(reasonText);
         }
 
         boolean completed = updateProgress(cursor);
         if (completed) {
-          stopLoop();
-          return;
+          stopLoopWithSuccess();
+          break;
         }
       } catch (Exception e) {
-        stopLoop();
-        // Report the error that occurs in the loop to DownloadManager.
-        downloader.broadcast(downloadId);
-        Log.e("RNBackgroundDownloader", "OnProgress: " + Log.getStackTraceString(e));
+        stopLoopWithFail();
+        throw e;
       }
 
       SystemClock.sleep(getSleepDuration(status));
     }
+
+    return isCompleted ? new OnProgressState(config.id, bytesDownloaded, bytesTotal) : null;
   }
 
-  private void stopLoop() {
+  private void stopLoopWithSuccess() {
     this.isRunning = false;
+    this.isCompleted = true;
+  }
+
+  private void stopLoopWithFail() {
+    this.isRunning = false;
+    this.isCompleted = false;
   }
 
   private boolean updateProgress(Cursor cursor) {

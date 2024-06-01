@@ -2,6 +2,7 @@ package com.eko.utils;
 
 import android.content.Context;
 import android.os.StatFs;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -13,8 +14,8 @@ public class FileUtils {
     private static final long MAX_TRANSFER_SIZE = Integer.MAX_VALUE;
 
     // TODO: We must change the way context is used.
-    // We can check the storage space before starting file downloads.
-    // Moving a source file requires space twice the size of the file.
+    //       We can check the storage space before starting file downloads.
+    //       Moving a source file requires space twice the size of the file.
     public static long getAvailableSpace(Context context) {
         File externalDirectory = context.getExternalFilesDir(null);
         String path = externalDirectory != null
@@ -34,19 +35,18 @@ public class FileUtils {
     }
 
     public static boolean moveSmallFile(File sourceFile, File destinationFile) throws IOException {
+        Log.i("RNBackgroundDownloader", "moveSmallFile");
         try (
                 FileChannel inChannel = new FileInputStream(sourceFile).getChannel();
                 FileChannel outChannel = new FileOutputStream(destinationFile).getChannel()
         ) {
             inChannel.transferTo(0, inChannel.size(), outChannel);
             return sourceFile.delete();
-        } catch (IOException e) {
-            destinationFile.delete();
-            throw e;
         }
     }
 
     public static boolean moveBigFile(File sourceFile, File destinationFile) throws IOException {
+        Log.i("RNBackgroundDownloader", "moveBigFile");
         try (
                 FileChannel inChannel = new FileInputStream(sourceFile).getChannel();
                 FileChannel outChannel = new FileOutputStream(destinationFile).getChannel()
@@ -60,15 +60,14 @@ public class FileUtils {
                 bytesTransferred += transferredBytes;
             }
             return sourceFile.delete();
-        } catch (IOException e) {
-            destinationFile.delete();
-            throw e;
         }
     }
 
     public static File mkdirParent(File file) {
         String path = file.getParent();
-        if (path == null) return null;
+        if (path == null) {
+            return null;
+        }
 
         File parent = new File(path);
         if (!parent.exists()) {
@@ -80,7 +79,11 @@ public class FileUtils {
     }
 
     public static boolean rm(File file) {
-        if (file != null && file.exists()) {
+        if (file != null) {
+            return false;
+        }
+
+        if (file.exists()) {
             return file.delete();
         }
 

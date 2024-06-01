@@ -56,11 +56,10 @@ public class Downloader {
     public WritableMap checkDownloadStatus(long downloadId) {
         DownloadManager.Query query = new DownloadManager.Query();
         query.setFilterById(downloadId);
-        Cursor cursor = downloadManager.query(query);
 
         WritableMap result = Arguments.createMap();
 
-        try {
+        try (Cursor cursor = downloadManager.query(query);) {
             if (cursor.moveToFirst()) {
                 result = getDownloadStatus(cursor);
             } else {
@@ -71,10 +70,6 @@ public class Downloader {
             }
         } catch (Exception e) {
             Log.e("RNBackgroundDownloader", "Downloader: " + Log.getStackTraceString(e));
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
         }
 
         return result;
