@@ -61,10 +61,10 @@ public class FileUtils {
     }
 
     public static File mkdirParent(File file) {
+        if (file == null) return null;
+
         String path = file.getParent();
-        if (path == null) {
-            return null;
-        }
+        if (path == null) return null;
 
         File parent = new File(path);
         if (!parent.exists()) {
@@ -76,9 +76,7 @@ public class FileUtils {
     }
 
     public static boolean rm(File file) {
-        if (file != null) {
-            return false;
-        }
+        if (file == null) return false;
 
         if (file.exists()) {
             return file.delete();
