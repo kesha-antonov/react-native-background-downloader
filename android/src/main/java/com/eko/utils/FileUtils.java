@@ -2,7 +2,6 @@ package com.eko.utils;
 
 import android.content.Context;
 import android.os.StatFs;
-import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
