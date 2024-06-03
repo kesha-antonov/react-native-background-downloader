@@ -321,7 +321,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       if (downloadId != null) {
         stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
-        delay(() -> downloader.cancel(downloadId), 50);
+        downloader.cancel(downloadId);
       }
     }
   }
