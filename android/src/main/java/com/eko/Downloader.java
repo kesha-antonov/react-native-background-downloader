@@ -47,6 +47,7 @@ public class Downloader {
         // values.put(Downloads.Impl.COLUMN_CONTROL, Downloads.Impl.CONTROL_RUN);
     }
 
+    // Manually trigger the receiver from anywhere.
     public void broadcast(long downloadId) {
         Intent intent = new Intent(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         intent.putExtra(DownloadManager.EXTRA_DOWNLOAD_ID, downloadId);

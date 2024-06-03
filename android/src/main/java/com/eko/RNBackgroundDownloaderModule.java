@@ -1,7 +1,5 @@
 package com.eko;
 
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 
 import com.eko.handlers.OnBegin;
@@ -88,7 +86,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private int progressInterval = 0;
   private Date lastProgressReportedAt = new Date();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
-  private final Handler handler = new Handler(Looper.getMainLooper());
 
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -175,6 +172,9 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
                 break;
               }
             }
+
+            // The download was complete. We can clean it up.
+            removeTaskFromMap(downloadId);
           }
         }
       }
@@ -334,7 +334,9 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       if (downloadId != null) {
         stopTaskProgress(configId);
         removeTaskFromMap(downloadId);
-        delay(() -> downloader.cancel(downloadId), 50);
+        // If a task is completed, it will be terminated by the receiver.
+        // No manual cancellation is required.
+        // downloader.cancel(downloadId);
       }
     }
   }
@@ -538,17 +540,5 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
       return true;
     });
-  }
-
-  private boolean delay(Runnable task, long delay) {
-    Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        task.run();
-        handler.removeCallbacks(this);
-      }
-    };
-
-    return handler.postDelayed(runnable, delay);
   }
 }
