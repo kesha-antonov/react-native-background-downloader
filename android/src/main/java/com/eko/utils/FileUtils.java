@@ -10,8 +10,6 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 
 public class FileUtils {
-    private static final long MAX_TRANSFER_SIZE = Integer.MAX_VALUE;
-
     // TODO: We must change the way context is used.
     //       We can check the storage space before starting file downloads.
     //       Moving a source file requires space twice the size of the file.
@@ -26,24 +24,6 @@ public class FileUtils {
     }
 
     public static boolean mv(File sourceFile, File destinationFile) throws IOException {
-        if (sourceFile.length() < MAX_TRANSFER_SIZE) {
-            return moveSmallFile(sourceFile, destinationFile);
-        } else {
-            return moveBigFile(sourceFile, destinationFile);
-        }
-    }
-
-    public static boolean moveSmallFile(File sourceFile, File destinationFile) throws IOException {
-        try (
-                FileChannel inChannel = new FileInputStream(sourceFile).getChannel();
-                FileChannel outChannel = new FileOutputStream(destinationFile).getChannel()
-        ) {
-            inChannel.transferTo(0, inChannel.size(), outChannel);
-            return sourceFile.delete();
-        }
-    }
-
-    public static boolean moveBigFile(File sourceFile, File destinationFile) throws IOException {
         try (
                 FileChannel inChannel = new FileInputStream(sourceFile).getChannel();
                 FileChannel outChannel = new FileOutputStream(destinationFile).getChannel()
