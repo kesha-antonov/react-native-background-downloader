@@ -18,6 +18,11 @@ export default class DownloadTask {
   bytesDownloaded = 0
   bytesTotal = 0
 
+  beginHandler
+  progressHandler
+  doneHandler
+  errorHandler
+
   constructor (taskInfo: TaskInfo, originalTask?: TaskInfo) {
     this.id = taskInfo.id
     this.bytesDownloaded = taskInfo.bytesDownloaded ?? 0
