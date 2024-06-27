@@ -458,8 +458,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     WritableMap params = Arguments.createMap();
     params.putString("id", config.id);
     params.putString("location", config.destination);
-    params.putInt("bytesDownloaded", downloadStatus.getInt("bytesDownloaded"));
-    params.putInt("bytesTotal", downloadStatus.getInt("bytesTotal"));
+    params.putDouble("bytesDownloaded", downloadStatus.getDouble("bytesDownloaded"));
+    params.putDouble("bytesTotal", downloadStatus.getDouble("bytesTotal"));
     ee.emit("downloadComplete", params);
   }
 
