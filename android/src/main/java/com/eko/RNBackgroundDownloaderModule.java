@@ -173,8 +173,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               }
             }
 
-            // The download was complete. We can clean it up.
-            removeTaskFromMap(downloadId);
+            stopTask(config.id);
           }
         }
       }
@@ -328,18 +327,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   @SuppressWarnings("unused")
-  public void completeHandler(String configId) {
-    synchronized (sharedLock) {
-      Long downloadId = configIdToDownloadId.get(configId);
-      if (downloadId != null) {
-        stopTaskProgress(configId);
-        removeTaskFromMap(downloadId);
-        // If a task is completed, it will be terminated by the receiver.
-        // No manual cancellation is required.
-        // downloader.cancel(downloadId);
-      }
-    }
-  }
+  public void completeHandler(String configId) {}
 
   @ReactMethod
   @SuppressWarnings("unused")
