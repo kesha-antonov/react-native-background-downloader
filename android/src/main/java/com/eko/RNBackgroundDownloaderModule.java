@@ -1,5 +1,6 @@
 package com.eko;
 
+import android.media.MediaScannerConnection;
 import android.util.Log;
 
 import com.eko.handlers.OnBegin;
@@ -63,7 +64,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private static final int ERR_NO_WRITE_PERMISSION = 2;
   private static final int ERR_FILE_NOT_FOUND = 3;
   private static final int ERR_OTHERS = 100;
-  private final ExecutorService executorPool = Executors.newCachedThreadPool();
+  private final ExecutorService cachedExecutorPool = Executors.newCachedThreadPool();
+  private final ExecutorService fixedExecutorPool = Executors.newFixedThreadPool(1);
   private static final Map<Integer, Integer> stateMap = new HashMap<Integer, Integer>() {
     {
       put(DownloadManager.STATUS_FAILED, TASK_CANCELING);
@@ -158,6 +160,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
         if (config != null) {
           WritableMap downloadStatus = downloader.checkDownloadStatus(downloadId);
           int status = downloadStatus.getInt("status");
+          String localUri = downloadStatus.getString("localUri");
 
           stopTaskProgress(config.id);
 
@@ -173,8 +176,15 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
               }
             }
 
-            // The download was complete. We can clean it up.
-            removeTaskFromMap(downloadId);
+            if (localUri != null) {
+              // Prevent memory leaks from MediaScanner.
+              // Download successful, clean task after media scanning.
+              String[] paths = new String[]{localUri};
+              MediaScannerConnection.scanFile(context, paths, null, (path, uri) -> stopTask(config.id));
+            } else {
+              // Download failed, clean task.
+              stopTask(config.id);
+            }
           }
         }
       }
@@ -202,7 +212,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
         if (!config.reportedBegin) {
           OnBegin onBeginCallable = new OnBegin(config, this::onBeginDownload);
-          Future<OnBeginState> onBeginFuture = executorPool.submit(onBeginCallable);
+          Future<OnBeginState> onBeginFuture = cachedExecutorPool.submit(onBeginCallable);
           OnBeginState onBeginState = onBeginFuture.get();
           bytesTotal = onBeginState.expectedBytes;
 
@@ -212,7 +222,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
         }
 
         OnProgress onProgressCallable = new OnProgress(config, downloader, downloadId, bytesDownloaded, bytesTotal, this::onProgressDownload);
-        Future<OnProgressState> onProgressFuture = executorPool.submit(onProgressCallable);
+        Future<OnProgressState> onProgressFuture = cachedExecutorPool.submit(onProgressCallable);
         configIdToProgressFuture.put(config.id, onProgressFuture);
       } catch (Exception e) {
         Log.e(getName(), "resumeTasks: " + Log.getStackTraceString(e));
@@ -328,18 +338,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   @SuppressWarnings("unused")
-  public void completeHandler(String configId) {
-    synchronized (sharedLock) {
-      Long downloadId = configIdToDownloadId.get(configId);
-      if (downloadId != null) {
-        stopTaskProgress(configId);
-        removeTaskFromMap(downloadId);
-        // If a task is completed, it will be terminated by the receiver.
-        // No manual cancellation is required.
-        // downloader.cancel(downloadId);
-      }
-    }
-  }
+  public void completeHandler(String configId) {}
 
   @ReactMethod
   @SuppressWarnings("unused")
@@ -521,7 +520,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   }
 
   private Future<Boolean> setFileChangesBeforeCompletion(String targetSrc, String destinationSrc) {
-    return executorPool.submit(() -> {
+    return fixedExecutorPool.submit(() -> {
       File file = new File(targetSrc);
       File destination = new File(destinationSrc);
       File destinationParent = null;
