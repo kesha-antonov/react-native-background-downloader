@@ -9,11 +9,13 @@ export interface DownloadHeaders {
   [key: string]: string | null;
 }
 
-type SetConfig = (
+export interface Config {
   headers: DownloadHeaders,
   progressInterval: number,
   isLogsEnabled: boolean
-) => void;
+}
+
+type SetConfig = (config: Partial<Config>) => void;
 
 export interface BeginHandlerObject {
   expectedBytes: number;
@@ -78,6 +80,7 @@ export interface DownloadTask {
 
   id: string;
   state: DownloadTaskState;
+  metadata: Record<string, any>;
   bytesDownloaded: number;
   bytesTotal: number;
 
