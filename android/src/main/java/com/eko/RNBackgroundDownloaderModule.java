@@ -142,8 +142,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   }
 
   @Override
-  public void onCatalystInstanceDestroy() {
-    super.onCatalystInstanceDestroy();
+  public void invalidate() {
     unregisterDownloadReceiver();
   }
 
