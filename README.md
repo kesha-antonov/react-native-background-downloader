@@ -330,6 +330,29 @@ Stops the download for good and removes the file that was written so far
 
 An absolute path to the app's documents directory. It is recommended that you use this path as the target of downloaded files.
 
+## Rules for proguard-rules.pro
+
+In case of error `java.lang.IllegalStateException: TypeToken must be created with a type argument: new TypeToken<...>()` in Android release add this to `proguard-rules.pro`:
+
+```
+# Application classes that will be serialized/deserialized over Gson
+-keep class com.yourapplicationname.model.api.** { *; }
+
+# Gson uses generic type information stored in a class file when working with
+# fields. Proguard removes such information by default, keep it.
+-keepattributes Signature
+
+# This is also needed for R8 in compat mode since multiple
+# optimizations will remove the generic signature such as class
+# merging and argument removal. See:
+# https://r8.googlesource.com/r8/+/refs/heads/main/compatibility-faq.md#troubleshooting-gson-gson
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken
+
+# Optional. For using GSON @Expose annotation
+-keepattributes AnnotationDefault,RuntimeVisibleAnnotations
+```
+
 ## TODO
 
 - [ ] Write better examples - current kinda old and shallow
