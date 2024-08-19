@@ -5,6 +5,13 @@
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
 
+// DISABLES LOGS IN RELEASE MODE. NSLOG IS SLOW: https://stackoverflow.com/a/17738695/3452513
+#ifdef DEBUG
+#define DLog( s, ... ) NSLog( @"<%p %@:(%d)> %@", self, [[NSString stringWithUTF8String:__FILE__] lastPathComponent], __LINE__, [NSString stringWithFormat:(s), ##__VA_ARGS__] )
+#else
+#define DLog( s, ... )
+#endif
+
 static CompletionHandler storedCompletionHandler;
 
 @implementation RNBackgroundDownloader {
@@ -55,7 +62,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (id)init {
-    NSLog(@"[RNBackgroundDownloader] - [init]");
+    DLog(@"[RNBackgroundDownloader] - [init]");
     self = [super init];
     if (self) {
         [MMKV initializeMMKV:nil];
@@ -98,19 +105,19 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)dealloc {
-    NSLog(@"[RNBackgroundDownloader] - [dealloc]");
+    DLog(@"[RNBackgroundDownloader] - [dealloc]");
     [self unregisterSession];
     [self unregisterBridgeListener];
 }
 
 - (void)handleBridgeHotReload:(NSNotification *) note {
-    NSLog(@"[RNBackgroundDownloader] - [handleBridgeHotReload]");
+    DLog(@"[RNBackgroundDownloader] - [handleBridgeHotReload]");
     [self unregisterSession];
     [self unregisterBridgeListener];
 }
 
 - (void)lazyRegisterSession {
-    NSLog(@"[RNBackgroundDownloader] - [lazyRegisterSession]");
+    DLog(@"[RNBackgroundDownloader] - [lazyRegisterSession]");
     @synchronized (sharedLock) {
         if (urlSession == nil) {
             urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
@@ -119,7 +126,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)unregisterSession {
-    NSLog(@"[RNBackgroundDownloader] - [unregisterSession]");
+    DLog(@"[RNBackgroundDownloader] - [unregisterSession]");
     if (urlSession) {
         [urlSession invalidateAndCancel];
         urlSession = nil;
@@ -127,7 +134,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)registerBridgeListener {
-    NSLog(@"[RNBackgroundDownloader] - [registerBridgeListener]");
+    DLog(@"[RNBackgroundDownloader] - [registerBridgeListener]");
     @synchronized (sharedLock) {
         if (isBridgeListenerInited != YES) {
             isBridgeListenerInited = YES;
@@ -150,7 +157,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)unregisterBridgeListener {
-    NSLog(@"[RNBackgroundDownloader] - [unregisterBridgeListener]");
+    DLog(@"[RNBackgroundDownloader] - [unregisterBridgeListener]");
     if (isBridgeListenerInited == YES) {
         [[NSNotificationCenter defaultCenter] removeObserver:self];
         isBridgeListenerInited = NO;
@@ -158,18 +165,18 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)handleBridgeJavascriptLoad:(NSNotification *) note {
-    NSLog(@"[RNBackgroundDownloader] - [handleBridgeJavascriptLoad]");
+    DLog(@"[RNBackgroundDownloader] - [handleBridgeJavascriptLoad]");
     isJavascriptLoaded = YES;
 }
 
 - (void)handleBridgeAppEnterForeground:(NSNotification *) note {
-    NSLog(@"[RNBackgroundDownloader] - [handleBridgeAppEnterForeground]");
+    DLog(@"[RNBackgroundDownloader] - [handleBridgeAppEnterForeground]");
     [self resumeTasks];
 }
 
 - (void)resumeTasks {
     @synchronized (sharedLock) {
-        NSLog(@"[RNBackgroundDownloader] - [resumeTasks]");
+        DLog(@"[RNBackgroundDownloader] - [resumeTasks]");
         [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
             for (NSURLSessionDownloadTask *task in downloadTasks) {
                 // running - 0
@@ -186,7 +193,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)removeTaskFromMap: (NSURLSessionTask *)task {
-    NSLog(@"[RNBackgroundDownloader] - [removeTaskFromMap]");
+    DLog(@"[RNBackgroundDownloader] - [removeTaskFromMap]");
     @synchronized (sharedLock) {
         NSNumber *taskId = @(task.taskIdentifier);
         RNBGDTaskConfig *taskConfig = taskToConfigMap[taskId];
@@ -203,7 +210,7 @@ RCT_EXPORT_MODULE();
 
 #pragma mark - JS exported methods
 RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
-    NSLog(@"[RNBackgroundDownloader] - [download]");
+    DLog(@"[RNBackgroundDownloader] - [download]");
     NSString *identifier = options[@"id"];
     NSString *url = options[@"url"];
     NSString *destination = options[@"destination"];
@@ -218,14 +225,14 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
 
-    NSLog(@"[RNBackgroundDownloader] - [download] url %@ destination %@ progressInterval %f", url, destination, progressInterval);
+    DLog(@"[RNBackgroundDownloader] - [download] url %@ destination %@ progressInterval %f", url, destination, progressInterval);
     if (identifier == nil || url == nil || destination == nil) {
-        NSLog(@"[RNBackgroundDownloader] - [Error] id, url and destination must be set");
+        DLog(@"[RNBackgroundDownloader] - [Error] id, url and destination must be set");
         return;
     }
 
     if (destinationRelative == nil) {
-        NSLog(@"[RNBackgroundDownloader] - [Error] destination is not valid");
+        DLog(@"[RNBackgroundDownloader] - [Error] destination is not valid");
         return;
     }
 
@@ -243,7 +250,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {
-            NSLog(@"[RNBackgroundDownloader] - [Error] failed to create download task");
+            DLog(@"[RNBackgroundDownloader] - [Error] failed to create download task");
             return;
         }
 
@@ -266,7 +273,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 }
 
 RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
-    NSLog(@"[RNBackgroundDownloader] - [pauseTask]");
+    DLog(@"[RNBackgroundDownloader] - [pauseTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
         if (task != nil && task.state == NSURLSessionTaskStateRunning) {
@@ -276,7 +283,7 @@ RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
 }
 
 RCT_EXPORT_METHOD(resumeTask: (NSString *)identifier) {
-    NSLog(@"[RNBackgroundDownloader] - [resumeTask]");
+    DLog(@"[RNBackgroundDownloader] - [resumeTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
         if (task != nil && task.state == NSURLSessionTaskStateSuspended) {
@@ -286,7 +293,7 @@ RCT_EXPORT_METHOD(resumeTask: (NSString *)identifier) {
 }
 
 RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
-    NSLog(@"[RNBackgroundDownloader] - [stopTask]");
+    DLog(@"[RNBackgroundDownloader] - [stopTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
         if (task != nil) {
@@ -297,7 +304,7 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
 }
 
 RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    NSLog(@"[RNBackgroundDownloader] - [completeHandlerIOS]");
+    DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS]");
     [[NSOperationQueue mainQueue] addOperationWithBlock:^{
         if (storedCompletionHandler) {
             storedCompletionHandler();
@@ -309,7 +316,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
 }
 
 RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    NSLog(@"[RNBackgroundDownloader] - [checkForExistingDownloads]");
+    DLog(@"[RNBackgroundDownloader] - [checkForExistingDownloads]");
     [self lazyRegisterSession];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         NSMutableArray *foundTasks = [[NSMutableArray alloc] init];
@@ -381,7 +388,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 
 #pragma mark - NSURLSessionDownloadDelegate methods
 - (void)URLSession:(nonnull NSURLSession *)session downloadTask:(nonnull NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(nonnull NSURL *)location {
-    NSLog(@"[RNBackgroundDownloader] - [didFinishDownloadingToURL]");
+    DLog(@"[RNBackgroundDownloader] - [didFinishDownloadingToURL]");
     @synchronized (sharedLock) {
         RNBGDTaskConfig *taskConfig = taskToConfigMap[@(downloadTask.taskIdentifier)];
 
@@ -417,7 +424,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 }
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didResumeAtOffset:(int64_t)fileOffset expectedbytesTotal:(int64_t)expectedbytesTotal {
-    NSLog(@"[RNBackgroundDownloader] - [didResumeAtOffset]");
+    DLog(@"[RNBackgroundDownloader] - [didResumeAtOffset]");
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -426,7 +433,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     totalBytesWritten:(int64_t)bytesTotalWritten
     totalBytesExpectedToWrite:(int64_t)bytesTotalExpectedToWrite
 {
-    NSLog(@"[RNBackgroundDownloader] - [didWriteData]");
+    DLog(@"[RNBackgroundDownloader] - [didWriteData]");
     @synchronized (sharedLock) {
         RNBGDTaskConfig *taskConfig = taskToConfigMap[@(downloadTask.taskIdentifier)];
         if (taskConfig != nil) {
@@ -466,7 +473,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 }
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
-    NSLog(@"[RNBackgroundDownloader] - [didCompleteWithError]");
+    DLog(@"[RNBackgroundDownloader] - [didCompleteWithError]");
     @synchronized (sharedLock) {
         if (error == nil) {
             return;
@@ -494,11 +501,11 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 }
 
 - (void)URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session {
-    NSLog(@"[RNBackgroundDownloader] - [URLSessionDidFinishEventsForBackgroundURLSession]");
+    DLog(@"[RNBackgroundDownloader] - [URLSessionDidFinishEventsForBackgroundURLSession]");
 }
 
 + (void)setCompletionHandlerWithIdentifier: (NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
-    NSLog(@"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
+    DLog(@"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
     NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
     NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
     if ([sessionIdentifier isEqualToString:identifier]) {
@@ -507,7 +514,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 }
 
 - (NSError *)getServerError: (nonnull NSURLSessionDownloadTask *)downloadTask {
-    NSLog(@"[RNBackgroundDownloader] - [getServerError]");
+    DLog(@"[RNBackgroundDownloader] - [getServerError]");
     NSError *serverError;
     NSInteger httpStatusCode = [((NSHTTPURLResponse *)downloadTask.response) statusCode];
 
@@ -524,7 +531,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 }
 
 - (BOOL)saveFile: (nonnull RNBGDTaskConfig *) taskConfig downloadURL:(nonnull NSURL *)location error:(NSError **)saveError {
-    NSLog(@"[RNBackgroundDownloader] - [saveFile]");
+    DLog(@"[RNBackgroundDownloader] - [saveFile]");
     // taskConfig.destination is absolute path.
     // The absolute path may change when the application is restarted.
     // But the relative path remains the same.
@@ -547,7 +554,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     NSData *taskMapRaw = [NSKeyedArchiver archivedDataWithRootObject:taskMap requiringSecureCoding:YES error:&error];
 
     if (error) {
-        NSLog(@"[RNBackgroundDownloader] Serialization error: %@", error);
+        DLog(@"[RNBackgroundDownloader] Serialization error: %@", error);
         return nil;
     }
 
@@ -561,7 +568,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *taskMap = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:taskMapRaw error:&error];
 
     if (error) {
-        NSLog(@"[RNBackgroundDownloader] Deserialization error: %@", error);
+        DLog(@"[RNBackgroundDownloader] Deserialization error: %@", error);
         return nil;
     }
 
