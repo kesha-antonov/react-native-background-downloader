@@ -80,6 +80,7 @@ export interface DownloadTask {
 
   id: string;
   state: DownloadTaskState;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   metadata: Record<string, any>;
   bytesDownloaded: number;
   bytesTotal: number;
