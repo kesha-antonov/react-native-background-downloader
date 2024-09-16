@@ -189,10 +189,18 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       }
     };
 
-    if (Build.VERSION.SDK_INT >= 34) {
-      context.registerReceiver(downloadReceiver, filter, Context.RECEIVER_EXPORTED);
+    compatRegisterReceiver(context, downloadReceiver, filter, true);
+  }
+
+  // TAKEN FROM
+  // https://github.com/facebook/react-native/pull/38256/files#diff-d5e21477eeadeb0c536d5870f487a8528f9a16ae928c397fec7b255805cc8ad3
+  private void compatRegisterReceiver(Context context, BroadcastReceiver receiver, IntentFilter filter,
+      boolean exported) {
+    if (Build.VERSION.SDK_INT >= 34 && context.getApplicationInfo().targetSdkVersion >= 34) {
+      context.registerReceiver(
+          receiver, filter, exported ? Context.RECEIVER_EXPORTED : Context.RECEIVER_NOT_EXPORTED);
     } else {
-      context.registerReceiver(downloadReceiver, filter);
+      context.registerReceiver(receiver, filter);
     }
   }
 
