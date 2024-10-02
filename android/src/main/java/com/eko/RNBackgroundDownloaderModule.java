@@ -493,11 +493,18 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   private void loadDownloadIdToConfigMap() {
     synchronized (sharedLock) {
-      String str = mmkv.decodeString(getName() + "_downloadIdToConfig");
-      if (str != null) {
-        Gson gson = new Gson();
-        TypeToken<Map<Long, RNBGDTaskConfig>> mapType = new TypeToken<Map<Long, RNBGDTaskConfig>>() {};
-        downloadIdToConfig = gson.fromJson(str, mapType);
+      try {
+        String str = mmkv.decodeString(getName() + "_downloadIdToConfig");
+        if (str != null) {
+          Gson gson = new Gson();
+
+          TypeToken<Map<Long, RNBGDTaskConfig>> mapType = new TypeToken<Map<Long, RNBGDTaskConfig>>() {
+          };
+
+          downloadIdToConfig = (Map<Long, RNBGDTaskConfig>) gson.fromJson(str, mapType);
+        }
+      } catch (Exception e) {
+        e.printStackTrace();
       }
     }
   }
