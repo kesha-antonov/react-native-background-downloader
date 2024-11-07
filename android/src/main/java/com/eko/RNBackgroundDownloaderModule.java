@@ -504,7 +504,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           downloadIdToConfig = (Map<Long, RNBGDTaskConfig>) gson.fromJson(str, mapType);
         }
       } catch (Exception e) {
-        e.printStackTrace();
+        Log.e(getName(), "loadDownloadIdToConfigMap: " + Log.getStackTraceString(e));
       }
     }
   }
