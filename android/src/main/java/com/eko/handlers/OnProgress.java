@@ -70,6 +70,8 @@ public class OnProgress implements Callable<OnProgressState> {
         }
       } catch (Exception e) {
         stopLoopWithFail();
+        // if reached maximum memory while downloading, the downloader broadcast can not receive event normally
+        downloader.broadcast(downloadId);
         throw e;
       }
 
