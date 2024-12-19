@@ -214,6 +214,7 @@ An object containing options properties
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
 | `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show a download notification or not |
+| `notificationTitle`     | String   |          |  Android  | Title of the download notification |
 
 **returns**
 

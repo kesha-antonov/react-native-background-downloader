@@ -112,6 +112,7 @@ export interface DownloadOption {
   isAllowedOverRoaming?: boolean;
   isAllowedOverMetered?: boolean;
   isNotificationVisible?: boolean;
+  notificationTitle?: string;
 }
 
 export type Download = (options: DownloadOption) => DownloadTask;

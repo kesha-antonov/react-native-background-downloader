@@ -258,6 +258,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     String destination = options.getString("destination");
     ReadableMap headers = options.getMap("headers");
     String metadata = options.getString("metadata");
+    String notificationTitle = options.getString("notificationTitle");
     int progressIntervalScope = options.getInt("progressInterval");
     if (progressIntervalScope > 0) {
       progressInterval = progressIntervalScope;
@@ -281,6 +282,10 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       request.setRequiresCharging(false);
     }
 
+    if (notificationTitle != null) {
+      request.setTitle(notificationTitle);
+    }
+
     if (headers != null) {
       ReadableMapKeySetIterator iterator = headers.keySetIterator();
       while (iterator.hasNextKey()) {
@@ -295,7 +300,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, filename);
 
     long downloadId = downloader.download(request);
-    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata);
+    RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata, notificationTitle);
 
     synchronized (sharedLock) {
       configIdToDownloadId.put(id, downloadId);

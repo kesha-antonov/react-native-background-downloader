@@ -122,6 +122,7 @@ type DownloadOptions = {
   isAllowedOverRoaming?: boolean,
   isAllowedOverMetered?: boolean,
   isNotificationVisible?: boolean;
+  notificationTitle?: string,
 }
 
 export function download (options: DownloadOptions) {
