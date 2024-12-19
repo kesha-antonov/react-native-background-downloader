@@ -122,6 +122,7 @@ type DownloadOptions = {
   isAllowedOverRoaming?: boolean,
   isAllowedOverMetered?: boolean,
   isNotificationVisible?: boolean;
+  notificationTitle?: string,
 }
 
 export function download (options: DownloadOptions) {
@@ -148,6 +149,7 @@ export function download (options: DownloadOptions) {
 
   RNBackgroundDownloader.download({
     ...options,
+    notificationTitle: options.notificationTitle,
     metadata: JSON.stringify(options.metadata),
     progressInterval: config.progressInterval,
   })
