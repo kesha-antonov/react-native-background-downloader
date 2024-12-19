@@ -149,7 +149,6 @@ export function download (options: DownloadOptions) {
 
   RNBackgroundDownloader.download({
     ...options,
-    notificationTitle: options.notificationTitle,
     metadata: JSON.stringify(options.metadata),
     progressInterval: config.progressInterval,
   })
