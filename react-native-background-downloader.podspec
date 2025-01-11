@@ -14,5 +14,5 @@ Pod::Spec.new do |s|
   s.requires_arc = true
 
   s.dependency 'React-Core'
-  s.dependency 'MMKV', '1.3.12'
+  s.dependency 'MMKV', '~> 2.0.2'
 end
