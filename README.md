@@ -132,6 +132,24 @@ task.resume()
 task.stop()
 ```
 
+### Storage optimization for large files (Android)
+
+By default, downloads on Android use a temporary file before moving to the final destination. This ensures atomic operations but requires double the storage space during download, temporarily. For very large files, you can optimize storage usage by downloading directly to the destination:
+
+```javascript
+let task = download({
+  id: 'large-model',
+  url: 'https://example.com/large-model.gguf',
+  destination: `${directories.documents}/models/large-model.gguf`,
+  useTempFile: false // Download directly to destination
+})
+```
+
+**Note:** When `useTempFile` is `false`, interrupted downloads may leave partial files at the destination. Only use this option when you:
+- Are downloading very large files
+- Have limited storage space
+- Can handle partial files in your application logic
+
 ### Re-Attaching to background downloads
 
 This is the main selling point of this library (but it's free!).
@@ -215,6 +233,7 @@ An object containing options properties
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
 | `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show a download notification or not |
 | `notificationTitle`     | String   |          |  Android  | Title of the download notification |
+| `useTempFile`     | Boolean   |          |  Android  | Whether to download to a temporary file first before moving to final destination. By default is `true`. When `false`, downloads directly to destination which saves storage space but may leave partial files if download fails |
 
 **returns**
 

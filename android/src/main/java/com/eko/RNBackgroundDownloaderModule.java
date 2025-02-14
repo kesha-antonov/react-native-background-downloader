@@ -282,6 +282,20 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       request.setRequiresCharging(false);
     }
 
+    boolean useTempFile = true; // Default to true 
+    if (options.hasKey("useTempFile")) {
+        useTempFile = options.getBoolean("useTempFile");
+    }
+
+    if (!useTempFile) {
+        request.setDestinationUri(Uri.parse(destination));
+    } else {
+        int uuid = (int) (System.currentTimeMillis() & 0xfffffff);
+        String extension = MimeTypeMap.getFileExtensionFromUrl(destination);
+        String filename = uuid + "." + extension;
+        request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, filename);
+    }
+
     if (notificationTitle != null) {
       request.setTitle(notificationTitle);
     }
@@ -293,11 +307,6 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
         request.addRequestHeader(headerKey, headers.getString(headerKey));
       }
     }
-
-    int uuid = (int) (System.currentTimeMillis() & 0xfffffff);
-    String extension = MimeTypeMap.getFileExtensionFromUrl(destination);
-    String filename = uuid + "." + extension;
-    request.setDestinationInExternalFilesDir(this.getReactApplicationContext(), null, filename);
 
     long downloadId = downloader.download(request);
     RNBGDTaskConfig config = new RNBGDTaskConfig(id, url, destination, metadata, notificationTitle);

@@ -119,9 +119,10 @@ type DownloadOptions = {
   destination: string,
   headers?: object,
   metadata?: object,
+  useTempFile?: boolean,
   isAllowedOverRoaming?: boolean,
   isAllowedOverMetered?: boolean,
-  isNotificationVisible?: boolean;
+  isNotificationVisible?: boolean,
   notificationTitle?: string,
 }
 
