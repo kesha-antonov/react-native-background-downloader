@@ -4,6 +4,11 @@ def safeExtGet(prop, fallback) {
     rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
 
+// Add this function in case you don't have it already
+def isNewArchitectureEnabled() {
+    return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
+}
+
 android {
     def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
     // Check AGP version for backward compatibility reasons (for RN < 0.71)
@@ -18,12 +23,24 @@ android {
         targetSdkVersion safeExtGet('targetSdkVersion', 34)
         versionCode 1
         versionName '1.0'
+
+        buildConfigField("boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString())
+    }
+
+    sourceSets {
+        main {
+            if (isNewArchitectureEnabled()) {
+                java.srcDirs += ['src/newarch']
+            } else {
+                java.srcDirs += ['src/oldarch']
+            }
+        }
     }
 }
 
 dependencies {
     //noinspection GradleDynamicVersion
     implementation 'com.facebook.react:react-native:+'
-    implementation 'com.tencent:mmkv:1.3.12'
-    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'com.tencent:mmkv:2.1.0'
+    implementation 'com.google.code.gson:gson:2.12.1'
 }

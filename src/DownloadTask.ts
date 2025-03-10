@@ -1,5 +1,5 @@
 import { NativeModules } from 'react-native'
-import { TaskInfo } from '..'
+import { TaskInfo } from './index.d'
 
 const { RNBackgroundDownloader } = NativeModules
 

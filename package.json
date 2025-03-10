@@ -23,20 +23,26 @@
       "name": "Kesha Antonov, Elad Gil"
     }
   ],
-  "main": "index.ts",
-  "types": "index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.d.ts",
   "files": [
     "README.md",
     "LICENSE",
     "react-native-background-downloader.podspec",
     "package.json",
-    "index.d.ts",
-    "index.js",
-    "lib/",
+    "src/",
     "ios/",
     "android/build.gradle",
     "android/src/"
   ],
+  "codegenConfig": {
+    "name": "RNBackgroundDownloaderSpec",
+    "type": "modules",
+    "jsSrcsDir": "./src",
+    "android": {
+      "javaPackageName": "com.eko.RNBackgroundDownloaderPackage"
+    }
+  },
   "scripts": {
     "bump": "npm version patch",
     "lint": "eslint .",
