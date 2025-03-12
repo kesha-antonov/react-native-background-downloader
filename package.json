@@ -40,7 +40,7 @@
     "type": "modules",
     "jsSrcsDir": "./src",
     "android": {
-      "javaPackageName": "com.eko.RNBackgroundDownloaderPackage"
+      "javaPackageName": "com.eko"
     }
   },
   "scripts": {
