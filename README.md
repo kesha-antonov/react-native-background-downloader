@@ -81,7 +81,8 @@ For anything **`< 0.60`** run the following link command
 
 <details>
   <summary>Click to expand</summary>
-  In you project bridging header file (e.g. `ios/{projectName}-Bridging-Header.h`)
+
+  In your project bridging header file (e.g. `ios/{projectName}-Bridging-Header.h`)
   add an import for RNBackgroundDownloader:
 
   ```objc
@@ -115,6 +116,7 @@ For anything **`< 0.60`** run the following link command
 
 <details>
   <summary>Click to expand</summary>
+
   In your `AppDelegate.m` add the following code:
   ```objc
   ...
