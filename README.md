@@ -75,7 +75,9 @@ For anything **`< 0.60`** run the following link command
     ```
 </details>
 
-### iOS - Extra Mandatory Step (react-native 0.77+)
+### iOS - Extra Mandatory Step
+
+#### (react-native 0.77+)
 
 <details>
   <summary>Click to expand</summary>
@@ -109,7 +111,7 @@ For anything **`< 0.60`** run the following link command
   Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
 </details>
 
-### iOS - Extra Mandatory Step  (react-native < 0.77)
+#### (react-native < 0.77)
 
 <details>
   <summary>Click to expand</summary>
