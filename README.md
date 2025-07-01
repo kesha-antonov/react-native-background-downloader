@@ -75,22 +75,60 @@ For anything **`< 0.60`** run the following link command
     ```
 </details>
 
-### iOS - Extra Mandatory Step
-In your `AppDelegate.m` add the following code:
-```objc
-...
-#import <RNBackgroundDownloader.h>
+### iOS - Extra Mandatory Step (react-native 0.77+)
 
-...
+<details>
+  <summary>Click to expand</summary>
+  In you project bridging header file (e.g. `ios/{projectName}-Bridging-Header.h`)
+  add an import for RNBackgroundDownloader:
 
-- (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler
-{
-  [RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];
-}
+  ```objc
+  ...
+  #import <RNBackgroundDownloader.h>
+  ```
 
-...
-```
-Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
+  Then in your `AppDelegate.swift` add the following method inside of your `AppDelegate` class:
+
+  ```swift
+  ...
+
+  @main
+  class AppDelegate: UIResponder, UIApplicationDelegate
+    ...
+
+    func application(
+      _ application: UIApplication,
+      handleEventsForBackgroundURLSession identifier: String,
+      completionHandler: @escaping () -> Void
+    ) {
+      RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
+    }
+  }
+  ...
+  ```
+  Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
+</details>
+
+### iOS - Extra Mandatory Step  (react-native < 0.77)
+
+<details>
+  <summary>Click to expand</summary>
+  In your `AppDelegate.m` add the following code:
+  ```objc
+  ...
+  #import <RNBackgroundDownloader.h>
+
+  ...
+
+  - (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler
+  {
+    [RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];
+  }
+
+  ...
+  ```
+  Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
+</details>
 
 ## Usage
 
