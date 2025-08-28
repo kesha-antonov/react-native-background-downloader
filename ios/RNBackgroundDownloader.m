@@ -33,7 +33,7 @@ static CompletionHandler storedCompletionHandler;
     BOOL isJavascriptLoaded;
 }
 
-RCT_EXPORT_MODULE();
+RCT_EXPORT_MODULE(RNBackgroundDownloader);
 
 - (dispatch_queue_t)methodQueue
 {
