@@ -12,6 +12,7 @@ export interface DownloadHeaders {
 export interface Config {
   headers: DownloadHeaders
   progressInterval: number
+  progressMinBytes: number
   isLogsEnabled: boolean
 }
 

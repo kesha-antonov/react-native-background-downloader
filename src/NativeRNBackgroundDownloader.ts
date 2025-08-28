@@ -46,6 +46,7 @@ export interface Spec extends TurboModule {
     }
     metadata?: string
     progressInterval?: number
+    progressMinBytes?: number
     isAllowedOverRoaming?: boolean
     isAllowedOverMetered?: boolean
     isNotificationVisible?: boolean
