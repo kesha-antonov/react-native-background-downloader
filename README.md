@@ -396,6 +396,14 @@ In case of error `java.lang.IllegalStateException: TypeToken must be created wit
 -keepattributes AnnotationDefault,RuntimeVisibleAnnotations
 ```
 
+## Known Issues & Compatibility
+
+### Firebase Performance Monitoring
+
+This library is fully compatible with `@react-native-firebase/perf` (Firebase Performance Monitoring). Previous versions had conflicts due to Firebase's runtime class swizzling, but this has been resolved in v3.2.6+.
+
+If you encounter issues with Firebase Performance, make sure you're using the latest version of this library.
+
 ## TODO
 
 - [ ] Write better examples - current kinda old and shallow
