@@ -8,16 +8,16 @@ Always reference these instructions first and fallback to search or bash command
 
 ### Bootstrap and Install Dependencies
 - Install main library dependencies:
-  - `npm install --legacy-peer-deps` -- takes 70 seconds. NEVER CANCEL. Set timeout to 180+ seconds.
-  - NOTE: Use npm, not yarn. Yarn has registry connectivity issues. The --legacy-peer-deps flag is required due to eslint-plugin-n version conflicts.
+  - `yarn install` -- takes 40 seconds. NEVER CANCEL. Set timeout to 90+ seconds.
+  - NOTE: Use yarn as the preferred package manager. The project is configured with yarn.lock and packageManager field.
 - Install example app dependencies:
-  - `cd example && npm install --legacy-peer-deps` -- takes 30 seconds. NEVER CANCEL. Set timeout to 90+ seconds.
+  - `cd example && yarn install` -- takes 20 seconds. NEVER CANCEL. Set timeout to 60+ seconds.
 
 ### Build and Test Commands
-- Run library tests: `npm run test` -- takes 2 seconds. Set timeout to 30+ seconds.
-- Run library linting: `npm run lint` -- takes 2 seconds. Set timeout to 30+ seconds. 
-- Run full validation: `npm run prepublishOnly` -- runs jest && npm run lint, takes 4 seconds total. Set timeout to 60+ seconds.
-- Run example app linting: `cd example && npm run lint` -- takes 2 seconds. Set timeout to 30+ seconds.
+- Run library tests: `yarn test` -- takes 2 seconds. Set timeout to 30+ seconds.
+- Run library linting: `yarn lint` -- takes 2 seconds. Set timeout to 30+ seconds. 
+- Run full validation: `yarn run prepublishOnly` -- runs jest && yarn run lint, takes 4 seconds total. Set timeout to 60+ seconds.
+- Run example app linting: `cd example && yarn lint` -- takes 2 seconds. Set timeout to 30+ seconds.
 
 ### Running the Example App
 - Start Metro bundler: `cd example && npx react-native start` -- takes 15 seconds to start. Set timeout to 60+ seconds.
@@ -28,7 +28,7 @@ Always reference these instructions first and fallback to search or bash command
 ## Validation
 
 ### Mandatory Validation Steps
-- ALWAYS run `npm run prepublishOnly` before committing changes - this runs the full test suite and linting.
+- ALWAYS run `yarn run prepublishOnly` before committing changes - this runs the full test suite and linting.
 - ALWAYS test example app Metro bundler startup after making library changes: `cd example && npx react-native start`.
 - ALWAYS test the download functionality scenarios described below if modifying core download logic.
 
@@ -89,20 +89,20 @@ metro.config.js       # Metro bundler configuration
 package.json          # Main library package.json
 react-native.config.js # React Native autolinking config
 src/                  # Main TypeScript library source
-yarn.lock             # Lock file (use npm instead)
+yarn.lock             # Lock file (yarn is preferred)
 ```
 
 ### Package.json Scripts
 Main library (`package.json`):
-- `npm run test` - Run Jest tests
-- `npm run lint` - Run ESLint
-- `npm run prepublishOnly` - Run tests && lint (full validation)
+- `yarn test` - Run Jest tests
+- `yarn lint` - Run ESLint
+- `yarn run prepublishOnly` - Run tests && lint (full validation)
 
 Example app (`example/package.json`):
-- `npm run android` - Run on Android (requires Android SDK)
-- `npm run ios` - Run on iOS simulator (requires Xcode)
-- `npm start` - Start Metro bundler
-- `npm run lint` - ESLint for example app
+- `yarn run android` - Run on Android (requires Android SDK)
+- `yarn run ios` - Run on iOS simulator (requires Xcode)
+- `yarn start` - Start Metro bundler
+- `yarn lint` - ESLint for example app
 
 ### Important Files to Check After Changes
 - ALWAYS check `/src/index.ts` after modifying the main API
@@ -111,14 +111,14 @@ Example app (`example/package.json`):
 - ALWAYS check `/example/src/screens/BasicExample/index.tsx` to understand usage patterns
 
 ### Known Issues and Workarounds
-- **Dependency installation**: Must use `npm install --legacy-peer-deps` due to eslint-plugin-n version conflicts
-- **Yarn issues**: Yarn has registry connectivity problems, always use npm
+- **Dependency installation**: Use yarn as the preferred package manager (configured with packageManager field)
+- **Package managers**: Both npm and yarn work, but yarn is preferred and configured in package.json
 - **TypeScript**: No separate tsc compilation step for main library - Metro bundler handles it
 - **Test imports**: Fixed import paths from '../index' to '../src/index' and '../lib/downloadTask' to '../src/DownloadTask'
 
 ### React Native Environment Requirements
 - Node.js (version in package.json engines field)
-- React Native CLI: `npm install -g react-native-cli`
+- React Native CLI: `yarn global add react-native-cli`
 - For iOS development: Xcode and CocoaPods (`cd ios && pod install`)
 - For Android development: Android Studio and SDK
 - Metro bundler (included with React Native)
@@ -127,10 +127,10 @@ Example app (`example/package.json`):
 
 CRITICAL: Set appropriate timeouts for all commands to prevent premature cancellation:
 
-- `npm install --legacy-peer-deps`: 180+ seconds (takes ~70 seconds)
-- `cd example && npm install --legacy-peer-deps`: 90+ seconds (takes ~30 seconds)
-- `npm run prepublishOnly`: 60+ seconds (takes ~4 seconds)
+- `yarn install`: 90+ seconds (takes ~40 seconds)
+- `cd example && yarn install`: 60+ seconds (takes ~20 seconds)
+- `yarn run prepublishOnly`: 60+ seconds (takes ~4 seconds)
 - `cd example && npx react-native start`: 60+ seconds (takes ~15 seconds to start)
-- All other npm commands: 30+ seconds
+- All other yarn commands: 30+ seconds
 
-NEVER CANCEL any npm install or build commands. Package installation can take significant time depending on network conditions.
+NEVER CANCEL any yarn install or build commands. Package installation can take significant time depending on network conditions.
