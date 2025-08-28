@@ -52,7 +52,9 @@ import com.tencent.mmkv.MMKV;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
+public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule {
+
+  public static final String NAME = "RNBackgroundDownloader";
 
   private static final int TASK_RUNNING = 0;
   private static final int TASK_SUSPENDED = 1;
@@ -89,7 +91,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private Date lastProgressReportedAt = new Date();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
-  public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
+  public RNBackgroundDownloaderModuleImpl(ReactApplicationContext reactContext) {
     super(reactContext);
     MMKV.initialize(reactContext);
 
@@ -104,7 +106,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   @NonNull
   @Override
   public String getName() {
-    return "RNBackgroundDownloader";
+    return NAME;
   }
 
   @Nullable
@@ -520,10 +522,26 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
             downloadStatus.getString("reasonText")
     );
 
+    int reason = downloadStatus.getInt("reason");
+    String reasonText = downloadStatus.getString("reasonText");
+
+    // Enhanced handling for ERROR_CANNOT_RESUME (1008)
+    if (reason == DownloadManager.ERROR_CANNOT_RESUME) {
+      Log.w(getName(), "ERROR_CANNOT_RESUME detected for download: " + config.id + 
+            ". This is a known Android DownloadManager issue with larger files. " +
+            "Consider restarting the download or using smaller file segments.");
+      
+      // Clean up the failed download entry
+      removeTaskFromMap(Long.parseLong(downloadStatus.getString("downloadId")));
+      
+      // Provide more helpful error message
+      reasonText = "ERROR_CANNOT_RESUME - Unable to resume download. This may occur with large files due to Android DownloadManager limitations. Try restarting the download.";
+    }
+
     WritableMap params = Arguments.createMap();
     params.putString("id", config.id);
-    params.putInt("errorCode", downloadStatus.getInt("reason"));
-    params.putString("error", downloadStatus.getString("reasonText"));
+    params.putInt("errorCode", reason);
+    params.putString("error", reasonText);
     ee.emit("downloadFailed", params);
   }
 

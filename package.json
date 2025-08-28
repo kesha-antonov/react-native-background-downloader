@@ -6,7 +6,10 @@
     "react-native",
     "background",
     "download",
-    "large files"
+    "large files",
+    "new architecture",
+    "turbo modules",
+    "fabric"
   ],
   "repository": {
     "type": "git",
