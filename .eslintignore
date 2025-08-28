@@ -1,0 +1,7 @@
+node_modules/
+coverage/
+expo-plugin/build/
+expo-plugin/node_modules/
+expo-plugin/test-*.js
+dist/
+build/
