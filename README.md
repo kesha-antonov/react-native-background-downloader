@@ -41,6 +41,31 @@ Then:
 cd ios && pod install
 ```
 
+### Expo Managed Workflow
+
+If you're using Expo managed workflow, you can use the built-in config plugin to automatically handle the iOS setup:
+
+1. Add the plugin to your `app.config.js`:
+```javascript
+export default {
+  expo: {
+    name: "Your App",
+    plugins: [
+      "@kesha-antonov/react-native-background-downloader"
+    ]
+  }
+};
+```
+
+2. Run prebuild to apply the plugin:
+```Terminal
+expo prebuild
+```
+
+**Note for Swift projects (React Native 0.77+)**: You still need to manually add `#import <RNBackgroundDownloader.h>` to your bridging header file.
+
+See [expo-plugin/README.md](expo-plugin/README.md) for detailed plugin documentation.
+
 ### Mostly automatic installation
 Any React Native version **`>= 0.60`** supports autolinking so nothing should be done.
 

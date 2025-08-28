@@ -47,7 +47,9 @@ const withRNBackgroundDownloaderIOS: ConfigPlugin<BackgroundDownloaderPluginOpti
         'objc'
       );
     } else if (config.modResults.language === 'swift') {
-      // Handle Swift AppDelegate
+      // Handle Swift AppDelegate - add the method only
+      // Note: For Swift projects, you need to manually add the import to your bridging header:
+      // #import <RNBackgroundDownloader.h>
       config.modResults.contents = addBackgroundSessionMethod(
         config.modResults.contents,
         BACKGROUND_SESSION_METHOD_SWIFT,
