@@ -146,23 +146,23 @@ test('setConfig with progressMinBytes', () => {
   RNBackgroundDownloader.setConfig({
     progressMinBytes: 500000,
     progressInterval: 2000,
-    isLogsEnabled: true
+    isLogsEnabled: true,
   })
-  
+
   // Test that download passes progressMinBytes to native
   const configDownloadTask = RNBackgroundDownloader.download({
     id: 'testConfig',
     url: 'https://example.com/file.zip',
     destination: '/tmp/file.zip',
   })
-  
+
   expect(RNBackgroundDownloaderNative.download).toHaveBeenCalledWith(
     expect.objectContaining({
       id: 'testConfig',
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',
       progressInterval: 2000,
-      progressMinBytes: 500000
+      progressMinBytes: 500000,
     })
   )
   expect(configDownloadTask).toBeInstanceOf(DownloadTask)
