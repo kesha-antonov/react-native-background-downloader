@@ -19,6 +19,7 @@ NativeModules.RNBackgroundDownloader = {
     TaskSuspended: 1,
     TaskCanceling: 2,
     TaskCompleted: 3,
+    documents: '/data/user/0/com.example/files', // Mock internal storage path
     checkForExistingDownloads: jest.fn().mockImplementation(() => {
         foundDownloads = [
             {
