@@ -41,6 +41,23 @@ Then:
 cd ios && pod install
 ```
 
+### New Architecture Support
+
+This library supports React Native's New Architecture (Fabric + TurboModules) starting from React Native 0.70+.
+
+#### Automatic Detection
+The library automatically detects whether the New Architecture is enabled in your app and uses the appropriate implementation:
+- **New Architecture**: Uses TurboModules for optimal performance
+- **Legacy Architecture**: Uses the traditional bridge implementation
+
+#### Known Issues with New Architecture
+When using larger files with the New Architecture, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager, not specific to this library. The error includes enhanced messaging to help diagnose the issue.
+
+**Workaround:** If you encounter this error frequently with large files, consider:
+1. Breaking large downloads into smaller chunks
+2. Implementing retry logic in your app
+3. Using alternative download strategies for very large files
+
 ### Mostly automatic installation
 Any React Native version **`>= 0.60`** supports autolinking so nothing should be done.
 
