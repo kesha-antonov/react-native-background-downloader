@@ -1,4 +1,0 @@
--cp
-/dev/null
--Xlint:none
-/home/runner/work/react-native-background-downloader/react-native-background-downloader/android/src/main/java/com/eko/interfaces/BeginCallback.java
