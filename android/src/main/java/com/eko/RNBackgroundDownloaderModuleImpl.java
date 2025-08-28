@@ -91,7 +91,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   private Date lastProgressReportedAt = new Date();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
-  public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
+  public RNBackgroundDownloaderModuleImpl(ReactApplicationContext reactContext) {
     super(reactContext);
     MMKV.initialize(reactContext);
 

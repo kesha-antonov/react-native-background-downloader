@@ -50,13 +50,34 @@ The library automatically detects whether the New Architecture is enabled in you
 - **New Architecture**: Uses TurboModules for optimal performance
 - **Legacy Architecture**: Uses the traditional bridge implementation
 
+#### Manual Setup (Advanced)
+If you need to manually configure the package for New Architecture:
+
+**iOS**: The library automatically detects New Architecture via compile-time flags.
+
+**Android**: For New Architecture, you can optionally use `RNBackgroundDownloaderTurboPackage` instead of the default package:
+```java
+import com.eko.RNBackgroundDownloaderTurboPackage;
+
+// In your MainApplication.java
+@Override
+protected List<ReactPackage> getPackages() {
+  return Arrays.<ReactPackage>asList(
+    // ... other packages
+    new RNBackgroundDownloaderTurboPackage() // For New Architecture
+  );
+}
+```
+
 #### Known Issues with New Architecture
-When using larger files with the New Architecture, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager, not specific to this library. The error includes enhanced messaging to help diagnose the issue.
+When using larger files with the New Architecture, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager, not specific to this library or the New Architecture. The error includes enhanced messaging to help diagnose the issue.
 
 **Workaround:** If you encounter this error frequently with large files, consider:
 1. Breaking large downloads into smaller chunks
 2. Implementing retry logic in your app
 3. Using alternative download strategies for very large files
+
+The library now provides enhanced error handling for this specific case with detailed logging and cleanup.
 
 ### Mostly automatic installation
 Any React Native version **`>= 0.60`** supports autolinking so nothing should be done.
