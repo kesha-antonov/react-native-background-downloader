@@ -14,10 +14,8 @@ public class FileUtils {
     //       We can check the storage space before starting file downloads.
     //       Moving a source file requires space twice the size of the file.
     public static long getAvailableSpace(Context context) {
-        File externalDirectory = context.getExternalFilesDir(null);
-        String path = externalDirectory != null
-                ? externalDirectory.getAbsolutePath()
-                : context.getFilesDir().getAbsolutePath();
+        // Use internal files directory to be consistent with documents directory
+        String path = context.getFilesDir().getAbsolutePath();
 
         StatFs statFs = new StatFs(path);
         return statFs.getAvailableBytes();
