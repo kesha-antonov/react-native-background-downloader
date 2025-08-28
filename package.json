@@ -33,7 +33,9 @@
     "src/",
     "ios/",
     "android/build.gradle",
-    "android/src/"
+    "android/src/",
+    "plugin.js",
+    "expo-plugin/build/"
   ],
   "codegenConfig": {
     "name": "RNBackgroundDownloaderSpec",
@@ -46,9 +48,10 @@
   "scripts": {
     "bump": "npm version patch",
     "lint": "eslint .",
-    "prepublishOnly": "jest && npm run lint",
+    "prepublishOnly": "jest && npm run lint && npm run build:plugin",
     "publish": "npm publish",
-    "test": "jest"
+    "test": "jest",
+    "build:plugin": "cd expo-plugin && npm run build"
   },
   "lint-staged": {
     "*.js": "eslint --cache"
@@ -69,6 +72,7 @@
     "@babel/preset-env": "^7.26.0",
     "@babel/preset-typescript": "^7.26.0",
     "@babel/runtime": "^7.26.0",
+    "@expo/config-plugins": "^10.1.2",
     "@react-native/babel-preset": "^0.76.5",
     "@react-native/eslint-config": "^0.76.5",
     "@typescript-eslint/eslint-plugin": "^8.19.1",

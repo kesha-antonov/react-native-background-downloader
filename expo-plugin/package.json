@@ -1,0 +1,17 @@
+{
+  "name": "@kesha-antonov/react-native-background-downloader-expo-plugin",
+  "version": "1.0.0",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf build"
+  },
+  "peerDependencies": {
+    "@expo/config-plugins": "^8.0.0",
+    "expo": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
