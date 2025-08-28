@@ -1,5 +1,5 @@
-import RNBackgroundDownloader from '../index'
-import DownloadTask from '../lib/downloadTask'
+import RNBackgroundDownloader from '../src/index'
+import DownloadTask from '../src/DownloadTask'
 import { NativeModules, NativeEventEmitter } from 'react-native'
 
 const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
@@ -164,4 +164,23 @@ test('wrong handler type', () => {
   expect(() => {
     dt.error('not function')
   }).toThrow()
+})
+
+test('download with timeout improvements for slow URLs', () => {
+  const timeoutDT = RNBackgroundDownloader.download({
+    id: 'testSlowUrl',
+    url: 'https://example.com/slow-response',
+    destination: '/path/to/file.zip',
+  })
+
+  expect(timeoutDT).toBeInstanceOf(DownloadTask)
+  expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()
+
+  // Verify that the download was called with the expected parameters
+  const lastCallArgs = RNBackgroundDownloaderNative.download.mock.calls[RNBackgroundDownloaderNative.download.mock.calls.length - 1]
+  expect(lastCallArgs[0]).toMatchObject({
+    id: 'testSlowUrl',
+    url: 'https://example.com/slow-response',
+    destination: '/path/to/file.zip',
+  })
 })

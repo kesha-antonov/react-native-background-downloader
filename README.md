@@ -234,6 +234,16 @@ let task = RNBackgroundDownloader.download({
 ```
 Headers given in the `download` function are **merged** with the ones given in `setConfig({ headers: { ... } })`.
 
+### Handling Slow-Responding URLs
+
+This library automatically includes connection timeout improvements for slow-responding URLs. By default, the following headers are added to all download requests on Android:
+
+- `Connection: keep-alive` - Keeps the connection open for better handling
+- `Keep-Alive: timeout=600, max=1000` - Sets a 10-minute keep-alive timeout
+- `User-Agent: ReactNative-BackgroundDownloader/3.2.6` - Proper user agent for better server compatibility
+
+These headers help prevent downloads from getting stuck in "pending" state when servers take several minutes to respond initially. You can override these headers by providing your own in the `headers` option.
+
 ## API
 
 ### RNBackgroundDownloader

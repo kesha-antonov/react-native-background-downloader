@@ -286,6 +286,16 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
       request.setTitle(notificationTitle);
     }
 
+    // Add default headers to improve connection handling for slow-responding URLs
+    // These headers encourage longer connections and help prevent premature timeouts
+    request.addRequestHeader("Connection", "keep-alive");
+    request.addRequestHeader("Keep-Alive", "timeout=600, max=1000");
+    
+    // Add a proper User-Agent to improve server compatibility
+    if (!hasUserAgentHeader(headers)) {
+      request.addRequestHeader("User-Agent", "ReactNative-BackgroundDownloader/3.2.6");
+    }
+
     if (headers != null) {
       ReadableMapKeySetIterator iterator = headers.keySetIterator();
       while (iterator.hasNextKey()) {
@@ -558,5 +568,23 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
       return true;
     });
+  }
+
+  /**
+   * Check if the provided headers already contain a User-Agent header (case-insensitive)
+   */
+  private boolean hasUserAgentHeader(@Nullable ReadableMap headers) {
+    if (headers == null) {
+      return false;
+    }
+    
+    ReadableMapKeySetIterator iterator = headers.keySetIterator();
+    while (iterator.hasNextKey()) {
+      String headerKey = iterator.nextKey();
+      if (headerKey != null && headerKey.toLowerCase().equals("user-agent")) {
+        return true;
+      }
+    }
+    return false;
   }
 }
