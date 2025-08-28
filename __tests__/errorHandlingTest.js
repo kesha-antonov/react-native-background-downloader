@@ -18,7 +18,7 @@ test('ERROR_CANNOT_RESUME handling', () => {
       expect(errorDT.state).toBe('FAILED')
       resolve()
     })
-    
+
     // Simulate the ERROR_CANNOT_RESUME error
     nativeEmitter.emit('downloadFailed', {
       id: 'testCannotResume',
