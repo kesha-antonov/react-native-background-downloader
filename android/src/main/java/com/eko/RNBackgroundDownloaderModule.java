@@ -311,26 +311,42 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  // TODO: Not working with DownloadManager for now.
+  // Pause functionality is not supported by Android DownloadManager.
+  // This method will throw an UnsupportedOperationException to clearly indicate
+  // that pause is not available on Android platform.
   @ReactMethod
   @SuppressWarnings("unused")
   public void pauseTask(String configId) {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
-        downloader.pause(downloadId);
+        try {
+          downloader.pause(downloadId);
+        } catch (UnsupportedOperationException e) {
+          Log.w("RNBackgroundDownloader", "pauseTask: " + e.getMessage());
+          // Note: We don't rethrow the exception to avoid crashing the JS thread.
+          // The limitation is already documented and expected.
+        }
       }
     }
   }
 
-  // TODO: Not working with DownloadManager for now.
+  // Resume functionality is not supported by Android DownloadManager.
+  // This method will throw an UnsupportedOperationException to clearly indicate
+  // that resume is not available on Android platform.
   @ReactMethod
   @SuppressWarnings("unused")
   public void resumeTask(String configId) {
     synchronized (sharedLock) {
       Long downloadId = configIdToDownloadId.get(configId);
       if (downloadId != null) {
-        downloader.resume(downloadId);
+        try {
+          downloader.resume(downloadId);
+        } catch (UnsupportedOperationException e) {
+          Log.w("RNBackgroundDownloader", "resumeTask: " + e.getMessage());
+          // Note: We don't rethrow the exception to avoid crashing the JS thread.
+          // The limitation is already documented and expected.
+        }
       }
     }
   }

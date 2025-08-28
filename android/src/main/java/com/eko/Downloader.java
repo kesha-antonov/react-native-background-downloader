@@ -30,21 +30,24 @@ public class Downloader {
         return downloadManager.remove(downloadId);
     }
 
-    // WAITING FOR THE FIX TO BE MERGED
-    // https://android-review.googlesource.com/c/platform/packages/providers/DownloadProvider/+/2089866
     public void pause(long downloadId) {
-        // ContentValues values = new ContentValues();
-        // values.put(Downloads.Impl.COLUMN_CONTROL, Downloads.Impl.CONTROL_PAUSED);
-        // values.put(Downloads.Impl.COLUMN_STATUS,
-        // Downloads.Impl.STATUS_PAUSED_BY_APP);
-        // downloadManager.mResolver.update(ContentUris.withAppendedId(mBaseUri,
-        // ids[0]), values, null, null)
+        // Android DownloadManager does not provide a public API for pausing downloads.
+        // The Downloads.Impl.* constants and private fields like mResolver are not accessible.
+        // See: https://android-review.googlesource.com/c/platform/packages/providers/DownloadProvider/+/2089866
+        throw new UnsupportedOperationException(
+            "Pause functionality is not supported by Android DownloadManager. " +
+            "Consider using stop() and restart the download if needed."
+        );
     }
 
     public void resume(long downloadId) {
-        // ContentValues values = new ContentValues();
-        // values.put(Downloads.Impl.COLUMN_STATUS, Downloads.Impl.STATUS_PENDING);
-        // values.put(Downloads.Impl.COLUMN_CONTROL, Downloads.Impl.CONTROL_RUN);
+        // Android DownloadManager does not provide a public API for resuming paused downloads.
+        // The Downloads.Impl.* constants and private fields like mResolver are not accessible.
+        // See: https://android-review.googlesource.com/c/platform/packages/providers/DownloadProvider/+/2089866
+        throw new UnsupportedOperationException(
+            "Resume functionality is not supported by Android DownloadManager. " +
+            "Downloads that were stopped need to be restarted from the beginning."
+        );
     }
 
     // Manually trigger the receiver from anywhere.
