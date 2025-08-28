@@ -113,12 +113,9 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     Context context =  this.getReactApplicationContext();
     Map<String, Object> constants = new HashMap<>();
 
-    File externalDirectory = context.getExternalFilesDir(null);
-    if (externalDirectory != null) {
-      constants.put("documents", externalDirectory.getAbsolutePath());
-    } else {
-      constants.put("documents", context.getFilesDir().getAbsolutePath());
-    }
+    // Use internal files directory to match React Native's FileSystem.documentDirectory
+    // and be consistent with iOS implementation
+    constants.put("documents", context.getFilesDir().getAbsolutePath());
 
     constants.put("TaskRunning", TASK_RUNNING);
     constants.put("TaskSuspended", TASK_SUSPENDED);
