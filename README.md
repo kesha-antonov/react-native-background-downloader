@@ -278,6 +278,7 @@ Recommended to run at the init stage of the app.
 | -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
 | `headers`     | Object | optional headers to use in all future downloads |
 | `progressInterval` | Number | Interval in which download progress sent from downloader. Number should be >= 250. It's in ms |
+| `progressMinBytes` | Number | Minimum number of bytes that must be downloaded before triggering progress callbacks. Used for hybrid progress reporting (triggers on either percentage >1% OR bytes threshold). Default is 1048576 (1MB). Number should be >= 0 |
 | `isLogsEnabled`   | Boolean | Enables/disables logs in library |
 
 ### DownloadTask
