@@ -44,3 +44,4 @@ local.properties
 buck-out/
 \.buckd/
 *.keystore
+javac.*.args
