@@ -19,6 +19,7 @@ import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
+import com.facebook.react.bridge.LifecycleEventListener;
 
 import android.app.DownloadManager;
 import android.app.DownloadManager.Request;
@@ -52,7 +53,7 @@ import com.tencent.mmkv.MMKV;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
+public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule implements LifecycleEventListener {
 
   private static final int TASK_RUNNING = 0;
   private static final int TASK_SUSPENDED = 1;
@@ -88,6 +89,8 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   private int progressInterval = 0;
   private Date lastProgressReportedAt = new Date();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
+  private volatile boolean isJavascriptLoaded = false;
+  private final List<Runnable> deferredEvents = new ArrayList<>();
 
   public RNBackgroundDownloaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -99,6 +102,9 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     loadConfigMap();
 
     downloader = new Downloader(reactContext);
+    
+    // Register lifecycle listener to track JavaScript load state
+    reactContext.addLifecycleEventListener(this);
   }
 
   @NonNull
@@ -144,6 +150,72 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
   @Override
   public void invalidate() {
     unregisterDownloadReceiver();
+    getReactApplicationContext().removeLifecycleEventListener(this);
+  }
+
+  @Override
+  public void onHostResume() {
+    // No action needed - we'll use addListener as the JavaScript ready signal
+  }
+
+  @Override
+  public void onHostPause() {
+    // No action needed
+  }
+
+  @Override
+  public void onHostDestroy() {
+    isJavascriptLoaded = false;
+    synchronized (deferredEvents) {
+      deferredEvents.clear();
+    }
+  }
+
+  private void safeEmitEvent(String eventName, Object eventData) {
+    if (ee != null) {
+      try {
+        // Try to emit immediately
+        ee.emit(eventName, eventData);
+        // If successful and we had deferred events, JavaScript is ready
+        if (!isJavascriptLoaded && !deferredEvents.isEmpty()) {
+          isJavascriptLoaded = true;
+          synchronized (deferredEvents) {
+            for (Runnable event : deferredEvents) {
+              event.run();
+            }
+            deferredEvents.clear();
+          }
+        }
+        isJavascriptLoaded = true;
+      } catch (Exception e) {
+        // Failed to emit, defer the event
+        synchronized (deferredEvents) {
+          deferredEvents.add(() -> {
+            if (ee != null) {
+              try {
+                ee.emit(eventName, eventData);
+              } catch (Exception ex) {
+                // Log error but don't crash
+                Log.w(getName(), "Failed to emit deferred event: " + eventName, ex);
+              }
+            }
+          });
+        }
+      }
+    } else {
+      // ee is null, defer the event
+      synchronized (deferredEvents) {
+        deferredEvents.add(() -> {
+          if (ee != null) {
+            try {
+              ee.emit(eventName, eventData);
+            } catch (Exception ex) {
+              Log.w(getName(), "Failed to emit deferred event: " + eventName, ex);
+            }
+          }
+        });
+      }
+    }
   }
 
   private void registerDownloadReceiver() {
@@ -402,7 +474,20 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   @SuppressWarnings("unused")
-  public void addListener(String eventName) {}
+  public void addListener(String eventName) {
+    // This method is called by React Native when JavaScript sets up event listeners
+    // Use this as a signal that JavaScript is ready
+    if (!isJavascriptLoaded) {
+      isJavascriptLoaded = true;
+      // Emit any deferred events
+      synchronized (deferredEvents) {
+        for (Runnable event : deferredEvents) {
+          event.run();
+        }
+        deferredEvents.clear();
+      }
+    }
+  }
 
   @ReactMethod
   @SuppressWarnings("unused")
@@ -413,7 +498,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     params.putString("id", configId);
     params.putMap("headers", headers);
     params.putDouble("expectedBytes", expectedBytes);
-    ee.emit("downloadBegin", params);
+    safeEmitEvent("downloadBegin", params);
   }
 
   private void onProgressDownload(String configId, long bytesDownloaded, long bytesTotal) {
@@ -441,7 +526,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
           reportsArray.pushMap(report.copy());
         }
       }
-      ee.emit("downloadProgress", reportsArray);
+      safeEmitEvent("downloadProgress", reportsArray);
       lastProgressReportedAt = now;
       progressReports.clear();
     }
@@ -471,7 +556,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     params.putString("location", config.destination);
     params.putDouble("bytesDownloaded", downloadStatus.getDouble("bytesDownloaded"));
     params.putDouble("bytesTotal", downloadStatus.getDouble("bytesTotal"));
-    ee.emit("downloadComplete", params);
+    safeEmitEvent("downloadComplete", params);
   }
 
   private void onFailedDownload(RNBGDTaskConfig config, WritableMap downloadStatus) {
@@ -485,7 +570,7 @@ public class RNBackgroundDownloaderModule extends ReactContextBaseJavaModule {
     params.putString("id", config.id);
     params.putInt("errorCode", downloadStatus.getInt("reason"));
     params.putString("error", downloadStatus.getString("reasonText"));
-    ee.emit("downloadFailed", params);
+    safeEmitEvent("downloadFailed", params);
   }
 
   private void saveDownloadIdToConfigMap() {
