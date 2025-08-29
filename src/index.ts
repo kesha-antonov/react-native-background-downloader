@@ -12,6 +12,7 @@ const tasksMap = new Map()
 const config = {
   headers: {},
   progressInterval: 1000,
+  progressMinBytes: 1024 * 1024, // 1MB default
   isLogsEnabled: false,
 }
 
@@ -52,7 +53,7 @@ RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }) =>
   tasksMap.delete(id)
 })
 
-export function setConfig ({ headers, progressInterval, isLogsEnabled }) {
+export function setConfig ({ headers, progressInterval, progressMinBytes, isLogsEnabled }) {
   if (typeof headers === 'object') config.headers = headers
 
   if (progressInterval != null)
@@ -60,6 +61,12 @@ export function setConfig ({ headers, progressInterval, isLogsEnabled }) {
       config.progressInterval = progressInterval
     else
       console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= ${MIN_PROGRESS_INTERVAL}. You passed ${progressInterval}`)
+
+  if (progressMinBytes != null)
+    if (typeof progressMinBytes === 'number' && progressMinBytes >= 0)
+      config.progressMinBytes = progressMinBytes
+    else
+      console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
 
   if (typeof isLogsEnabled === 'boolean') config.isLogsEnabled = isLogsEnabled
 }
@@ -138,6 +145,7 @@ export function download (options: DownloadOptions) {
     ...options,
     metadata: JSON.stringify(options.metadata),
     progressInterval: config.progressInterval,
+    progressMinBytes: config.progressMinBytes,
   })
 
   return task
