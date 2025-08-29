@@ -59,5 +59,7 @@ NativeModules.RNBackgroundDownloader = {
             }
         ]
         return Promise.resolve(foundDownloads);
-    })
+    }),
+    completeHandler: jest.fn(),
+    documents: '/tmp/documents'
 };

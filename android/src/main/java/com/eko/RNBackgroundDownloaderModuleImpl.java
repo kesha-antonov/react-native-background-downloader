@@ -95,9 +95,21 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
 
   public RNBackgroundDownloaderModuleImpl(ReactApplicationContext reactContext) {
     super(reactContext);
-    MMKV.initialize(reactContext);
-
-    mmkv = MMKV.mmkvWithID(getName());
+    
+    // Initialize MMKV with error handling for Android 12 compatibility
+    try {
+      MMKV.initialize(reactContext);
+      mmkv = MMKV.mmkvWithID(getName());
+      Log.d(getName(), "MMKV initialized successfully");
+    } catch (UnsatisfiedLinkError e) {
+      Log.e(getName(), "Failed to initialize MMKV (libmmkv.so not found): " + e.getMessage());
+      Log.w(getName(), "Continuing without persistent storage. Downloads will not persist across app restarts.");
+      mmkv = null;
+    } catch (Exception e) {
+      Log.e(getName(), "Failed to initialize MMKV: " + e.getMessage());
+      Log.w(getName(), "Continuing without persistent storage. Downloads will not persist across app restarts.");
+      mmkv = null;
+    }
 
     loadDownloadIdToConfigMap();
     loadConfigMap();
@@ -590,14 +602,27 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
 
   private void saveDownloadIdToConfigMap() {
     synchronized (sharedLock) {
-      Gson gson = new Gson();
-      String str = gson.toJson(downloadIdToConfig);
-      mmkv.encode(getName() + "_downloadIdToConfig", str);
+      if (mmkv == null) {
+        Log.d(getName(), "MMKV not available, skipping download config persistence");
+        return;
+      }
+      try {
+        Gson gson = new Gson();
+        String str = gson.toJson(downloadIdToConfig);
+        mmkv.encode(getName() + "_downloadIdToConfig", str);
+      } catch (Exception e) {
+        Log.e(getName(), "Failed to save download config to MMKV: " + e.getMessage());
+      }
     }
   }
 
   private void loadDownloadIdToConfigMap() {
     synchronized (sharedLock) {
+      if (mmkv == null) {
+        Log.d(getName(), "MMKV not available, starting with empty download config");
+        downloadIdToConfig = new HashMap<>();
+        return;
+      }
       try {
         String str = mmkv.decodeString(getName() + "_downloadIdToConfig");
         if (str != null) {
@@ -610,26 +635,43 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
         }
       } catch (Exception e) {
         Log.e(getName(), "loadDownloadIdToConfigMap: " + Log.getStackTraceString(e));
+        downloadIdToConfig = new HashMap<>();
       }
     }
   }
 
   private void saveConfigMap() {
     synchronized (sharedLock) {
-      mmkv.encode(getName() + "_progressInterval", progressInterval);
-      mmkv.encode(getName() + "_progressMinBytes", progressMinBytes);
+      if (mmkv == null) {
+        Log.d(getName(), "MMKV not available, skipping config persistence");
+        return;
+      }
+      try {
+        mmkv.encode(getName() + "_progressInterval", progressInterval);
+        mmkv.encode(getName() + "_progressMinBytes", progressMinBytes);
+      } catch (Exception e) {
+        Log.e(getName(), "Failed to save config to MMKV: " + e.getMessage());
+      }
     }
   }
 
   private void loadConfigMap() {
     synchronized (sharedLock) {
-      int progressIntervalScope = mmkv.decodeInt(getName() + "_progressInterval");
-      if (progressIntervalScope > 0) {
-        progressInterval = progressIntervalScope;
+      if (mmkv == null) {
+        Log.d(getName(), "MMKV not available, using default config values");
+        return;
       }
-      long progressMinBytesScope = mmkv.decodeLong(getName() + "_progressMinBytes");
-      if (progressMinBytesScope > 0) {
-        progressMinBytes = progressMinBytesScope;
+      try {
+        int progressIntervalScope = mmkv.decodeInt(getName() + "_progressInterval");
+        if (progressIntervalScope > 0) {
+          progressInterval = progressIntervalScope;
+        }
+        long progressMinBytesScope = mmkv.decodeLong(getName() + "_progressMinBytes");
+        if (progressMinBytesScope > 0) {
+          progressMinBytes = progressMinBytesScope;
+        }
+      } catch (Exception e) {
+        Log.e(getName(), "Failed to load config from MMKV: " + e.getMessage());
       }
     }
   }
