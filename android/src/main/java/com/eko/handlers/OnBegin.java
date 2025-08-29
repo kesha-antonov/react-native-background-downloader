@@ -51,6 +51,11 @@ public class OnBegin implements Callable<OnBeginState> {
     // Prevents memory leaks for invalid connections.
     urlConnection.setRequestMethod("HEAD");
 
+    // Set timeout values to prevent downloads from staying in PENDING state
+    // when URLs are slow to respond (e.g., taking 2-6 minutes)
+    urlConnection.setConnectTimeout(30000); // 30 seconds to establish connection
+    urlConnection.setReadTimeout(60000);    // 60 seconds to read initial response
+
     // 200 and 206 codes are successful http codes.
     int httpStatusCode = urlConnection.getResponseCode();
     if (httpStatusCode != HttpURLConnection.HTTP_OK && httpStatusCode != HttpURLConnection.HTTP_PARTIAL) {
