@@ -419,12 +419,27 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
               RNBGDTaskConfig config = downloadIdToConfig.get(downloadId);
 
               if (config != null) {
+                int status = downloadStatus.getInt("status");
+                // Handle completed downloads that weren't processed
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                  String localUri = downloadStatus.getString("localUri");
+                  if (localUri != null) {
+                    try {
+                      Future<Boolean> future = setFileChangesBeforeCompletion(localUri, config.destination);
+                      future.get();
+                    } catch (Exception e) {
+                      Log.e(getName(), "Error moving completed download file: " + e.getMessage());
+                      // Continue with normal processing even if file move fails
+                    }
+                  }
+                }
+
                 WritableMap params = Arguments.createMap();
 
                 params.putString("id", config.id);
                 params.putString("metadata", config.metadata);
-                Integer status = stateMap.get(downloadStatus.getInt("status"));
-                int state = status != null ? status : 0;
+                Integer statusMapping = stateMap.get(status);
+                int state = statusMapping != null ? statusMapping : 0;
                 params.putInt("state", state);
 
                 double bytesDownloaded = downloadStatus.getDouble("bytesDownloaded");
