@@ -333,6 +333,25 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     }
   }
 
+  // UPLOAD STUB IMPLEMENTATION
+  @ReactMethod
+  @SuppressWarnings("unused")
+  public void upload(ReadableMap options) {
+    final String id = options.getString("id");
+    String url = options.getString("url");
+    String source = options.getString("source");
+    
+    Log.d(getName(), "Upload stub called for id: " + id + ", url: " + url + ", source: " + source);
+    Log.w(getName(), "Upload functionality not yet implemented on Android");
+    
+    // TODO: Implement background upload functionality
+    // This would require:
+    // 1. Using WorkManager or JobIntentService for background processing
+    // 2. HTTP multipart upload implementation
+    // 3. Progress tracking and event emission
+    // 4. Error handling and retry logic
+  }
+
   // Pause functionality is not supported by Android DownloadManager.
   // This method will throw an UnsupportedOperationException to clearly indicate
   // that pause is not available on Android platform.
@@ -473,6 +492,16 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
       }
     }
 
+    promise.resolve(foundTasks);
+  }
+
+  @ReactMethod
+  @SuppressWarnings("unused")
+  public void checkForExistingUploads(final Promise promise) {
+    Log.d(getName(), "checkForExistingUploads - STUB IMPLEMENTATION");
+    // TODO: Implement checking for existing upload tasks
+    // For now return empty array
+    WritableArray foundTasks = Arguments.createArray();
     promise.resolve(foundTasks);
   }
 

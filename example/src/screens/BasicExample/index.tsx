@@ -7,6 +7,8 @@ import {
   checkForExistingDownloads,
   download,
   setConfig,
+  // upload, // Experimental - will be available when native implementation is complete
+  // checkForExistingUploads, // Experimental
 } from '@kesha-antonov/react-native-background-downloader'
 import Slider from '@react-native-community/slider'
 import { ExButton, ExWrapper } from '../../components/commons'
@@ -213,6 +215,42 @@ const BasicExampleScreen = () => {
     const task = downloadTasks[index]
     return { index, task }
   }
+
+  // Example of how upload API would be used (when fully implemented):
+  /*
+  const startUpload = async () => {
+    const filePath = `${directories.documents}/example-file.jpg`
+    
+    const uploadTask = upload({
+      id: uuid(),
+      url: 'https://httpbin.org/post',
+      source: filePath,
+      method: 'POST',
+      fieldName: 'file',
+      headers: {
+        'Authorization': 'Bearer YOUR_TOKEN'
+      },
+      metadata: {
+        description: 'Example file upload'
+      }
+    })
+
+    uploadTask
+      .begin(({ expectedBytes, headers }) => {
+        console.log(`Upload started! Expected: ${expectedBytes} bytes`)
+      })
+      .progress(({ bytesDownloaded, bytesTotal }) => {
+        const percent = (bytesDownloaded / bytesTotal) * 100
+        console.log(`Upload progress: ${percent.toFixed(1)}%`)
+      })
+      .done(() => {
+        console.log('Upload completed!')
+      })
+      .error(({ error, errorCode }) => {
+        console.log('Upload failed:', error)
+      })
+  }
+  */
 
   useEffect(() => {
     resumeExistingTasks()

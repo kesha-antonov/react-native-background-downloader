@@ -12,6 +12,7 @@ NativeModules.RNBackgroundDownloader = {
     addListener: jest.fn(),
     removeListeners: jest.fn(),
     download: jest.fn(),
+    upload: jest.fn(),
     pauseTask: jest.fn(),
     resumeTask: jest.fn(),
     stopTask: jest.fn(),
@@ -59,5 +60,22 @@ NativeModules.RNBackgroundDownloader = {
             }
         ]
         return Promise.resolve(foundDownloads);
+    }),
+    checkForExistingUploads: jest.fn().mockImplementation(() => {
+        foundUploads = [
+            {
+                id: 'uploadRunning',
+                state: NativeModules.RNBackgroundDownloader.TaskRunning,
+                bytesDownloaded: 30,
+                bytesTotal: 100
+            },
+            {
+                id: 'uploadCompleted',
+                state: NativeModules.RNBackgroundDownloader.TaskCompleted,
+                bytesDownloaded: 100,
+                bytesTotal: 100
+            }
+        ]
+        return Promise.resolve(foundUploads);
     })
 };

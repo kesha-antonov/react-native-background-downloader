@@ -36,6 +36,7 @@ type DownloadTask = {
 
 export interface Spec extends TurboModule {
   checkForExistingDownloads: () => Promise<DownloadTask[]>
+  checkForExistingUploads: () => Promise<DownloadTask[]>
   completeHandler: (id: string) => void
   download: (options: {
     id: string
@@ -45,6 +46,24 @@ export interface Spec extends TurboModule {
       [key: string]: unknown
     }
     metadata?: string
+    progressInterval?: number
+    progressMinBytes?: number
+    isAllowedOverRoaming?: boolean
+    isAllowedOverMetered?: boolean
+    isNotificationVisible?: boolean
+    notificationTitle?: string
+  }) => DownloadTask
+  upload: (options: {
+    id: string
+    url: string
+    source: string
+    headers?: {
+      [key: string]: unknown
+    }
+    metadata?: string
+    method?: string
+    fieldName?: string
+    mimeType?: string
     progressInterval?: number
     progressMinBytes?: number
     isAllowedOverRoaming?: boolean
