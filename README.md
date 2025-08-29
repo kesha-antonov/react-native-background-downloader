@@ -172,6 +172,19 @@ For anything **`< 0.60`** run the following link command
   Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
 </details>
 
+## Compatibility
+
+### MMKV Storage Libraries
+
+This library uses MMKV for efficient storage and is compatible with popular React Native MMKV libraries:
+
+- **react-native-mmkv**: ✅ Compatible (v3.x and later)
+- **react-native-mmkv-storage**: ✅ Compatible
+
+The library uses flexible MMKV version ranges (iOS: `>= 2.1.0, < 3.0`, Android: `[2.1.0,3.0)`) to avoid version conflicts when used alongside other MMKV-based libraries. No additional configuration is required.
+
+**Note**: If you encounter build issues related to MMKV when using multiple MMKV-based libraries, ensure all libraries are up to date and consider cleaning your build cache (`cd ios && pod cache clean --all && pod install`).
+
 ## Usage
 
 ### Downloading a file

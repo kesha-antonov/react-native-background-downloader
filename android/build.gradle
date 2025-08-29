@@ -41,6 +41,6 @@ android {
 dependencies {
     //noinspection GradleDynamicVersion
     implementation 'com.facebook.react:react-native:+'
-    implementation 'com.tencent:mmkv:2.1.0'
+    implementation 'com.tencent:mmkv:[2.1.0,3.0)'
     implementation 'com.google.code.gson:gson:2.12.1'
 }
