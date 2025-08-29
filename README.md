@@ -4,7 +4,7 @@
 
 # @kesha-antonov/react-native-background-downloader
 
-A library for React-Native to help you download large files on iOS and Android both in the foreground and most importantly in the background.
+A library for React-Native to help you download and upload large files on iOS and Android both in the foreground and most importantly in the background.
 
 ### Why?
 
@@ -16,7 +16,7 @@ On Android we are using similar process with [DownloadManager](https://developer
 
 The real challenge of using this method is making sure the app's UI is always up-to-date with the downloads that are happening in another process because your app might startup from scratch while the downloads are still running.
 
-`@kesha-antonov/react-native-background-downloader` gives you an easy API to both downloading large files and re-attaching to those downloads once your app launches again.
+`@kesha-antonov/react-native-background-downloader` gives you an easy API to both downloading and uploading large files and re-attaching to those transfers once your app launches again.
 
 ## ToC
 
@@ -366,6 +366,39 @@ An object containing options properties
 
 `DownloadTask` - The download task to control and monitor this download
 
+### `upload(options)` (Experimental)
+
+Upload a file to a server endpoint
+
+**options**
+
+| Name           | Type   | Required | Info                                                                                                     |
+| -------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------- |
+| `id`           | String | ✓        | Unique identifier for this upload task                                                                   |
+| `url`          | String | ✓        | The server endpoint URL to upload to                                                                     |
+| `source`       | String | ✓        | Absolute path to the file to upload                                                                      |
+| `headers`      | Object |          | HTTP headers to send with the upload request                                                             |
+| `method`       | String |          | HTTP method (`POST`, `PUT`, `PATCH`). Default: `POST`                                                   |
+| `fieldName`    | String |          | The form field name for the file. Default: `file`                                                       |
+| `mimeType`     | String |          | MIME type of the file being uploaded. Auto-detected if not provided                                     |
+| `metadata`     | Object |          | Any data you wish to store with this task                                                               |
+
+**Note:** Upload functionality is currently in experimental stage with stub implementations. iOS implementation is planned using NSURLSessionUploadTask, Android implementation would require WorkManager or similar background processing solution.
+
+**returns**
+
+`UploadTask` - The upload task to control and monitor this upload
+
+### `checkForExistingUploads()` (Experimental)
+
+Checks for uploads that ran in background while you app was terminated.
+
+**returns**
+
+`UploadTask[]` - Array of upload tasks that were running in the background
+
+**Note:** Currently returns empty array as full implementation is pending.
+
 ### `checkForExistingDownloads()`
 
 Checks for downloads that ran in background while you app was terminated. And also forces them to resume downloads.
@@ -397,6 +430,32 @@ A class representing a download task created by `RNBackgroundDownloader.download
 | `bytesDownloaded` | Number | The number of bytes currently written by the task                                                    |
 | `bytesTotal`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded |
 
+### UploadTask (Experimental)
+
+A class representing an upload task created by `RNBackgroundDownloader.upload`
+
+### `Members`
+| Name           | Type   | Info                                                                                                 |
+| -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| `id`           | String | The id you gave the task when calling `RNBackgroundDownloader.upload`                              |
+| `metadata`     | Object | The metadata you gave the task when calling `RNBackgroundDownloader.upload`                        |
+| `bytesUploaded` | Number | The number of bytes currently uploaded by the task                                                 |
+| `bytesTotal`   | Number | The number bytes expected to be uploaded by this task or more plainly, the file size being uploaded |
+
+### `Callback Methods`
+
+UploadTask has the same callback methods as DownloadTask:
+
+- `begin((expectedBytes, headers) => {})` - Called when the upload begins
+- `progress(({ bytesDownloaded, bytesTotal }) => {})` - Called on upload progress (note: uses same field names as download for consistency)  
+- `done(({ bytesDownloaded, bytesTotal }) => {})` - Called when upload completes successfully
+- `error(({ error, errorCode }) => {})` - Called when upload fails
+
+**Control Methods:**
+- `pause()` - Pauses the upload (iOS only when implemented)
+- `resume()` - Resumes a paused upload (iOS only when implemented)
+- `stop()` - Stops and cancels the upload
+
 ### `completeHandler(jobId)`
 
 Finishes download job and informs OS that app can be closed in background if needed.
@@ -405,6 +464,10 @@ After finishing download in background you have some time to process your JS log
 ### `ensureDownloadsAreRunning` (iOS only)
 
 Pauses and resumes all downloads - this is fix for stuck downloads. Use it when your app loaded and is ready for handling downloads (all your logic loaded and ready to handle download callbacks).
+
+### `ensureUploadsAreRunning` (iOS only) (Experimental)
+
+Similar to `ensureDownloadsAreRunning` but for upload tasks. When implemented, will pause and resume all uploads to fix stuck upload tasks.
 
 Here's example of how you can use it:
 

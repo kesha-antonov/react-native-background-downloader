@@ -66,7 +66,11 @@ RCT_EXPORT_MODULE();
         @"downloadBegin",
         @"downloadProgress",
         @"downloadComplete",
-        @"downloadFailed"
+        @"downloadFailed",
+        @"uploadBegin",
+        @"uploadProgress",
+        @"uploadComplete",
+        @"uploadFailed"
     ];
 }
 
@@ -437,6 +441,26 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             resolve(foundTasks);
         }
     }];
+}
+
+// MARK: - Upload Methods (Stub Implementation)
+RCT_EXPORT_METHOD(upload: (NSDictionary *) options) {
+    DLog(@"[RNBackgroundDownloader] - [upload] - STUB IMPLEMENTATION");
+    // TODO: Implement background upload using NSURLSessionUploadTask
+    NSString *identifier = options[@"id"];
+    NSLog(@"Upload stub called for id: %@", identifier);
+    
+    // For now, just log that this is a stub
+    // Full implementation would create NSURLSessionUploadTask
+    // and handle upload progress/completion events
+}
+
+RCT_EXPORT_METHOD(checkForExistingUploads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    DLog(@"[RNBackgroundDownloader] - [checkForExistingUploads] - STUB IMPLEMENTATION");
+    // TODO: Implement checking for existing upload tasks
+    // For now return empty array
+    NSArray *foundTasks = @[];
+    resolve(foundTasks);
 }
 
 #pragma mark - NSURLSessionDownloadDelegate methods
