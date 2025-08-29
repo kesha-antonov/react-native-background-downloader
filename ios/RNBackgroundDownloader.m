@@ -38,6 +38,11 @@ static CompletionHandler storedCompletionHandler;
 
 RCT_EXPORT_MODULE();
 
+// Override to ensure proper method resolution when Firebase Performance is present
++ (NSString *)moduleName {
+    return @"RNBackgroundDownloader";
+}
+
 - (dispatch_queue_t)methodQueue
 {
     return dispatch_queue_create("com.eko.backgrounddownloader", DISPATCH_QUEUE_SERIAL);
@@ -45,6 +50,15 @@ RCT_EXPORT_MODULE();
 
 + (BOOL)requiresMainQueueSetup {
     return YES;
+}
+
+// Add method resolution safeguard for Firebase Performance compatibility
+- (BOOL)respondsToSelector:(SEL)aSelector {
+    // Ensure completeHandler method is always recognized
+    if (aSelector == @selector(completeHandler:resolver:rejecter:)) {
+        return YES;
+    }
+    return [super respondsToSelector:aSelector];
 }
 
 - (NSArray<NSString *> *)supportedEvents {
@@ -320,15 +334,38 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
 }
 
 RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS]");
-    [[NSOperationQueue mainQueue] addOperationWithBlock:^{
-        if (storedCompletionHandler) {
-            storedCompletionHandler();
-            storedCompletionHandler = nil;
+    DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] jobId: %@", jobId);
+    
+    // Defensive programming: Check if we have valid parameters
+    if (!jobId || !resolve) {
+        DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] Invalid parameters");
+        if (reject) {
+            reject(@"invalid_params", @"Invalid parameters provided to completeHandler", nil);
         }
-    }];
-
-    resolve(nil);
+        return;
+    }
+    
+    // Ensure we're on main queue for completion handler execution
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] Executing completion handler");
+            if (storedCompletionHandler) {
+                storedCompletionHandler();
+                storedCompletionHandler = nil;
+                DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] Completion handler executed successfully");
+            } else {
+                DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] No stored completion handler found");
+            }
+            
+            // Resolve the promise
+            resolve(nil);
+        } @catch (NSException *exception) {
+            DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] Exception: %@", exception);
+            if (reject) {
+                reject(@"completion_handler_error", exception.reason ?: @"Unknown error in completion handler", nil);
+            }
+        }
+    });
 }
 
 RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
