@@ -269,7 +269,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
       progressInterval = progressIntervalScope;
       saveConfigMap();
     }
-    
+
     double progressMinBytesScope = options.getDouble("progressMinBytes");
     if (progressMinBytesScope > 0) {
       progressMinBytes = (long) progressMinBytesScope;
@@ -295,6 +295,17 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
 
     if (notificationTitle != null) {
       request.setTitle(notificationTitle);
+    }
+
+    // Add default headers to improve connection handling for slow-responding URLs
+    // These headers encourage longer connections and help prevent premature
+    // timeouts
+    request.addRequestHeader("Connection", "keep-alive");
+    request.addRequestHeader("Keep-Alive", "timeout=600, max=1000");
+
+    // Add a proper User-Agent to improve server compatibility
+    if (!hasUserAgentHeader(headers)) {
+      request.addRequestHeader("User-Agent", "ReactNative-BackgroundDownloader/3.2.6");
     }
 
     if (headers != null) {
@@ -380,21 +391,21 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   public void completeHandler(String configId) {
     // Firebase Performance compatibility: Add defensive programming to prevent crashes
     // when Firebase Performance SDK is installed and uses bytecode instrumentation
-    
+
     Log.d(getName(), "completeHandler called with configId: " + configId);
-    
+
     // Defensive programming: Validate parameters
     if (configId == null || configId.isEmpty()) {
       Log.w(getName(), "completeHandler: Invalid configId provided");
       return;
     }
-    
+
     try {
       // Currently this method doesn't have any implementation on Android
       // as completion handlers are handled differently than iOS.
       // This defensive structure ensures Firebase Performance compatibility.
       Log.d(getName(), "completeHandler executed successfully for configId: " + configId);
-      
+
     } catch (Exception e) {
       // Catch any potential exceptions that might be thrown due to Firebase Performance
       // bytecode instrumentation interfering with method dispatch
@@ -487,11 +498,11 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     double prevPercent = existPercent != null ? existPercent : 0.0;
     long prevBytes = existLastBytes != null ? existLastBytes : 0;
     double percent = bytesTotal > 0.0 ?  ((double) bytesDownloaded / bytesTotal) : 0.0;
-    
+
     // Check if we should report progress based on percentage OR bytes threshold
     boolean percentThresholdMet = percent - prevPercent > 0.01;
     boolean bytesThresholdMet = bytesDownloaded - prevBytes >= progressMinBytes;
-    
+
     if (percentThresholdMet || bytesThresholdMet) {
       WritableMap params = Arguments.createMap();
       params.putString("id", configId);
@@ -559,13 +570,13 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
 
     // Enhanced handling for ERROR_CANNOT_RESUME (1008)
     if (reason == DownloadManager.ERROR_CANNOT_RESUME) {
-      Log.w(getName(), "ERROR_CANNOT_RESUME detected for download: " + config.id + 
+      Log.w(getName(), "ERROR_CANNOT_RESUME detected for download: " + config.id +
             ". This is a known Android DownloadManager issue with larger files. " +
             "Consider restarting the download or using smaller file segments.");
-      
+
       // Clean up the failed download entry
       removeTaskFromMap(Long.parseLong(downloadStatus.getString("downloadId")));
-      
+
       // Provide more helpful error message
       reasonText = "ERROR_CANNOT_RESUME - Unable to resume download. This may occur with large files due to Android DownloadManager limitations. Try restarting the download.";
     }
@@ -653,5 +664,25 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
 
       return true;
     });
+  }
+
+  /**
+   * Check if the provided headers already contain a User-Agent header
+   * (case-insensitive)
+   */
+  private boolean hasUserAgentHeader(@Nullable ReadableMap headers) {
+    if (headers == null) {
+      return false;
+    }
+
+    ReadableMapKeySetIterator iterator = headers.keySetIterator();
+    while (iterator.hasNextKey()) {
+      String headerKey = iterator.nextKey();
+      if (headerKey != null && headerKey.toLowerCase().equals("user-agent")) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }
