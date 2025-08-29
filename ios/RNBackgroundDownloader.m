@@ -7,6 +7,7 @@
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
+#define PROGRESS_MIN_BYTES_KEY @"progressMinBytes"
 
 // DISABLES LOGS IN RELEASE MODE. NSLOG IS SLOW: https://stackoverflow.com/a/17738695/3452513
 #ifdef DEBUG
@@ -26,8 +27,10 @@ static CompletionHandler storedCompletionHandler;
     NSMutableDictionary<NSString *, NSURLSessionDownloadTask *> *idToTaskMap;
     NSMutableDictionary<NSString *, NSData *> *idToResumeDataMap;
     NSMutableDictionary<NSString *, NSNumber *> *idToPercentMap;
+    NSMutableDictionary<NSString *, NSNumber *> *idToLastBytesMap;
     NSMutableDictionary<NSString *, NSDictionary *> *progressReports;
     float progressInterval;
+    long long progressMinBytes;
     NSDate *lastProgressReportedAt;
     BOOL isBridgeListenerInited;
     BOOL isJavascriptLoaded;
@@ -109,10 +112,13 @@ RCT_EXPORT_MODULE();
         idToTaskMap = [[NSMutableDictionary alloc] init];
         idToResumeDataMap = [[NSMutableDictionary alloc] init];
         idToPercentMap = [[NSMutableDictionary alloc] init];
+        idToLastBytesMap = [[NSMutableDictionary alloc] init];
 
         progressReports = [[NSMutableDictionary alloc] init];
         float progressIntervalScope = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
         progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
+        long long progressMinBytesScope = [mmkv getLongLongForKey:PROGRESS_MIN_BYTES_KEY];
+        progressMinBytes = progressMinBytesScope > 0 ? progressMinBytesScope : 1024 * 1024; // Default 1MB
         lastProgressReportedAt = [[NSDate alloc] init];
 
         [self registerBridgeListener];
@@ -221,6 +227,7 @@ RCT_EXPORT_MODULE();
         if (taskConfig) {
             [self -> idToTaskMap removeObjectForKey:taskConfig.id];
             [idToPercentMap removeObjectForKey:taskConfig.id];
+            [idToLastBytesMap removeObjectForKey:taskConfig.id];
         }
     }
 }
@@ -238,6 +245,12 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     if (progressIntervalScope) {
         progressInterval = [progressIntervalScope intValue] / 1000;
         [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+    }
+    
+    NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
+    if (progressMinBytesScope) {
+        progressMinBytes = [progressMinBytesScope longLongValue];
+        [mmkv setLongLong:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
 
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
@@ -490,14 +503,22 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             }
 
             NSNumber *prevPercent = idToPercentMap[taskConfig.id];
+            NSNumber *prevBytes = idToLastBytesMap[taskConfig.id];
             NSNumber *percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
-            if ([percent floatValue] - [prevPercent floatValue] > 0.01f) {
+            
+            // Check if we should report progress based on percentage OR bytes threshold
+            BOOL percentThresholdMet = [percent floatValue] - [prevPercent floatValue] > 0.01f;
+            long long lastReportedBytes = prevBytes ? [prevBytes longLongValue] : 0;
+            BOOL bytesThresholdMet = bytesTotalWritten - lastReportedBytes >= progressMinBytes;
+            
+            if (percentThresholdMet || bytesThresholdMet) {
                 progressReports[taskConfig.id] = @{
                     @"id": taskConfig.id,
                     @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten],
                     @"bytesTotal": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite]
                 };
                 idToPercentMap[taskConfig.id] = percent;
+                idToLastBytesMap[taskConfig.id] = [NSNumber numberWithLongLong: bytesTotalWritten];
             }
 
             NSDate *now = [[NSDate alloc] init];

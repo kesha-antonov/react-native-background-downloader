@@ -85,9 +85,11 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   private Map<Long, RNBGDTaskConfig> downloadIdToConfig = new HashMap<>();
   private final Map<String, Long> configIdToDownloadId = new HashMap<>();
   private final Map<String, Double> configIdToPercent = new HashMap<>();
+  private final Map<String, Long> configIdToLastBytes = new HashMap<>();
   private final Map<String, Future<OnProgressState>> configIdToProgressFuture = new HashMap<>();
   private final Map<String, WritableMap> progressReports = new HashMap<>();
   private int progressInterval = 0;
+  private long progressMinBytes = 1024 * 1024; // Default 1MB
   private Date lastProgressReportedAt = new Date();
   private DeviceEventManagerModule.RCTDeviceEventEmitter ee;
 
@@ -246,6 +248,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
       if (config != null) {
         configIdToDownloadId.remove(config.id);
         configIdToPercent.remove(config.id);
+        configIdToLastBytes.remove(config.id);
         downloadIdToConfig.remove(downloadId);
         saveDownloadIdToConfigMap();
       }
@@ -264,6 +267,12 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     int progressIntervalScope = options.getInt("progressInterval");
     if (progressIntervalScope > 0) {
       progressInterval = progressIntervalScope;
+      saveConfigMap();
+    }
+    
+    double progressMinBytesScope = options.getDouble("progressMinBytes");
+    if (progressMinBytesScope > 0) {
+      progressMinBytes = (long) progressMinBytesScope;
       saveConfigMap();
     }
 
@@ -459,15 +468,23 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
 
   private void onProgressDownload(String configId, long bytesDownloaded, long bytesTotal) {
     Double existPercent = configIdToPercent.get(configId);
+    Long existLastBytes = configIdToLastBytes.get(configId);
     double prevPercent = existPercent != null ? existPercent : 0.0;
+    long prevBytes = existLastBytes != null ? existLastBytes : 0;
     double percent = bytesTotal > 0.0 ?  ((double) bytesDownloaded / bytesTotal) : 0.0;
-    if (percent - prevPercent > 0.01) {
+    
+    // Check if we should report progress based on percentage OR bytes threshold
+    boolean percentThresholdMet = percent - prevPercent > 0.01;
+    boolean bytesThresholdMet = bytesDownloaded - prevBytes >= progressMinBytes;
+    
+    if (percentThresholdMet || bytesThresholdMet) {
       WritableMap params = Arguments.createMap();
       params.putString("id", configId);
       params.putDouble("bytesDownloaded", bytesDownloaded);
       params.putDouble("bytesTotal", bytesTotal);
       progressReports.put(configId, params);
       configIdToPercent.put(configId, percent);
+      configIdToLastBytes.put(configId, bytesDownloaded);
     }
 
     Date now = new Date();
@@ -574,6 +591,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   private void saveConfigMap() {
     synchronized (sharedLock) {
       mmkv.encode(getName() + "_progressInterval", progressInterval);
+      mmkv.encode(getName() + "_progressMinBytes", progressMinBytes);
     }
   }
 
@@ -583,6 +601,10 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
       if (progressIntervalScope > 0) {
         progressInterval = progressIntervalScope;
       }
+      long progressMinBytesScope = mmkv.decodeLong(getName() + "_progressMinBytes");
+      if (progressMinBytesScope > 0) {
+        progressMinBytes = progressMinBytesScope;
+      }
     }
   }
 
@@ -591,6 +613,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     if (onProgressFuture != null) {
       onProgressFuture.cancel(true);
       configIdToPercent.remove(configId);
+      configIdToLastBytes.remove(configId);
       configIdToProgressFuture.remove(configId);
     }
   }
