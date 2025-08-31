@@ -1,0 +1,6 @@
+{
+  "name": "@kesha-antonov/react-native-background-downloader-expo-plugin",
+  "version": "1.0.0",
+  "main": "build/index.js",
+  "types": "build/index.d.ts"
+}
