@@ -38,4 +38,10 @@ public abstract class NativeRNBackgroundDownloaderSpec extends com.facebook.reac
 
     @ReactMethod
     public abstract void stopTask(String configId);
+
+    @ReactMethod
+    public abstract void addListener(String eventName);
+
+    @ReactMethod
+    public abstract void removeListeners(Integer count);
 }
