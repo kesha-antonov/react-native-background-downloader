@@ -200,6 +200,29 @@ The library uses flexible MMKV version ranges (iOS: `>= 2.1.0, < 3.0`, Android: 
 2. Clean and rebuild your project: `cd android && ./gradlew clean && cd .. && npx react-native run-android`
 3. If the issue persists, downloads will work without persistence functionality
 
+### Architecture Compatibility (x86/ARMv7)
+
+**Known Issue**: MMKV 2.1.0+ does not support x86 and ARMv7 architectures, which can cause crashes on older Android devices or emulators using these architectures.
+
+**Resolution**: This library provides comprehensive fallback support:
+- **Automatic Detection**: The library detects when MMKV is not available due to architecture limitations
+- **SharedPreferences Fallback**: Uses Android's SharedPreferences as a fallback storage mechanism
+- **Graceful Degradation**: All download functionality continues to work normally
+- **Persistence Support**: Basic persistence across app restarts is maintained using the fallback storage
+- **Enhanced Logging**: Clear messages indicate when fallback storage is being used
+
+**Supported Scenarios**:
+- ✅ **ARM64**: Full MMKV support with optimal performance
+- ✅ **ARMv7**: SharedPreferences fallback with full functionality
+- ✅ **x86**: SharedPreferences fallback with full functionality  
+- ✅ **x86_64**: Full MMKV support with optimal performance
+
+**What this means for you**:
+- No code changes required - the fallback is automatic
+- Downloads work on all Android architectures
+- Persistence across app restarts works on all architectures
+- Performance is optimal on supported architectures, good on fallback architectures
+
 ## Usage
 
 ### Downloading a file
