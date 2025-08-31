@@ -25,6 +25,8 @@ import android.app.DownloadManager.Request;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -267,6 +269,93 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     }
   }
 
+  /**
+   * Resolve redirects for a URL up to maxRedirects limit
+   * @param originalUrl The original URL to follow
+   * @param maxRedirects Maximum number of redirects to follow (0 means no redirect resolution)
+   * @param headers Headers to include in redirect resolution requests
+   * @return The final resolved URL, or original URL if maxRedirects is 0 or resolution fails
+   */
+  private String resolveRedirects(String originalUrl, int maxRedirects, ReadableMap headers) {
+    if (maxRedirects <= 0) {
+      return originalUrl;
+    }
+
+    try {
+      String currentUrl = originalUrl;
+      int redirectCount = 0;
+      
+      while (redirectCount < maxRedirects) {
+        java.net.URL url = new java.net.URL(currentUrl);
+        java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
+        
+        // Add headers to the redirect resolution request
+        if (headers != null) {
+          ReadableMapKeySetIterator iterator = headers.keySetIterator();
+          while (iterator.hasNextKey()) {
+            String headerKey = iterator.nextKey();
+            connection.setRequestProperty(headerKey, headers.getString(headerKey));
+          }
+        }
+        
+        // Add default headers for consistency with DownloadManager
+        connection.setRequestProperty("Connection", "keep-alive");
+        connection.setRequestProperty("Keep-Alive", "timeout=600, max=1000");
+        if (!hasUserAgentHeader(headers)) {
+          connection.setRequestProperty("User-Agent", "ReactNative-BackgroundDownloader/3.2.6");
+        }
+        
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestMethod("HEAD"); // Use HEAD to avoid downloading content
+        connection.setConnectTimeout(10000); // 10 second timeout
+        connection.setReadTimeout(10000);
+        
+        int responseCode = connection.getResponseCode();
+        
+        if (responseCode >= 300 && responseCode < 400) {
+          // This is a redirect
+          String location = connection.getHeaderField("Location");
+          if (location == null) {
+            Log.w(getName(), "Redirect response without Location header at: " + currentUrl);
+            break;
+          }
+          
+          // Handle relative URLs
+          if (location.startsWith("/")) {
+            java.net.URL baseUrl = new java.net.URL(currentUrl);
+            location = baseUrl.getProtocol() + "://" + baseUrl.getHost() + location;
+          } else if (!location.startsWith("http")) {
+            java.net.URL baseUrl = new java.net.URL(currentUrl);
+            location = baseUrl.getProtocol() + "://" + baseUrl.getHost() + "/" + location;
+          }
+          
+          Log.d(getName(), "Redirect " + (redirectCount + 1) + "/" + maxRedirects + ": " + currentUrl + " -> " + location);
+          currentUrl = location;
+          redirectCount++;
+        } else {
+          // Not a redirect, we've found the final URL
+          break;
+        }
+        
+        connection.disconnect();
+      }
+      
+      if (redirectCount >= maxRedirects) {
+        Log.w(getName(), "Reached maximum redirects (" + maxRedirects + ") for URL: " + originalUrl + 
+              ". Final URL: " + currentUrl);
+      } else {
+        Log.d(getName(), "Resolved URL after " + redirectCount + " redirects: " + currentUrl);
+      }
+      
+      return currentUrl;
+      
+    } catch (Exception e) {
+      Log.e(getName(), "Failed to resolve redirects for URL: " + originalUrl + ". Error: " + e.getMessage());
+      // Return original URL if redirect resolution fails
+      return originalUrl;
+    }
+  }
+
   @ReactMethod
   @SuppressWarnings("unused")
   public void download(ReadableMap options) {
@@ -292,9 +381,22 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     boolean isAllowedOverMetered = options.getBoolean("isAllowedOverMetered");
     boolean isNotificationVisible = options.getBoolean("isNotificationVisible");
 
+    // Get maxRedirects parameter
+    int maxRedirects = 0;
+    if (options.hasKey("maxRedirects")) {
+      maxRedirects = options.getInt("maxRedirects");
+    }
+
     if (id == null || url == null || destination == null) {
       Log.e(getName(),"download: id, url and destination must be set.");
       return;
+    }
+
+    // Resolve redirects if maxRedirects is specified
+    if (maxRedirects > 0) {
+      Log.d(getName(), "Resolving redirects for URL: " + url + " (maxRedirects: " + maxRedirects + ")");
+      url = resolveRedirects(url, maxRedirects, headers);
+      Log.d(getName(), "Final resolved URL: " + url);
     }
 
     final Request request = new Request(Uri.parse(url));
