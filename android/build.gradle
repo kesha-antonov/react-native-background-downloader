@@ -41,6 +41,11 @@ android {
 dependencies {
     //noinspection GradleDynamicVersion
     implementation 'com.facebook.react:react-native:+'
+    
+    // MMKV dependency with architecture compatibility handling
+    // MMKV 2.1.0+ doesn't support x86/ARMv7 architectures
+    // The code includes comprehensive error handling and SharedPreferences fallback
     implementation 'com.tencent:mmkv:[2.1.0,3.0)'
+    
     implementation 'com.google.code.gson:gson:2.12.1'
 }
