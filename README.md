@@ -119,11 +119,24 @@ For anything **`< 0.60`** run the following link command
 
 If you're using Expo or EAS Build, you can use the included Expo config plugin to automatically configure the iOS native code:
 
+**In your `app.json`:**
 ```json
 {
   "expo": {
     "name": "Your App",
     "plugins": [
+      "@kesha-antonov/react-native-background-downloader"
+    ]
+  }
+}
+```
+
+**Or in your `app.config.js`:**
+```js
+export default {
+  expo: {
+    name: "Your App",
+    plugins: [
       "@kesha-antonov/react-native-background-downloader"
     ]
   }
