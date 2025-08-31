@@ -504,14 +504,23 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 
             NSNumber *prevPercent = idToPercentMap[taskConfig.id];
             NSNumber *prevBytes = idToLastBytesMap[taskConfig.id];
-            NSNumber *percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
+            NSNumber *percent;
+            BOOL percentThresholdMet = NO;
+            
+            // Handle unknown total bytes (realtime streams)
+            if (bytesTotalExpectedToWrite > 0) {
+                percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
+                percentThresholdMet = [percent floatValue] - [prevPercent floatValue] > 0.01f;
+            } else {
+                percent = @0.0; // Unknown total, set to 0
+            }
             
             // Check if we should report progress based on percentage OR bytes threshold
-            BOOL percentThresholdMet = [percent floatValue] - [prevPercent floatValue] > 0.01f;
             long long lastReportedBytes = prevBytes ? [prevBytes longLongValue] : 0;
             BOOL bytesThresholdMet = bytesTotalWritten - lastReportedBytes >= progressMinBytes;
             
-            if (percentThresholdMet || bytesThresholdMet) {
+            // Report progress if either threshold is met, or if total bytes unknown (for streams)
+            if (percentThresholdMet || bytesThresholdMet || bytesTotalExpectedToWrite <= 0) {
                 progressReports[taskConfig.id] = @{
                     @"id": taskConfig.id,
                     @"bytesDownloaded": [NSNumber numberWithLongLong: bytesTotalWritten],
