@@ -185,6 +185,41 @@ The library uses flexible MMKV version ranges (iOS: `>= 2.1.0, < 3.0`, Android: 
 
 **Note**: If you encounter build issues related to MMKV when using multiple MMKV-based libraries, ensure all libraries are up to date and consider cleaning your build cache (`cd ios && pod cache clean --all && pod install`).
 
+### Expo Compatibility
+
+This library is **compatible with Expo** using a custom development client. It includes an Expo config plugin that handles the native dependencies automatically.
+
+**Setup for Expo**:
+
+1. Install the library:
+   ```bash
+   npx expo install @kesha-antonov/react-native-background-downloader
+   ```
+
+2. Add the plugin to your `app.config.js` or `expo.json`:
+   ```js
+   // app.config.js
+   export default {
+     expo: {
+       plugins: [
+         "@kesha-antonov/react-native-background-downloader"
+       ]
+     }
+   }
+   ```
+
+3. Create a custom development client:
+   ```bash
+   npx expo run:android
+   # or
+   npx expo run:ios
+   ```
+
+**Important Notes**:
+- This library requires a **custom development client** and will **not work with Expo Go**
+- The plugin automatically handles MMKV dependencies and provides graceful fallbacks
+- If MMKV initialization fails in your environment, downloads will continue to work without persistence
+
 ### Android 12 Compatibility
 
 **Known Issue**: Some users may encounter a crash on Android 12 with the error `dlopen failed: library "libmmkv.so" not found`. This is due to Android 12's stricter security policies around native libraries.
