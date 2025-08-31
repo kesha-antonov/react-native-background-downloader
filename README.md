@@ -115,10 +115,48 @@ For anything **`< 0.60`** run the following link command
 
 ### iOS - Extra Mandatory Step
 
-#### (react-native 0.77+)
+#### Option 1: Using Expo Config Plugin (Recommended for Expo/EAS users)
+
+If you're using Expo or EAS Build, you can use the included Expo config plugin to automatically configure the iOS native code:
+
+**In your `app.json`:**
+```json
+{
+  "expo": {
+    "name": "Your App",
+    "plugins": [
+      "@kesha-antonov/react-native-background-downloader"
+    ]
+  }
+}
+```
+
+**Or in your `app.config.js`:**
+```js
+export default {
+  expo: {
+    name: "Your App",
+    plugins: [
+      "@kesha-antonov/react-native-background-downloader"
+    ]
+  }
+}
+```
+
+The plugin will automatically:
+- Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)  
+- Add the `handleEventsForBackgroundURLSession` method to your AppDelegate
+- Handle both React Native < 0.77 (Objective-C) and >= 0.77 (Swift) projects
+
+After adding the plugin, run:
+```bash
+expo prebuild --clean
+```
+
+#### Option 2: Manual Setup
 
 <details>
-  <summary>Click to expand</summary>
+  <summary>Manual setup for React Native 0.77+ (Click to expand)</summary>
 
   In your project bridging header file (e.g. `ios/{projectName}-Bridging-Header.h`)
   add an import for RNBackgroundDownloader:
@@ -150,10 +188,8 @@ For anything **`< 0.60`** run the following link command
   Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
 </details>
 
-#### (react-native < 0.77)
-
 <details>
-  <summary>Click to expand</summary>
+  <summary>Manual setup for React Native < 0.77 (Click to expand)</summary>
 
   In your `AppDelegate.m` add the following code:
   ```objc
