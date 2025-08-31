@@ -59,6 +59,16 @@ public class RNBackgroundDownloaderModule extends NativeRNBackgroundDownloaderSp
     }
 
     @Override
+    public void addListener(String eventName) {
+        mModuleImpl.addListener(eventName);
+    }
+
+    @Override
+    public void removeListeners(Integer count) {
+        mModuleImpl.removeListeners(count);
+    }
+
+    @Override
     @Nullable
     public Map<String, Object> getConstants() {
         return mModuleImpl.getConstants();

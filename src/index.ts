@@ -4,7 +4,9 @@ import NativeRNBackgroundDownloader from './NativeRNBackgroundDownloader'
 import { DownloadOptions } from './index.d'
 
 const { RNBackgroundDownloader } = NativeModules
-const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloader)
+// Use the same architecture-aware native module for event emitter as for method calls
+// This ensures compatibility with both Old Architecture (Bridge) and New Architecture (TurboModules)
+const RNBackgroundDownloaderEmitter = new NativeEventEmitter(NativeRNBackgroundDownloader)
 
 const MIN_PROGRESS_INTERVAL = 250
 const tasksMap = new Map()

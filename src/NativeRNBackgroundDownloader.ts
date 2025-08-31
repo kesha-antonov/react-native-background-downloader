@@ -52,6 +52,11 @@ export interface Spec extends TurboModule {
     isNotificationVisible?: boolean
     notificationTitle?: string
   }) => DownloadTask
+  pauseTask?: (configId: string) => void
+  resumeTask?: (configId: string) => void
+  stopTask?: (configId: string) => void
+  addListener?: (eventName: string) => void
+  removeListeners?: (count: number) => void
 }
 
 // Support both New Architecture (TurboModules) and Old Architecture (Bridge)
