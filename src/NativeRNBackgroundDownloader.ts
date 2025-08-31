@@ -1,4 +1,4 @@
-import { TurboModuleRegistry } from 'react-native'
+import { TurboModuleRegistry, NativeModules } from 'react-native'
 import type { TurboModule } from 'react-native'
 // import type { DownloadTask } from './index.d'
 
@@ -54,6 +54,18 @@ export interface Spec extends TurboModule {
   }) => DownloadTask
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>(
-  'RNBackgroundDownloader'
-)
+// Support both New Architecture (TurboModules) and Old Architecture (Bridge)
+// Try TurboModule first, fall back to NativeModules
+let NativeRNBackgroundDownloader: Spec
+try {
+  // New Architecture - TurboModules
+  NativeRNBackgroundDownloader = TurboModuleRegistry.getEnforcing<Spec>(
+    'RNBackgroundDownloader'
+  )
+} catch {
+  // Old Architecture - Bridge
+  // Fallback to traditional NativeModules access
+  NativeRNBackgroundDownloader = NativeModules.RNBackgroundDownloader
+}
+
+export default NativeRNBackgroundDownloader
