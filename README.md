@@ -185,6 +185,21 @@ The library uses flexible MMKV version ranges (iOS: `>= 2.1.0, < 3.0`, Android: 
 
 **Note**: If you encounter build issues related to MMKV when using multiple MMKV-based libraries, ensure all libraries are up to date and consider cleaning your build cache (`cd ios && pod cache clean --all && pod install`).
 
+### Android 12 Compatibility
+
+**Known Issue**: Some users may encounter a crash on Android 12 with the error `dlopen failed: library "libmmkv.so" not found`. This is due to Android 12's stricter security policies around native libraries.
+
+**Resolution**: This library includes robust error handling for MMKV initialization failures. If MMKV fails to initialize:
+- The app will not crash
+- Downloads will continue to function normally
+- Download persistence across app restarts may not be available
+- Appropriate warnings are logged for debugging
+
+**Workaround**: If you encounter this issue frequently:
+1. Ensure you're using the latest version of this library
+2. Clean and rebuild your project: `cd android && ./gradlew clean && cd .. && npx react-native run-android`
+3. If the issue persists, downloads will work without persistence functionality
+
 ## Usage
 
 ### Downloading a file
