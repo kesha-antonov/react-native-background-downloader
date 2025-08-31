@@ -353,6 +353,44 @@ This library automatically includes connection timeout improvements for slow-res
 
 These headers help prevent downloads from getting stuck in "pending" state when servers take several minutes to respond initially. You can override these headers by providing your own in the `headers` option.
 
+### Handling URLs with Many Redirects (Android)
+
+Android's DownloadManager has a built-in redirect limit that can cause `ERROR_TOO_MANY_REDIRECTS` for URLs with multiple redirects (common with podcast URLs, tracking services, CDNs, etc.).
+
+To handle this, you can use the `maxRedirects` option to pre-resolve redirects before passing the final URL to DownloadManager:
+
+```javascript
+import { Platform } from 'react-native'
+import { download, directories } from '@kesha-antonov/react-native-background-downloader'
+
+// Example: Podcast URL with multiple redirects
+let task = download({
+  id: 'podcast-episode',
+  url: 'https://pdst.fm/e/chrt.fm/track/479722/arttrk.com/p/example.mp3',
+  destination: `${directories.documents}/episode.mp3`,
+  maxRedirects: 10, // Follow up to 10 redirects before downloading
+}).begin(({ expectedBytes }) => {
+  console.log(`Going to download ${expectedBytes} bytes!`)
+}).progress(({ bytesDownloaded, bytesTotal }) => {
+  console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
+}).done(({ bytesDownloaded, bytesTotal }) => {
+  console.log('Download is done!', { bytesDownloaded, bytesTotal })
+}).error(({ error, errorCode }) => {
+  console.log('Download canceled due to error: ', { error, errorCode })
+  
+  if (errorCode === 1005) { // ERROR_TOO_MANY_REDIRECTS
+    console.log('Consider increasing maxRedirects or using a different URL')
+  }
+})
+```
+
+**Notes on maxRedirects:**
+- Only available on Android (iOS handles redirects automatically)
+- If not specified or set to 0, no redirect resolution is performed
+- Uses HEAD requests to resolve redirects efficiently
+- Falls back to original URL if redirect resolution fails
+- Respects the same headers and timeouts as the main download
+
 ## API
 
 ### RNBackgroundDownloader
@@ -372,6 +410,7 @@ An object containing options properties
 | `destination` | String |    ✅     |    All    | Where to copy the file to once the download is done |
 | `metadata`    | Object |           |    All    | Data to be preserved on reboot. |
 | `headers`     | Object |           |    All    | Costume headers to add to the download request. These are merged with the headers given in the `setConfig({ headers: { ... } })` function |
+| `maxRedirects` | Number |          |  Android  | Maximum number of redirects to follow before passing URL to DownloadManager. If not specified or 0, no redirect resolution is performed. Helps avoid ERROR_TOO_MANY_REDIRECTS for URLs with many redirects (e.g., podcast URLs) |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
 | `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show a download notification or not |

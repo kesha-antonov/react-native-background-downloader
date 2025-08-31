@@ -58,6 +58,14 @@ const BasicExampleScreen = () => {
       id: uuid(),
       url: 'https://proof.ovh.net/files/100Mb.dat',
     },
+    {
+      id: uuid(),
+      url: 'https://pdst.fm/e/chrt.fm/track/479722/arttrk.com/p/CRMDA/claritaspod.com/measure/pscrb.fm/rss/p/stitcher.simplecastaudio.com/9aa1e238-cbed-4305-9808-c9228fc6dd4f/episodes/b0c9a72a-1cb7-4ac9-80a0-36996fc6470f/audio/128/default.mp3?aid=rss_feed&awCollectionId=9aa1e238-cbed-4305-9808-c9228fc6dd4f&awEpisodeId=b0c9a72a-1cb7-4ac9-80a0-36996fc6470f&feed=dxZsm5kX',
+      // This is an example of a URL with many redirects that would cause ERROR_TOO_MANY_REDIRECTS
+      // We use maxRedirects to handle this case
+      maxRedirects: 10,
+      title: 'Podcast with redirects',
+    },
   ])
 
   const [isStarted, setIsStarted] = useState(false)
@@ -153,11 +161,19 @@ const BasicExampleScreen = () => {
      */
     const taskAttributes = urlList.map(item => {
       const destination = defaultDir + '/' + item.id
-      return {
+      const taskAttribute = {
         id: item.id,
         url: item.url,
         destination,
       }
+      
+      // Add maxRedirects if specified for this URL
+      if (item.maxRedirects) {
+        taskAttribute.maxRedirects = item.maxRedirects
+        console.log(`Setting maxRedirects=${item.maxRedirects} for URL: ${item.url}`)
+      }
+      
+      return taskAttribute
     })
 
     const tasks = taskAttributes.map(taskAttribute =>
@@ -230,6 +246,12 @@ const BasicExampleScreen = () => {
               <View style={styles.itemContent}>
                 <Text>Id: {item.id}</Text>
                 <Text>Url: {item.url}</Text>
+                {item.maxRedirects && (
+                  <Text style={styles.redirectInfo}>
+                    Max redirects: {item.maxRedirects} 
+                    {item.title && ` (${item.title})`}
+                  </Text>
+                )}
               </View>
             </View>
           )}
@@ -311,6 +333,12 @@ const styles = StyleSheet.create({
   itemContent: {
     flex: 1,
     flexShrink: 1,
+  },
+  redirectInfo: {
+    fontStyle: 'italic',
+    color: '#666',
+    fontSize: 12,
+    marginTop: 4,
   },
 })
 

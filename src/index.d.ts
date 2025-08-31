@@ -114,6 +114,7 @@ export interface DownloadOptions {
   isAllowedOverMetered?: boolean
   isNotificationVisible?: boolean
   notificationTitle?: string
+  maxRedirects?: number
 }
 
 export type Download = (options: DownloadOptions) => DownloadTask
