@@ -98,9 +98,8 @@ public class OnProgress implements Callable<OnProgressState> {
     long byteDownloaded = getColumnValue(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR, cursor);
     bytesDownloaded = byteDownloaded > 0 ? byteDownloaded : bytesDownloaded;
 
-    if (bytesTotal > 0) {
-      callback.onProgress(config.id, bytesDownloaded, bytesTotal);
-    }
+    // Always call progress callback, even when total bytes are unknown (for realtime streams)
+    callback.onProgress(config.id, bytesDownloaded, bytesTotal);
 
     return bytesTotal > 0 && bytesDownloaded > 0 && bytesDownloaded == bytesTotal;
   }
