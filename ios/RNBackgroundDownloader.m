@@ -30,18 +30,13 @@ static CompletionHandler storedCompletionHandler;
     NSMutableDictionary<NSString *, NSNumber *> *idToLastBytesMap;
     NSMutableDictionary<NSString *, NSDictionary *> *progressReports;
     float progressInterval;
-    long long progressMinBytes;
+    int64_t progressMinBytes;
     NSDate *lastProgressReportedAt;
     BOOL isBridgeListenerInited;
     BOOL isJavascriptLoaded;
 }
 
 RCT_EXPORT_MODULE();
-
-// Override to ensure proper method resolution when Firebase Performance is present
-+ (NSString *)moduleName {
-    return @"RNBackgroundDownloader";
-}
 
 - (dispatch_queue_t)methodQueue
 {
@@ -117,7 +112,7 @@ RCT_EXPORT_MODULE();
         progressReports = [[NSMutableDictionary alloc] init];
         float progressIntervalScope = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
         progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
-        long long progressMinBytesScope = [mmkv getLongLongForKey:PROGRESS_MIN_BYTES_KEY];
+        int64_t progressMinBytesScope = [mmkv getInt64ForKey:PROGRESS_MIN_BYTES_KEY];
         progressMinBytes = progressMinBytesScope > 0 ? progressMinBytesScope : 1024 * 1024; // Default 1MB
         lastProgressReportedAt = [[NSDate alloc] init];
 
@@ -250,7 +245,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
     if (progressMinBytesScope) {
         progressMinBytes = [progressMinBytesScope longLongValue];
-        [mmkv setLongLong:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
 
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
