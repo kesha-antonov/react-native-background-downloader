@@ -214,12 +214,14 @@ expo prebuild --clean
 
 This library uses MMKV for efficient storage and is compatible with popular React Native MMKV libraries:
 
-- **react-native-mmkv**: ✅ Compatible (v3.x and later)
+- **react-native-mmkv**: ✅ Compatible (v3.x and v4.x+)
 - **react-native-mmkv-storage**: ✅ Compatible
 
-The library uses flexible MMKV version ranges (iOS: `>= 2.1.0, < 3.0`, Android: `[2.1.0,3.0)`) to avoid version conflicts when used alongside other MMKV-based libraries. No additional configuration is required.
+The library uses flexible MMKV version ranges to avoid version conflicts when used alongside other MMKV-based libraries. No additional configuration is required.
 
-**Note**: If you encounter build issues related to MMKV when using multiple MMKV-based libraries, ensure all libraries are up to date and consider cleaning your build cache (`cd ios && pod cache clean --all && pod install`).
+**react-native-mmkv 4+ Support**: As of this version, the library fully supports react-native-mmkv 4.0.0+ by using `mmkv-shared` dependency to avoid duplicate class conflicts that occurred with earlier versions.
+
+**Note**: If you encounter build issues related to MMKV when using multiple MMKV-based libraries, ensure all libraries are up to date and consider cleaning your build cache (`cd ios && pod cache clean --all && pod install` for iOS, `cd android && ./gradlew clean` for Android).
 
 ### Android 12 Compatibility
 
