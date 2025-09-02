@@ -17,5 +17,5 @@ Pod::Spec.new do |s|
   # React Native Core dependency
   install_modules_dependencies(s)
 
-  s.dependency 'MMKV', '>= 2.1.0', '< 3.0'
+  s.dependency 'MMKV', '>= 2.1.0'
 end
