@@ -67,10 +67,20 @@ try {
   NativeRNBackgroundDownloader = TurboModuleRegistry.getEnforcing<Spec>(
     'RNBackgroundDownloader'
   )
-} catch {
-  // Old Architecture - Bridge
+  // Validate that the TurboModule has the expected methods
+  if (!NativeRNBackgroundDownloader || typeof NativeRNBackgroundDownloader.checkForExistingDownloads !== 'function')
+    throw new Error('TurboModule does not have required methods')
+} catch (error) {
+  // Old Architecture - Bridge or TurboModule not available
   // Fallback to traditional NativeModules access
+  console.warn('[RNBackgroundDownloader] TurboModule not available, falling back to bridge:', error.message || error)
   NativeRNBackgroundDownloader = NativeModules.RNBackgroundDownloader
+
+  // Validate bridge module
+  if (!NativeRNBackgroundDownloader)
+    console.error('[RNBackgroundDownloader] Neither TurboModule nor Bridge module available')
+  else if (typeof NativeRNBackgroundDownloader.checkForExistingDownloads !== 'function')
+    console.error('[RNBackgroundDownloader] Bridge module missing required methods')
 }
 
 export default NativeRNBackgroundDownloader
