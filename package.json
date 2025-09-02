@@ -42,14 +42,6 @@
     "android/src/",
     "plugin/build/"
   ],
-  "codegenConfig": {
-    "name": "RNBackgroundDownloaderSpec",
-    "type": "modules",
-    "jsSrcsDir": "./src",
-    "android": {
-      "javaPackageName": "com.eko"
-    }
-  },
   "scripts": {
     "bump": "npm version patch",
     "lint": "eslint .",
