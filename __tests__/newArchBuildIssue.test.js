@@ -76,7 +76,8 @@ describe('New Architecture Build Issue Fix', () => {
     const result = await RNBackgroundDownloader.checkForExistingDownloads()
     expect(Array.isArray(result)).toBe(true)
     expect(result).toHaveLength(0)
-    expect(consoleSpy.warn).toHaveBeenCalledWith('[RNBackgroundDownloader] checkForExistingDownloads method not available on native module, returning empty array')
+    expect(consoleSpy.warn).toHaveBeenCalledWith('[RNBackgroundDownloader] Bridge module missing required methods, functionality will be limited')
+    expect(consoleSpy.warn).toHaveBeenCalledWith('[RNBackgroundDownloader] Native module not available, returning empty array')
   })
 
   test('should handle case where checkForExistingDownloads throws an error', async () => {
