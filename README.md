@@ -210,56 +210,32 @@ expo prebuild --clean
 
 ## Compatibility
 
-### MMKV Storage Libraries
+### System Storage Compatibility
 
-This library uses MMKV for efficient storage and is compatible with popular React Native MMKV libraries:
+This library uses native system storage mechanisms for download persistence:
+- **Android**: SharedPreferences for reliable storage
+- **iOS**: NSUserDefaults for efficient storage
+- Downloads continue to function normally across app restarts
+- No additional configuration is required
 
-- **react-native-mmkv**: ✅ Compatible (v3.x and v4.x+)
-- **react-native-mmkv-storage**: ✅ Compatible
+### Architecture Compatibility
 
-The library uses flexible MMKV version ranges to avoid version conflicts when used alongside other MMKV-based libraries. No additional configuration is required.
-
-**react-native-mmkv 4+ Support**: As of this version, the library fully supports react-native-mmkv 4.0.0+ by using `mmkv-shared` dependency to avoid duplicate class conflicts that occurred with earlier versions.
-
-**Note**: If you encounter build issues related to MMKV when using multiple MMKV-based libraries, ensure all libraries are up to date and consider cleaning your build cache (`cd ios && pod cache clean --all && pod install` for iOS, `cd android && ./gradlew clean` for Android).
-
-### Android 12 Compatibility
-
-**Known Issue**: Some users may encounter a crash on Android 12 with the error `dlopen failed: library "libmmkv.so" not found`. This is due to Android 12's stricter security policies around native libraries.
-
-**Resolution**: This library includes robust error handling for MMKV initialization failures. If MMKV fails to initialize:
-- The app will not crash
-- Downloads will continue to function normally
-- Download persistence across app restarts may not be available
-- Appropriate warnings are logged for debugging
-
-**Workaround**: If you encounter this issue frequently:
-1. Ensure you're using the latest version of this library
-2. Clean and rebuild your project: `cd android && ./gradlew clean && cd .. && npx react-native run-android`
-3. If the issue persists, downloads will work without persistence functionality
-
-### Architecture Compatibility (x86/ARMv7)
-
-**Known Issue**: MMKV 2.1.0+ does not support x86 and ARMv7 architectures, which can cause crashes on older Android devices or emulators using these architectures.
-
-**Resolution**: This library provides comprehensive fallback support:
-- **Automatic Detection**: The library detects when MMKV is not available due to architecture limitations
-- **SharedPreferences Fallback**: Uses Android's SharedPreferences as a fallback storage mechanism
-- **Graceful Degradation**: All download functionality continues to work normally
-- **Persistence Support**: Basic persistence across app restarts is maintained using the fallback storage
-- **Enhanced Logging**: Clear messages indicate when fallback storage is being used
+This library provides comprehensive compatibility across all device architectures:
+- **Native Storage**: Uses Android's SharedPreferences and iOS's NSUserDefaults
+- **Full Functionality**: All download functionality works normally across architectures
+- **Persistence Support**: Download persistence across app restarts is maintained
 
 **Supported Scenarios**:
-- ✅ **ARM64**: Full MMKV support with optimal performance
-- ✅ **ARMv7**: SharedPreferences fallback with full functionality
-- ✅ **x86**: SharedPreferences fallback with full functionality  
-- ✅ **x86_64**: Full MMKV support with optimal performance
+- ✅ **ARM64**: Full functionality with optimal performance
+- ✅ **ARMv7**: Full functionality with system storage
+- ✅ **x86**: Full functionality with system storage  
+- ✅ **x86_64**: Full functionality with optimal performance
 
 **What this means for you**:
-- No code changes required - the fallback is automatic
+- No code changes required - storage is automatic
 - Downloads work on all Android architectures
 - Persistence across app restarts works on all architectures
-- Performance is optimal on supported architectures, good on fallback architectures
+- Performance is optimal across all supported architectures
 
 ## Usage
 

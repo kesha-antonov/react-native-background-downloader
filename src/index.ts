@@ -233,8 +233,8 @@ export const directories = {
 }
 
 export const storageInfo = {
-  isMMKVAvailable: RNBackgroundDownloader?.isMMKVAvailable || false,
-  storageType: RNBackgroundDownloader?.storageType || 'Unknown',
+  isMMKVAvailable: false,
+  storageType: RNBackgroundDownloader?.storageType || 'System',
 }
 
 export default {

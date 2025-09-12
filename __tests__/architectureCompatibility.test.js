@@ -106,6 +106,6 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
     expect(RNBackgroundDownloader.storageInfo).toBeDefined()
     expect(typeof RNBackgroundDownloader.storageInfo.isMMKVAvailable).toBe('boolean')
     expect(typeof RNBackgroundDownloader.storageInfo.storageType).toBe('string')
-    expect(['MMKV', 'SharedPreferences', 'Unknown'].includes(RNBackgroundDownloader.storageInfo.storageType)).toBe(true)
+    expect(['SharedPreferences', 'NSUserDefaults', 'System'].includes(RNBackgroundDownloader.storageInfo.storageType)).toBe(true)
   })
 })

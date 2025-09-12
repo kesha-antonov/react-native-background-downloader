@@ -50,7 +50,6 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 
-import com.tencent.mmkv.MMKV;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import android.content.SharedPreferences;
@@ -81,9 +80,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     }
   };
 
-  private static MMKV mmkv;
   private static SharedPreferences sharedPreferences;
-  private static boolean isMMKVAvailable = false;
   private final Downloader downloader;
   private BroadcastReceiver downloadReceiver;
   private static final Object sharedLock = new Object();
@@ -101,32 +98,9 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   public RNBackgroundDownloaderModuleImpl(ReactApplicationContext reactContext) {
     super(reactContext);
     
-    // Initialize SharedPreferences as fallback
+    // Initialize SharedPreferences for storage
     sharedPreferences = reactContext.getSharedPreferences(getName() + "_prefs", Context.MODE_PRIVATE);
-    
-    // Try to initialize MMKV with comprehensive error handling
-    try {
-      MMKV.initialize(reactContext);
-      mmkv = MMKV.mmkvWithID(getName());
-      isMMKVAvailable = true;
-      Log.d(getName(), "MMKV initialized successfully");
-    } catch (UnsatisfiedLinkError e) {
-      Log.e(getName(), "Failed to initialize MMKV (libmmkv.so not found): " + e.getMessage());
-      Log.w(getName(), "This may be due to unsupported architecture (x86/ARMv7). Using SharedPreferences fallback.");
-      Log.w(getName(), "Download persistence across app restarts will use basic storage.");
-      mmkv = null;
-      isMMKVAvailable = false;
-    } catch (NoClassDefFoundError e) {
-      Log.e(getName(), "MMKV classes not found: " + e.getMessage());
-      Log.w(getName(), "MMKV library not available on this architecture. Using SharedPreferences fallback.");
-      mmkv = null;
-      isMMKVAvailable = false;
-    } catch (Exception e) {
-      Log.e(getName(), "Failed to initialize MMKV: " + e.getMessage());
-      Log.w(getName(), "Using SharedPreferences fallback for persistence.");
-      mmkv = null;
-      isMMKVAvailable = false;
-    }
+    Log.d(getName(), "SharedPreferences initialized successfully");
 
     loadDownloadIdToConfigMap();
     loadConfigMap();
@@ -159,8 +133,8 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     constants.put("TaskCompleted", TASK_COMPLETED);
     
     // Expose storage type information for debugging/monitoring
-    constants.put("isMMKVAvailable", isMMKVAvailable);
-    constants.put("storageType", isMMKVAvailable ? "MMKV" : "SharedPreferences");
+    constants.put("isMMKVAvailable", false);
+    constants.put("storageType", "SharedPreferences");
 
     return constants;
   }
@@ -728,16 +702,13 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
         Gson gson = new Gson();
         String str = gson.toJson(downloadIdToConfig);
         
-        if (isMMKVAvailable && mmkv != null) {
-          mmkv.encode(getName() + "_downloadIdToConfig", str);
-          Log.d(getName(), "Saved download config to MMKV");
-        } else if (sharedPreferences != null) {
+        if (sharedPreferences != null) {
           sharedPreferences.edit()
             .putString(getName() + "_downloadIdToConfig", str)
             .apply();
-          Log.d(getName(), "Saved download config to SharedPreferences fallback");
+          Log.d(getName(), "Saved download config to SharedPreferences");
         } else {
-          Log.w(getName(), "No storage available, skipping download config persistence");
+          Log.w(getName(), "SharedPreferences not available, skipping download config persistence");
         }
       } catch (Exception e) {
         Log.e(getName(), "Failed to save download config: " + e.getMessage());
@@ -752,15 +723,10 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
       try {
         String str = null;
         
-        if (isMMKVAvailable && mmkv != null) {
-          str = mmkv.decodeString(getName() + "_downloadIdToConfig");
-          if (str != null) {
-            Log.d(getName(), "Loaded download config from MMKV");
-          }
-        } else if (sharedPreferences != null) {
+        if (sharedPreferences != null) {
           str = sharedPreferences.getString(getName() + "_downloadIdToConfig", null);
           if (str != null) {
-            Log.d(getName(), "Loaded download config from SharedPreferences fallback");
+            Log.d(getName(), "Loaded download config from SharedPreferences");
           }
         }
         
@@ -781,18 +747,14 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   private void saveConfigMap() {
     synchronized (sharedLock) {
       try {
-        if (isMMKVAvailable && mmkv != null) {
-          mmkv.encode(getName() + "_progressInterval", progressInterval);
-          mmkv.encode(getName() + "_progressMinBytes", progressMinBytes);
-          Log.d(getName(), "Saved config to MMKV");
-        } else if (sharedPreferences != null) {
+        if (sharedPreferences != null) {
           sharedPreferences.edit()
             .putInt(getName() + "_progressInterval", progressInterval)
             .putLong(getName() + "_progressMinBytes", progressMinBytes)
             .apply();
-          Log.d(getName(), "Saved config to SharedPreferences fallback");
+          Log.d(getName(), "Saved config to SharedPreferences");
         } else {
-          Log.w(getName(), "No storage available, skipping config persistence");
+          Log.w(getName(), "SharedPreferences not available, skipping config persistence");
         }
       } catch (Exception e) {
         Log.e(getName(), "Failed to save config: " + e.getMessage());
@@ -803,17 +765,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   private void loadConfigMap() {
     synchronized (sharedLock) {
       try {
-        if (isMMKVAvailable && mmkv != null) {
-          int progressIntervalScope = mmkv.decodeInt(getName() + "_progressInterval");
-          if (progressIntervalScope > 0) {
-            progressInterval = progressIntervalScope;
-          }
-          long progressMinBytesScope = mmkv.decodeLong(getName() + "_progressMinBytes");
-          if (progressMinBytesScope > 0) {
-            progressMinBytes = progressMinBytesScope;
-          }
-          Log.d(getName(), "Loaded config from MMKV");
-        } else if (sharedPreferences != null) {
+        if (sharedPreferences != null) {
           int progressIntervalScope = sharedPreferences.getInt(getName() + "_progressInterval", 0);
           if (progressIntervalScope > 0) {
             progressInterval = progressIntervalScope;
@@ -822,9 +774,9 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
           if (progressMinBytesScope > 0) {
             progressMinBytes = progressMinBytesScope;
           }
-          Log.d(getName(), "Loaded config from SharedPreferences fallback");
+          Log.d(getName(), "Loaded config from SharedPreferences");
         } else {
-          Log.d(getName(), "No storage available, using default config values");
+          Log.d(getName(), "SharedPreferences not available, using default config values");
         }
       } catch (Exception e) {
         Log.e(getName(), "Failed to load config: " + e.getMessage());

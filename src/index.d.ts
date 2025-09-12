@@ -126,7 +126,7 @@ export interface Directories {
 
 export interface StorageInfo {
   isMMKVAvailable: boolean
-  storageType: 'MMKV' | 'SharedPreferences'
+  storageType: 'SharedPreferences' | 'NSUserDefaults' | 'System'
 }
 
 export const setConfig: SetConfig
