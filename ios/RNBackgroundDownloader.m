@@ -71,9 +71,7 @@ RCT_EXPORT_MODULE();
         @"TaskRunning": @(NSURLSessionTaskStateRunning),
         @"TaskSuspended": @(NSURLSessionTaskStateSuspended),
         @"TaskCanceling": @(NSURLSessionTaskStateCanceling),
-        @"TaskCompleted": @(NSURLSessionTaskStateCompleted),
-        @"isMMKVAvailable": @NO,
-        @"storageType": @"NSUserDefaults"
+        @"TaskCompleted": @(NSURLSessionTaskStateCompleted)
     };
 }
 
@@ -242,7 +240,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         progressInterval = [progressIntervalScope intValue] / 1000;
         [userDefaults setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
-    
+
     NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
     if (progressMinBytesScope) {
         progressMinBytes = [progressMinBytesScope longLongValue];
@@ -331,7 +329,7 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
 
 RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] jobId: %@", jobId);
-    
+
     // Defensive programming: Check if we have valid parameters
     if (!jobId || !resolve) {
         DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] Invalid parameters");
@@ -340,7 +338,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
         }
         return;
     }
-    
+
     // Ensure we're on main queue for completion handler execution
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
@@ -352,7 +350,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
             } else {
                 DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] No stored completion handler found");
             }
-            
+
             // Resolve the promise
             resolve(nil);
         } @catch (NSException *exception) {
@@ -502,7 +500,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             NSNumber *prevBytes = idToLastBytesMap[taskConfig.id];
             NSNumber *percent;
             BOOL percentThresholdMet = NO;
-            
+
             // Handle unknown total bytes (realtime streams)
             if (bytesTotalExpectedToWrite > 0) {
                 percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
@@ -510,11 +508,11 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             } else {
                 percent = @0.0; // Unknown total, set to 0
             }
-            
+
             // Check if we should report progress based on percentage OR bytes threshold
             long long lastReportedBytes = prevBytes ? [prevBytes longLongValue] : 0;
             BOOL bytesThresholdMet = bytesTotalWritten - lastReportedBytes >= progressMinBytes;
-            
+
             // Report progress if either threshold is met, or if total bytes unknown (for streams)
             if (percentThresholdMet || bytesThresholdMet || bytesTotalExpectedToWrite <= 0) {
                 progressReports[taskConfig.id] = @{

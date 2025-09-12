@@ -97,7 +97,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
 
   public RNBackgroundDownloaderModuleImpl(ReactApplicationContext reactContext) {
     super(reactContext);
-    
+
     // Initialize SharedPreferences for storage
     sharedPreferences = reactContext.getSharedPreferences(getName() + "_prefs", Context.MODE_PRIVATE);
     Log.d(getName(), "SharedPreferences initialized successfully");
@@ -131,10 +131,6 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     constants.put("TaskSuspended", TASK_SUSPENDED);
     constants.put("TaskCanceling", TASK_CANCELING);
     constants.put("TaskCompleted", TASK_COMPLETED);
-    
-    // Expose storage type information for debugging/monitoring
-    constants.put("isMMKVAvailable", false);
-    constants.put("storageType", "SharedPreferences");
 
     return constants;
   }
@@ -277,11 +273,11 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
     try {
       String currentUrl = originalUrl;
       int redirectCount = 0;
-      
+
       while (redirectCount < maxRedirects) {
         java.net.URL url = new java.net.URL(currentUrl);
         java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
-        
+
         // Add headers to the redirect resolution request
         if (headers != null) {
           ReadableMapKeySetIterator iterator = headers.keySetIterator();
@@ -290,21 +286,21 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
             connection.setRequestProperty(headerKey, headers.getString(headerKey));
           }
         }
-        
+
         // Add default headers for consistency with DownloadManager
         connection.setRequestProperty("Connection", "keep-alive");
         connection.setRequestProperty("Keep-Alive", "timeout=600, max=1000");
         if (!hasUserAgentHeader(headers)) {
           connection.setRequestProperty("User-Agent", "ReactNative-BackgroundDownloader/3.2.6");
         }
-        
+
         connection.setInstanceFollowRedirects(false);
         connection.setRequestMethod("HEAD"); // Use HEAD to avoid downloading content
         connection.setConnectTimeout(10000); // 10 second timeout
         connection.setReadTimeout(10000);
-        
+
         int responseCode = connection.getResponseCode();
-        
+
         if (responseCode >= 300 && responseCode < 400) {
           // This is a redirect
           String location = connection.getHeaderField("Location");
@@ -312,7 +308,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
             Log.w(getName(), "Redirect response without Location header at: " + currentUrl);
             break;
           }
-          
+
           // Handle relative URLs
           if (location.startsWith("/")) {
             java.net.URL baseUrl = new java.net.URL(currentUrl);
@@ -321,7 +317,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
             java.net.URL baseUrl = new java.net.URL(currentUrl);
             location = baseUrl.getProtocol() + "://" + baseUrl.getHost() + "/" + location;
           }
-          
+
           Log.d(getName(), "Redirect " + (redirectCount + 1) + "/" + maxRedirects + ": " + currentUrl + " -> " + location);
           currentUrl = location;
           redirectCount++;
@@ -329,19 +325,19 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
           // Not a redirect, we've found the final URL
           break;
         }
-        
+
         connection.disconnect();
       }
-      
+
       if (redirectCount >= maxRedirects) {
-        Log.w(getName(), "Reached maximum redirects (" + maxRedirects + ") for URL: " + originalUrl + 
+        Log.w(getName(), "Reached maximum redirects (" + maxRedirects + ") for URL: " + originalUrl +
               ". Final URL: " + currentUrl);
       } else {
         Log.d(getName(), "Resolved URL after " + redirectCount + " redirects: " + currentUrl);
       }
-      
+
       return currentUrl;
-      
+
     } catch (Exception e) {
       Log.e(getName(), "Failed to resolve redirects for URL: " + originalUrl + ". Error: " + e.getMessage());
       // Return original URL if redirect resolution fails
@@ -701,7 +697,7 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
       try {
         Gson gson = new Gson();
         String str = gson.toJson(downloadIdToConfig);
-        
+
         if (sharedPreferences != null) {
           sharedPreferences.edit()
             .putString(getName() + "_downloadIdToConfig", str)
@@ -719,17 +715,17 @@ public class RNBackgroundDownloaderModuleImpl extends ReactContextBaseJavaModule
   private void loadDownloadIdToConfigMap() {
     synchronized (sharedLock) {
       downloadIdToConfig = new HashMap<>();
-      
+
       try {
         String str = null;
-        
+
         if (sharedPreferences != null) {
           str = sharedPreferences.getString(getName() + "_downloadIdToConfig", null);
           if (str != null) {
             Log.d(getName(), "Loaded download config from SharedPreferences");
           }
         }
-        
+
         if (str != null) {
           Gson gson = new Gson();
           TypeToken<Map<Long, RNBGDTaskConfig>> mapType = new TypeToken<Map<Long, RNBGDTaskConfig>>() {};
