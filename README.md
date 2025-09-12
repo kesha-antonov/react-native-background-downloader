@@ -45,25 +45,6 @@ cd ios && pod install
 
 This library supports React Native's New Architecture (Fabric + TurboModules) starting from React Native 0.70+.
 
-### Android 15+ and 16KB Memory Page Size Support
-
-This library fully supports **Android 15+ with 16KB memory page sizes**, which is required by Google Play for apps targeting Android 15+.
-
-#### What's Changed for 16KB Support:
-- **Updated MMKV dependency** to version 2.2.0+ which includes 16KB page alignment support
-- **Updated Android build configuration** with `targetSdkVersion` and `compileSdkVersion` set to 35 (Android 15)
-- **Added proper native library alignment** with `android.bundle.enableUncompressedNativeLibs=false`
-- **Configured NDK with proper ABI filters** for all supported architectures
-- **Enhanced packaging options** to ensure native libraries are properly aligned
-
-#### Requirements for 16KB Support:
-- `compileSdkVersion` 35 or higher
-- `targetSdkVersion` 35 or higher  
-- Android Gradle Plugin that supports 16KB page alignment
-- MMKV 2.2.0+ (automatically included)
-
-The library has been tested and verified to meet Google Play's 16KB memory page size requirements for Android 15+.
-
 #### Automatic Detection
 The library automatically detects whether the New Architecture is enabled in your app and uses the appropriate implementation:
 - **New Architecture**: Uses TurboModules for optimal performance
@@ -163,7 +144,7 @@ export default {
 ```
 
 The plugin will automatically:
-- Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)  
+- Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)
 - Add the `handleEventsForBackgroundURLSession` method to your AppDelegate
 - Handle both React Native < 0.77 (Objective-C) and >= 0.77 (Swift) projects
 
@@ -271,7 +252,7 @@ The library uses flexible MMKV version ranges to avoid version conflicts when us
 **Supported Scenarios**:
 - ✅ **ARM64**: Full MMKV support with optimal performance
 - ✅ **ARMv7**: SharedPreferences fallback with full functionality
-- ✅ **x86**: SharedPreferences fallback with full functionality  
+- ✅ **x86**: SharedPreferences fallback with full functionality
 - ✅ **x86_64**: Full MMKV support with optimal performance
 
 **What this means for you**:
@@ -457,7 +438,7 @@ let task = download({
   console.log('Download is done!', { bytesDownloaded, bytesTotal })
 }).error(({ error, errorCode }) => {
   console.log('Download canceled due to error: ', { error, errorCode })
-  
+
   if (errorCode === 1005) { // ERROR_TOO_MANY_REDIRECTS
     console.log('Consider increasing maxRedirects or using a different URL')
   }
