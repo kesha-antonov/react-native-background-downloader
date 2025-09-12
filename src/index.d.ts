@@ -124,12 +124,18 @@ export interface Directories {
   documents: string
 }
 
+export interface StorageInfo {
+  isMMKVAvailable: boolean
+  storageType: 'MMKV' | 'SharedPreferences'
+}
+
 export const setConfig: SetConfig
 export const checkForExistingDownloads: CheckForExistingDownloads
 export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning
 export const download: Download
 export const completeHandler: CompleteHandler
 export const directories: Directories
+export const storageInfo: StorageInfo
 
 export interface RNBackgroundDownloader {
   setConfig: SetConfig
@@ -138,6 +144,7 @@ export interface RNBackgroundDownloader {
   download: Download
   completeHandler: CompleteHandler
   directories: Directories
+  storageInfo: StorageInfo
 }
 
 declare const RNBackgroundDownloader: RNBackgroundDownloader
