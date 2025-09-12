@@ -144,7 +144,7 @@ export default {
 ```
 
 The plugin will automatically:
-- Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)  
+- Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)
 - Add the `handleEventsForBackgroundURLSession` method to your AppDelegate
 - Handle both React Native < 0.77 (Objective-C) and >= 0.77 (Swift) projects
 
@@ -207,35 +207,6 @@ expo prebuild --clean
   ```
   Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
 </details>
-
-## Compatibility
-
-### System Storage Compatibility
-
-This library uses native system storage mechanisms for download persistence:
-- **Android**: SharedPreferences for reliable storage
-- **iOS**: NSUserDefaults for efficient storage
-- Downloads continue to function normally across app restarts
-- No additional configuration is required
-
-### Architecture Compatibility
-
-This library provides comprehensive compatibility across all device architectures:
-- **Native Storage**: Uses Android's SharedPreferences and iOS's NSUserDefaults
-- **Full Functionality**: All download functionality works normally across architectures
-- **Persistence Support**: Download persistence across app restarts is maintained
-
-**Supported Scenarios**:
-- ✅ **ARM64**: Full functionality with optimal performance
-- ✅ **ARMv7**: Full functionality with system storage
-- ✅ **x86**: Full functionality with system storage  
-- ✅ **x86_64**: Full functionality with optimal performance
-
-**What this means for you**:
-- No code changes required - storage is automatic
-- Downloads work on all Android architectures
-- Persistence across app restarts works on all architectures
-- Performance is optimal across all supported architectures
 
 ## Usage
 
@@ -414,7 +385,7 @@ let task = download({
   console.log('Download is done!', { bytesDownloaded, bytesTotal })
 }).error(({ error, errorCode }) => {
   console.log('Download canceled due to error: ', { error, errorCode })
-  
+
   if (errorCode === 1005) { // ERROR_TOO_MANY_REDIRECTS
     console.log('Consider increasing maxRedirects or using a different URL')
   }
