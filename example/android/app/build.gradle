@@ -82,6 +82,18 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        
+        // Support for 16KB memory page sizes (Android 15+)
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
+    }
+    
+    // Configure packaging options for 16KB page size support
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
     signingConfigs {
         debug {
