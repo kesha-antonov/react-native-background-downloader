@@ -232,11 +232,6 @@ export const directories = {
   documents: RNBackgroundDownloader?.documents || '/tmp/documents',
 }
 
-export const storageInfo = {
-  isMMKVAvailable: RNBackgroundDownloader?.isMMKVAvailable || false,
-  storageType: RNBackgroundDownloader?.storageType || 'Unknown',
-}
-
 export default {
   download,
   checkForExistingDownloads,
@@ -246,5 +241,4 @@ export default {
   setConfig,
 
   directories,
-  storageInfo,
 }
