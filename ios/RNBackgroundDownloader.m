@@ -446,7 +446,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
                 [self saveFile:taskConfig downloadURL:location error:&error];
             }
 
-            if (self.bridge && isJavascriptLoaded) {
+            if (self != nil) {
                 if (error == nil) {
                     NSDictionary *responseHeaders = ((NSHTTPURLResponse *)downloadTask.response).allHeaderFields;
                     [self sendEventWithName:@"downloadComplete" body:@{
@@ -487,7 +487,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
         if (taskConfig != nil) {
             if (!taskConfig.reportedBegin) {
                 NSDictionary *responseHeaders = ((NSHTTPURLResponse *)downloadTask.response).allHeaderFields;
-                if (self.bridge && isJavascriptLoaded) {
+                if (self != nil) {
                     [self sendEventWithName:@"downloadBegin" body:@{
                         @"id": taskConfig.id,
                         @"expectedBytes": [NSNumber numberWithLongLong: bytesTotalExpectedToWrite],
@@ -527,7 +527,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 
             NSDate *now = [[NSDate alloc] init];
             if ([now timeIntervalSinceDate:lastProgressReportedAt] > progressInterval && progressReports.count > 0) {
-                if (self.bridge && isJavascriptLoaded) {
+                if (self != nil) {
                     [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
                 }
                 lastProgressReportedAt = now;
@@ -552,7 +552,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
         // -999 code represents incomplete tasks.
         // Required to continue resume tasks.
         if (error.code != -999) {
-            if (self.bridge && isJavascriptLoaded) {
+            if (self != nil) {
                 [self sendEventWithName:@"downloadFailed" body:@{
                     @"id": taskConfig.id,
                     @"error": [error localizedDescription],
