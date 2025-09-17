@@ -48,8 +48,7 @@
     "prepublishOnly": "npm run build-plugin && jest && npm run lint",
     "build-plugin": "tsc plugin/src/index.ts --outDir plugin/build --target ES2018 --module commonjs --declaration --esModuleInterop --skipLibCheck",
     "publish": "npm publish",
-    "test": "jest",
-    "postinstall": "node scripts/patch-reactnative78.js"
+    "test": "jest"
   },
   "lint-staged": {
     "*.js": "eslint --cache"
