@@ -97,6 +97,11 @@
     "react-test-renderer": "19.0.0",
     "typescript": "5.7.3"
   },
+  "codegenConfig": {
+    "name": "RNBackgroundDownloaderSpec",
+    "type": "modules",
+    "jsSrcsDir": "src"
+  },
   "peerDependencies": {
     "react-native": ">=0.57.0"
   },
