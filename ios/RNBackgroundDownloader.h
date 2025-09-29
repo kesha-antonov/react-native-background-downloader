@@ -6,15 +6,14 @@
 
 typedef void (^CompletionHandler)();
 
-@interface RNBackgroundDownloader : RCTEventEmitter <RCTBridgeModule, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
+@interface RNBackgroundDownloader : RCTEventEmitter
+#ifdef RCT_NEW_ARCH_ENABLED
+   <NativeRNBackgroundDownloaderSpec, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
+#else
+    <RCTBridgeModule, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
+#endif
 
 + (void)setCompletionHandlerWithIdentifier:(NSString *)identifier completionHandler:(CompletionHandler)completionHandler;
-- (void)completeHandler:(NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
+- (void)completeHandler:(NSString *)jobId;
 
 @end
-
-#ifdef RCT_NEW_ARCH_ENABLED
-@interface RNBackgroundDownloader () <RNBackgroundDownloaderSpec>
-
-@end
-#endif
