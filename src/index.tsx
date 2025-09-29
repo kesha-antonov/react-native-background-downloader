@@ -25,7 +25,10 @@ function log(...args: any[]) {
   if (config.isLogsEnabled) console.log('[RNBackgroundDownloader]', ...args);
 }
 
-const RNBackgroundDownloaderEmitter = new NativeEventEmitter();
+const RNBackgroundDownloaderEmitter = new NativeEventEmitter(
+  // @ts-expect-error: Type '((eventName: string) => void) | undefined' is not assignable to type '(eventType: string) => void'.
+  RNBackgroundDownloader
+);
 
 RNBackgroundDownloaderEmitter.addListener('downloadBegin', (event) => {
   const { id, ...rest } = event as BeginListenerObject;
