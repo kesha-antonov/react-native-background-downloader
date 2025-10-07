@@ -129,13 +129,6 @@ export interface StorageInfo {
   storageType: 'MMKV' | 'SharedPreferences'
 }
 
-export interface Architecture {
-  type: 'Nitro' | 'TurboModule' | 'Bridge' | 'Unknown'
-  isNitro: boolean
-  isTurboModule: boolean
-  isBridge: boolean
-}
-
 export const setConfig: SetConfig
 export const checkForExistingDownloads: CheckForExistingDownloads
 export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning
@@ -143,7 +136,6 @@ export const download: Download
 export const completeHandler: CompleteHandler
 export const directories: Directories
 export const storageInfo: StorageInfo
-export const architecture: Architecture
 
 export interface RNBackgroundDownloader {
   setConfig: SetConfig
@@ -153,7 +145,6 @@ export interface RNBackgroundDownloader {
   completeHandler: CompleteHandler
   directories: Directories
   storageInfo: StorageInfo
-  architecture: Architecture
 }
 
 declare const RNBackgroundDownloader: RNBackgroundDownloader

@@ -41,71 +41,27 @@ Then:
 cd ios && pod install
 ```
 
-### Architecture Support
+### Nitro Modules
 
-This library supports multiple React Native module architectures with automatic fallback:
+This library uses [Nitro Modules](https://github.com/mrousavy/nitro) for high-performance native module integration.
 
-#### Nitro Modules (Recommended for best performance)
-[Nitro](https://github.com/mrousavy/nitro) is the latest and fastest native module system for React Native, using direct JSI bindings for maximum performance.
+To install, add both the library and Nitro modules:
 
-To enable Nitro support, install `react-native-nitro-modules`:
 ```bash
-yarn add react-native-nitro-modules
+yarn add @kesha-antonov/react-native-background-downloader react-native-nitro-modules
 cd ios && pod install
 ```
 
-The library will automatically detect and use Nitro modules when available.
+### Known Issues
 
-#### New Architecture (TurboModules)
-This library supports React Native's New Architecture (Fabric + TurboModules) starting from React Native 0.70+.
-
-#### Legacy Architecture (Bridge)
-Full support for the traditional React Native bridge on all React Native versions >= 0.57.0.
-
-#### Automatic Detection
-The library automatically detects which architecture is available in your app and uses the appropriate implementation with this fallback priority:
-1. **Nitro Modules** (fastest, if `react-native-nitro-modules` is installed)
-2. **TurboModules** (New Architecture, if enabled)
-3. **Bridge** (Legacy Architecture, always available)
-
-You can check which architecture is being used:
-```javascript
-import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader';
-
-console.log(RNBackgroundDownloader.architecture.type); // 'Nitro', 'TurboModule', or 'Bridge'
-console.log(RNBackgroundDownloader.architecture.isNitro); // true if using Nitro
-console.log(RNBackgroundDownloader.architecture.isTurboModule); // true if using TurboModule
-console.log(RNBackgroundDownloader.architecture.isBridge); // true if using Bridge
-```
-
-#### Manual Setup (Advanced)
-If you need to manually configure the package for New Architecture:
-
-**iOS**: The library automatically detects New Architecture via compile-time flags.
-
-**Android**: For New Architecture, you can optionally use `RNBackgroundDownloaderTurboPackage` instead of the default package:
-```java
-import com.eko.RNBackgroundDownloaderTurboPackage;
-
-// In your MainApplication.java
-@Override
-protected List<ReactPackage> getPackages() {
-  return Arrays.<ReactPackage>asList(
-    // ... other packages
-    new RNBackgroundDownloaderTurboPackage() // For New Architecture
-  );
-}
-```
-
-#### Known Issues with New Architecture
-When using larger files with the New Architecture, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager, not specific to this library or the New Architecture. The error includes enhanced messaging to help diagnose the issue.
+When using larger files, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager. The error includes enhanced messaging to help diagnose the issue.
 
 **Workaround:** If you encounter this error frequently with large files, consider:
 1. Breaking large downloads into smaller chunks
 2. Implementing retry logic in your app
 3. Using alternative download strategies for very large files
 
-The library now provides enhanced error handling for this specific case with detailed logging and cleanup.
+The library provides enhanced error handling for this specific case with detailed logging and cleanup.
 
 ### Mostly automatic installation
 Any React Native version **`>= 0.60`** supports autolinking so nothing should be done.

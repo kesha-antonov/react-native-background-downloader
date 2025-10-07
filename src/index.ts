@@ -1,6 +1,6 @@
 import { NativeModules, NativeEventEmitter } from 'react-native'
 import DownloadTask from './DownloadTask'
-import NativeRNBackgroundDownloader, { architectureUsed } from './NativeRNBackgroundDownloader'
+import NativeRNBackgroundDownloader from './NativeRNBackgroundDownloader'
 import { DownloadOptions } from './index.d'
 
 const { RNBackgroundDownloader } = NativeModules
@@ -237,13 +237,6 @@ export const storageInfo = {
   storageType: RNBackgroundDownloader?.storageType || 'Unknown',
 }
 
-export const architecture = {
-  type: architectureUsed,
-  isNitro: architectureUsed === 'Nitro',
-  isTurboModule: architectureUsed === 'TurboModule',
-  isBridge: architectureUsed === 'Bridge',
-}
-
 export default {
   download,
   checkForExistingDownloads,
@@ -254,5 +247,4 @@ export default {
 
   directories,
   storageInfo,
-  architecture,
 }

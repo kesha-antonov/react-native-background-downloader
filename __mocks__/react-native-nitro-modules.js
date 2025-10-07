@@ -1,9 +1,21 @@
 // Mock for react-native-nitro-modules
-// This is required when the module is not installed
+// This mock simulates Nitro modules for testing purposes
+
+const createMockHybridObject = (name) => {
+  // Return a mock object that implements the Spec interface
+  return {
+    checkForExistingDownloads: jest.fn().mockResolvedValue([]),
+    completeHandler: jest.fn(),
+    download: jest.fn(),
+    pauseTask: jest.fn(),
+    resumeTask: jest.fn(),
+    stopTask: jest.fn(),
+    addListener: jest.fn(),
+    removeListeners: jest.fn(),
+  }
+}
 
 module.exports = {
-  createHybridObject: jest.fn(() => {
-    throw new Error('Nitro modules not available')
-  }),
+  createHybridObject: createMockHybridObject,
   HybridObject: jest.fn(),
 }
