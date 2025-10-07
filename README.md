@@ -41,14 +41,42 @@ Then:
 cd ios && pod install
 ```
 
-### New Architecture Support
+### Architecture Support
 
+This library supports multiple React Native module architectures with automatic fallback:
+
+#### Nitro Modules (Recommended for best performance)
+[Nitro](https://github.com/mrousavy/nitro) is the latest and fastest native module system for React Native, using direct JSI bindings for maximum performance.
+
+To enable Nitro support, install `react-native-nitro-modules`:
+```bash
+yarn add react-native-nitro-modules
+cd ios && pod install
+```
+
+The library will automatically detect and use Nitro modules when available.
+
+#### New Architecture (TurboModules)
 This library supports React Native's New Architecture (Fabric + TurboModules) starting from React Native 0.70+.
 
+#### Legacy Architecture (Bridge)
+Full support for the traditional React Native bridge on all React Native versions >= 0.57.0.
+
 #### Automatic Detection
-The library automatically detects whether the New Architecture is enabled in your app and uses the appropriate implementation:
-- **New Architecture**: Uses TurboModules for optimal performance
-- **Legacy Architecture**: Uses the traditional bridge implementation
+The library automatically detects which architecture is available in your app and uses the appropriate implementation with this fallback priority:
+1. **Nitro Modules** (fastest, if `react-native-nitro-modules` is installed)
+2. **TurboModules** (New Architecture, if enabled)
+3. **Bridge** (Legacy Architecture, always available)
+
+You can check which architecture is being used:
+```javascript
+import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader';
+
+console.log(RNBackgroundDownloader.architecture.type); // 'Nitro', 'TurboModule', or 'Bridge'
+console.log(RNBackgroundDownloader.architecture.isNitro); // true if using Nitro
+console.log(RNBackgroundDownloader.architecture.isTurboModule); // true if using TurboModule
+console.log(RNBackgroundDownloader.architecture.isBridge); // true if using Bridge
+```
 
 #### Manual Setup (Advanced)
 If you need to manually configure the package for New Architecture:

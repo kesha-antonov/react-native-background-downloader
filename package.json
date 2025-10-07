@@ -9,7 +9,9 @@
     "large files",
     "new architecture",
     "turbo modules",
-    "fabric"
+    "fabric",
+    "nitro",
+    "nitro modules"
   ],
   "repository": {
     "type": "git",
@@ -103,7 +105,13 @@
     "jsSrcsDir": "src"
   },
   "peerDependencies": {
-    "react-native": ">=0.57.0"
+    "react-native": ">=0.57.0",
+    "react-native-nitro-modules": "*"
+  },
+  "peerDependenciesMeta": {
+    "react-native-nitro-modules": {
+      "optional": true
+    }
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
