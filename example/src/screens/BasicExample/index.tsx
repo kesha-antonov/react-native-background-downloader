@@ -7,6 +7,7 @@ import {
   checkForExistingDownloads,
   download,
   setConfig,
+  architecture,
 } from '@kesha-antonov/react-native-background-downloader'
 import Slider from '@react-native-community/slider'
 import { ExButton, ExWrapper } from '../../components/commons'
@@ -17,6 +18,12 @@ const defaultDir = directories.documents
 setConfig({
   isLogsEnabled: true,
 })
+
+// Log the architecture being used
+console.log('[Example App] Native Module Architecture:', architecture.type)
+console.log('[Example App] Using Nitro:', architecture.isNitro)
+console.log('[Example App] Using TurboModule:', architecture.isTurboModule)
+console.log('[Example App] Using Bridge:', architecture.isBridge)
 
 const Footer = ({
   onStart,
@@ -237,6 +244,14 @@ const BasicExampleScreen = () => {
   return (
     <ExWrapper>
       <Text style={styles.title}>Basic Example</Text>
+      <View style={styles.architectureInfo}>
+        <Text style={styles.architectureText}>
+          Architecture: {architecture.type}
+          {architecture.isNitro && ' 🚀'}
+          {architecture.isTurboModule && ' ⚡'}
+          {architecture.isBridge && ' 🌉'}
+        </Text>
+      </View>
       <View>
         <FlatList
           data={urlList}
@@ -323,6 +338,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     alignSelf: 'center',
     marginTop: 16,
+  },
+  architectureInfo: {
+    backgroundColor: '#f0f0f0',
+    padding: 8,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 4,
+  },
+  architectureText: {
+    fontSize: 14,
+    textAlign: 'center',
+    fontWeight: '600',
+    color: '#333',
   },
   item: {
     padding: 8,
