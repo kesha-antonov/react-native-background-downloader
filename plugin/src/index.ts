@@ -51,27 +51,6 @@ function addObjCSupport(appDelegateContents: string): string {
     }
   }
 
-  // Add the handleEventsForBackgroundURLSession method if not already present
-  if (!appDelegateContents.includes('handleEventsForBackgroundURLSession')) {
-    const methodToAdd = `
-- (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler
-{
-  [RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];
-}
-`;
-
-    // Find the end of the @implementation block but before @end
-    const endMatch = appDelegateContents.match(/@end\s*$/);
-    if (endMatch) {
-      const endPosition = appDelegateContents.lastIndexOf(endMatch[0]);
-      appDelegateContents =
-        appDelegateContents.slice(0, endPosition) +
-        methodToAdd +
-        '\n' +
-        appDelegateContents.slice(endPosition);
-    }
-  }
-
   return appDelegateContents;
 }
 
