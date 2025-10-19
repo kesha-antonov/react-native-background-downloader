@@ -8,7 +8,7 @@
     "start": "react-native start",
     "build:android": "react-native build-android --extra-params \"--no-daemon --console=plain -PreactNativeArchitectures=arm64-v8a\"",
     "build:ios": "react-native build-ios --mode Debug",
-    "open:ios": "open ./ios/ReactNativeBackgroundDownloaderExample.xcworkspace",
+    "open:ios": "open ./ios/example.xcworkspace",
     "android:clean": "cd android/ && ./gradlew clean && cd ..",
     "android:debug": "npx react-native run-android",
     "fresh": "yarn start --reset-cache"
