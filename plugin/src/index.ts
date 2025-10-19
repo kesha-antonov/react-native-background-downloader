@@ -1,10 +1,4 @@
-import {
-  type ConfigPlugin,
-  withAppDelegate,
-  IOSConfig,
-} from '@expo/config-plugins';
-import * as fs from 'fs';
-import * as path from 'path';
+import { type ConfigPlugin, withAppDelegate } from '@expo/config-plugins';
 
 const withRNBackgroundDownloader: ConfigPlugin = (_config) => {
   // Handle AppDelegate modifications
@@ -15,14 +9,6 @@ const withRNBackgroundDownloader: ConfigPlugin = (_config) => {
     } else {
       // For Swift AppDelegate.swift (React Native >= 0.77)
       config.modResults.contents = addSwiftSupport(config.modResults.contents);
-
-      // For Swift projects, we need to ensure the bridging header includes our import
-      const projectRoot = config.modRequest.projectRoot;
-      const iosProjectRoot = IOSConfig.Paths.getSourceRoot(projectRoot);
-      addToBridgingHeader(
-        iosProjectRoot,
-        config.modRequest.projectName || 'App'
-      );
     }
     return config;
   });
@@ -125,61 +111,6 @@ function addSwiftSupport(appDelegateContents: string): string {
   }
 
   return appDelegateContents;
-}
-
-function addToBridgingHeader(
-  iosProjectRoot: string,
-  projectName: string
-): void {
-  // Common bridging header file paths
-  const possibleBridgingHeaderPaths = [
-    path.join(iosProjectRoot, `${projectName}-Bridging-Header.h`),
-    path.join(
-      iosProjectRoot,
-      `${projectName}`,
-      `${projectName}-Bridging-Header.h`
-    ),
-    path.join(iosProjectRoot, 'Bridging-Header.h'),
-  ];
-
-  let bridgingHeaderPath: string | null = null;
-
-  // Find existing bridging header
-  for (const possiblePath of possibleBridgingHeaderPaths)
-    if (fs.existsSync(possiblePath)) {
-      bridgingHeaderPath = possiblePath;
-      break;
-    }
-
-  // If no bridging header exists, create one
-  if (!bridgingHeaderPath)
-    bridgingHeaderPath = possibleBridgingHeaderPaths[0] ?? null; // Use the first possibility as default
-
-  try {
-    let bridgingHeaderContent = '';
-
-    // Read existing content if file exists
-    if (bridgingHeaderPath && fs.existsSync(bridgingHeaderPath))
-      bridgingHeaderContent = fs.readFileSync(bridgingHeaderPath, 'utf8');
-
-    // Add our import if not already present
-    const importStatement = '#import <RNBackgroundDownloader.h>';
-    if (
-      !bridgingHeaderContent.includes(importStatement) &&
-      bridgingHeaderPath
-    ) {
-      // Add import with proper formatting
-      bridgingHeaderContent = bridgingHeaderContent.trim();
-      if (bridgingHeaderContent.length > 0) bridgingHeaderContent += '\n';
-
-      bridgingHeaderContent += importStatement + '\n';
-
-      // Write the updated bridging header
-      fs.writeFileSync(bridgingHeaderPath, bridgingHeaderContent, 'utf8');
-    }
-  } catch (error) {
-    console.warn('Could not modify bridging header:', error);
-  }
 }
 
 export default withRNBackgroundDownloader;
