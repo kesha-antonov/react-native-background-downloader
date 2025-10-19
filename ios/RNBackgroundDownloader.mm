@@ -66,6 +66,7 @@ RCT_EXPORT_MODULE();
     ];
 }
 
+#ifdef RCT_NEW_ARCH_ENABLED
 - (nonnull facebook::react::ModuleConstants<JS::NativeRNBackgroundDownloader::Constants::Builder>)constantsToExport {
   NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     return @{
@@ -80,6 +81,18 @@ RCT_EXPORT_MODULE();
 - (nonnull facebook::react::ModuleConstants<JS::NativeRNBackgroundDownloader::Constants::Builder>)getConstants {
   return [self constantsToExport];
 }
+#else
+- (NSDictionary *)constantsToExport {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    return @{
+        @"documents": [paths firstObject],
+        @"TaskRunning": @(NSURLSessionTaskStateRunning),
+        @"TaskSuspended": @(NSURLSessionTaskStateSuspended),
+        @"TaskCanceling": @(NSURLSessionTaskStateCanceling),
+        @"TaskCompleted": @(NSURLSessionTaskStateCompleted)
+    };
+}
+#endif
 
 - (id)init {
     DLog(@"[RNBackgroundDownloader] - [init]");
@@ -233,6 +246,7 @@ RCT_EXPORT_MODULE();
 }
 
 #pragma mark - JS exported methods
+#ifdef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(download: (JS::NativeRNBackgroundDownloader::SpecDownloadOptions &)options) {
     DLog(@"[RNBackgroundDownloader] - [download]");
     NSString *identifier = options.id_();
@@ -245,12 +259,24 @@ RCT_EXPORT_METHOD(download: (JS::NativeRNBackgroundDownloader::SpecDownloadOptio
     }
 
     NSNumber *progressIntervalScope = toNSNumber(options.progressInterval());
+    NSNumber *progressMinBytesScope = toNSNumber(options.progressMinBytes());
+#else
+RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
+    NSString *identifier = options[@"id"];
+    NSString *url = options[@"url"];
+    NSString *destination = options[@"destination"];
+    NSString *metadata = options[@"metadata"];
+    NSDictionary *headers = options[@"headers"];
+
+    NSNumber *progressIntervalScope = options[@"progressInterval"];
+    NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
+#endif
     if (progressIntervalScope) {
         progressInterval = [progressIntervalScope intValue] / 1000;
         [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
     
-    NSNumber *progressMinBytesScope = toNSNumber(options.progressMinBytes());
+    
     if (progressMinBytesScope) {
         progressMinBytes = [progressMinBytesScope longLongValue];
         [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
@@ -698,10 +724,11 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
  {
     return std::make_shared<facebook::react::NativeRNBackgroundDownloaderSpecJSI>(params);
  }
-#endif
-
+    
 static inline NSNumber * _Nullable toNSNumber(std::optional<double> value) {
     return value.has_value() ? @(value.value()) : nil;
 }
+#endif
+
 
 @end
