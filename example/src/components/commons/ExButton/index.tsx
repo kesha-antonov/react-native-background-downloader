@@ -1,35 +1,40 @@
-import React from 'react'
 import {
   TouchableOpacity,
-  TouchableOpacityProps,
+  type TouchableOpacityProps,
   Text,
   StyleSheet,
-} from 'react-native'
+} from 'react-native';
 
-const ExButton = ({ title, style, ...props }: TouchableOpacityProps) => {
+type ExButtonProps = TouchableOpacityProps & {
+  title: string;
+};
+
+const ExButton = ({ title, style, ...props }: ExButtonProps) => {
   return (
     <TouchableOpacity
       style={[styles.wrapper, style]}
       activeOpacity={0.5}
-      {...props}>
+      {...props}
+    >
       <Text style={styles.title}>{title}</Text>
     </TouchableOpacity>
-  )
-}
+  );
+};
 
 const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'skyblue',
+    backgroundColor: 'white',
+    borderWidth: 1,
     borderRadius: 16,
+    borderColor: 'black',
     marginTop: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    padding: 12,
   },
   title: {
-    fontSize: 18,
+    fontSize: 16,
   },
-})
+});
 
-export default ExButton
+export default ExButton;

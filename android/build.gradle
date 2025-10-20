@@ -1,63 +1,84 @@
-apply plugin: 'com.android.library'
+buildscript {
+  ext.getExtOrDefault = {name ->
+    return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties['RNBackgroundDownloader_' + name]
+  }
 
-def safeExtGet(prop, fallback) {
-    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath "com.android.tools.build:gradle:8.7.2"
+    // noinspection DifferentKotlinGradleVersion
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
+  }
 }
 
-// Add this function in case you don't have it already
-def isNewArchitectureEnabled() {
-    return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+apply plugin: "com.facebook.react"
+
+def getExtOrIntegerDefault(name) {
+  return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["RNBackgroundDownloader_" + name]).toInteger()
 }
 
 android {
-    def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
-    // Check AGP version for backward compatibility reasons (for RN < 0.71)
-    if (agpVersion.tokenize('.')[0].toInteger() >= 7) {
-        namespace "com.eko"
-    }
+  namespace "com.eko"
 
-    compileSdkVersion safeExtGet('compileSdkVersion', 35)
+  compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
 
-    defaultConfig {
-        minSdkVersion safeExtGet('minSdkVersion', 21)
-        targetSdkVersion safeExtGet('targetSdkVersion', 35)
-        versionCode 1
-        versionName '1.0'
+  defaultConfig {
+    minSdkVersion getExtOrIntegerDefault("minSdkVersion")
+    targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
+  }
 
-        buildConfigField("boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString())
-        
-        // Support for 16KB memory page sizes (Android 15+)
-        ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
-        }
-    }
-    
-    // Configure packaging options for 16KB page size support
-    packagingOptions {
-        jniLibs {
-            useLegacyPackaging = false
-        }
-    }
+  buildFeatures {
+    buildConfig true
+  }
 
-    sourceSets {
-        main {
-            if (isNewArchitectureEnabled()) {
-                java.srcDirs += ['src/newarch']
-            } else {
-                java.srcDirs += ['src/oldarch']
-            }
-        }
+  buildTypes {
+    release {
+      minifyEnabled false
     }
+  }
+
+  lintOptions {
+    disable "GradleCompatible"
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_1_8
+    targetCompatibility JavaVersion.VERSION_1_8
+  }
+
+  sourceSets {
+    main {
+      java.srcDirs += [
+        "generated/java",
+        "generated/jni"
+      ]
+    }
+  }
 }
 
+repositories {
+  mavenCentral()
+  google()
+}
+
+def kotlin_version = getExtOrDefault("kotlinVersion")
+
 dependencies {
-    //noinspection GradleDynamicVersion
-    implementation 'com.facebook.react:react-native:+'
-    
-    // MMKV dependency updated for 16KB page size support
-    // MMKV 2.2.0+ includes support for 16KB memory page sizes required by Android 15+
-    // Uses mmkv-shared to maintain compatibility with react-native-mmkv 4+
-    implementation 'com.tencent:mmkv-shared:2.2.0'
-    
-    implementation 'com.google.code.gson:gson:2.12.1'
+  implementation "com.facebook.react:react-android"
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+
+  // MMKV dependency updated for 16KB page size support
+  // MMKV 2.2.0+ includes support for 16KB memory page sizes required by Android 15+
+  // Uses mmkv-shared to maintain compatibility with react-native-mmkv 4+
+  implementation 'com.tencent:mmkv-shared:2.2.0'
+
+  implementation 'com.google.code.gson:gson:2.12.1'
 }

@@ -1,0 +1,1 @@
+{"version":3,"names":["TurboModuleRegistry","module","getEnforcing","Constants","getConstants"],"sourceRoot":"../../src","sources":["NativeRNBackgroundDownloader.ts"],"mappings":";;AAAA,SAASA,mBAAmB,QAA0B,cAAc;AAsCpE,MAAMC,MAAM,GAAGD,mBAAmB,CAACE,YAAY,CAAO,wBAAwB,CAAC;AAC/E,OAAO,MAAMC,SAAS,GAAGF,MAAM,EAAEG,YAAY,CAAC,CAAC;AAC/C,eAAeH,MAAM","ignoreList":[]}
