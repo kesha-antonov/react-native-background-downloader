@@ -2,6 +2,14 @@
 
 [![npm version](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg)](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader)
 
+## 🚧👷 Important notice
+
+There's currently WIP going on to make the library support New Architecture. If you have any issues, please report them. If you want to contribute, please do so.
+
+The most stable version is `3.2.6`. If you want to use the latest version, please be aware that it's a work in progress.
+
+Readme for this version: [3.2.6 readme](https://github.com/kesha-antonov/react-native-background-downloader/blob/8f4b8a844a2d7f00d1558f6ea65bac94c8dd6fc9/README.md)
+
 # @kesha-antonov/react-native-background-downloader
 
 A library for React-Native to help you download large files on iOS and Android both in the foreground and most importantly in the background.
