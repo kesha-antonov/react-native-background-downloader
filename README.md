@@ -590,6 +590,7 @@ In case of error `java.lang.IllegalStateException: TypeToken must be created wit
 - [ ] Write better examples - current kinda old and shallow
 - [ ] Write better API for downloads - current kinda boilerplate
 - [ ] Add more tests
+- [ ] Add expo example
 
 ## Authors
 
