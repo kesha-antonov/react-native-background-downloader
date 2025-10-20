@@ -1,7 +1,7 @@
 {
   "module": "nodenext",
   "moduleResolution": "nodenext",
-  "extends": "@react-native/typescript-config/tsconfig.json",
+  "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "allowJs": true,
     "allowSyntheticDefaultImports": true,
@@ -24,8 +24,13 @@
       ]
     }
   },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
   "exclude": [
-    "node_modules",
+    "**/node_modules",
+    "**/Pods",
     "babel.config.js",
     "metro.config.js",
     "jest.config.js"
