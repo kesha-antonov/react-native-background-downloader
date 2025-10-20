@@ -5,7 +5,7 @@
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios --simulator=\"iPhone 15 Pro\"",
-    "open:ios" : "open ios/example.xcworkspace",
+    "open:ios": "open ios/example.xcworkspace",
     "start": "react-native start",
     "test": "jest",
     "lint": "eslint .",
@@ -16,8 +16,8 @@
   "dependencies": {
     "@kesha-antonov/react-native-background-downloader": "*",
     "@react-native-community/slider": "^4.5.0",
-    "@react-navigation/native": "^6.1.16",
-    "@react-navigation/stack": "^6.3.28",
+    "@react-navigation/native": "^7.1.18",
+    "@react-navigation/stack": "^7.4.10",
     "react": "19.1.0",
     "react-native": "0.81.4",
     "react-native-fs": "^2.20.0",
@@ -31,6 +31,7 @@
     "@babel/core": "^7.28.4",
     "@babel/eslint-parser": "^7.28.4",
     "@babel/plugin-proposal-decorators": "^7.28.0",
+    "@babel/plugin-proposal-export-namespace-from": "^7.18.9",
     "@babel/plugin-transform-flow-strip-types": "^7.27.1",
     "@babel/plugin-transform-react-jsx": "^7.27.1",
     "@babel/plugin-transform-runtime": "^7.28.3",
@@ -47,8 +48,10 @@
     "@types/jest": "^30.0.0",
     "@types/metro-config": "^0.76.3",
     "@types/react": "^18.2.65",
-    "@types/react-test-renderer": "^19.1.0",
     "@types/react-native": "^0.72.8",
+    "@types/react-test-renderer": "^19.1.0",
+    "babel-plugin-module-resolver": "^5.0.2",
+    "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^8.57.0",
     "eslint-config-standard": "^17.1.0",
     "eslint-config-standard-jsx": "^11.0.0",
@@ -63,7 +66,6 @@
     "prettier": "^3.2.5",
     "react-test-renderer": "19.1.0",
     "typescript": "^5.9.3"
-
   },
   "engines": {
     "node": ">=20"

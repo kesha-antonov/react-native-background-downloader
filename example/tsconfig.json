@@ -1,6 +1,6 @@
 {
-  "module": "node16",
-  "moduleResolution": "node16",
+  "module": "nodenext",
+  "moduleResolution": "nodenext",
   "extends": "@react-native/typescript-config/tsconfig.json",
   "compilerOptions": {
     "allowJs": true,
@@ -10,16 +10,18 @@
     "isolatedModules": true,
     "jsx": "react-native",
     "lib": [
-      "es2017"
+      "es2019"
     ],
-    "moduleResolution": "node",
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "noEmit": true,
     "strict": true,
-    "target": "esnext",
     "baseUrl": ".",
     "paths": {
       "@src": [
         "./src"
+      ]
     }
   },
   "exclude": [

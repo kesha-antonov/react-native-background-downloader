@@ -13,7 +13,7 @@ const Router = () => {
         options={{
           headerTitle: 'Welcome',
           headerTitleAlign: 'center',
-          headerLeftLabelVisible: false,
+          headerBackButtonDisplayMode: 'minimal',
         }}
         component={WelcomeScreen}
       />
@@ -23,7 +23,7 @@ const Router = () => {
         options={{
           headerTitle: 'Basic Example',
           headerTitleAlign: 'center',
-          headerLeftLabelVisible: false,
+          headerBackButtonDisplayMode: 'minimal',
         }}
         component={BasicExampleScreen}
       />
