@@ -241,7 +241,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         progressInterval = [progressIntervalScope intValue] / 1000;
         [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
-    
+
     NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
     if (progressMinBytesScope) {
         progressMinBytes = [progressMinBytesScope longLongValue];
@@ -302,7 +302,16 @@ RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
         if (task != nil && task.state == NSURLSessionTaskStateRunning) {
-            [task suspend];
+            [task cancelByProducingResumeData:^(NSData * _Nullable resumeData) {
+                @synchronized (self->sharedLock) {
+                    if (resumeData != nil) {
+                        self->idToResumeDataMap[identifier] = resumeData;
+                        DLog(@"[RNBackgroundDownloader] - [pauseTask] stored resume data for %@", identifier);
+                    } else {
+                        DLog(@"[RNBackgroundDownloader] - [pauseTask] no resume data available for %@", identifier);
+                    }
+                }
+            }];
         }
     }
 }
@@ -310,9 +319,40 @@ RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
 RCT_EXPORT_METHOD(resumeTask: (NSString *)identifier) {
     DLog(@"[RNBackgroundDownloader] - [resumeTask]");
     @synchronized (sharedLock) {
+        [self lazyRegisterSession];
+
+        NSData *resumeData = self->idToResumeDataMap[identifier];
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
-        if (task != nil && task.state == NSURLSessionTaskStateSuspended) {
+
+        if (resumeData != nil) {
+            // Task was paused with resume data, create new task from resume data
+            DLog(@"[RNBackgroundDownloader] - [resumeTask] resuming with resume data for %@", identifier);
+
+            NSURLSessionDownloadTask *newTask = [urlSession downloadTaskWithResumeData:resumeData];
+            if (newTask != nil) {
+                // Get the task config from the old task
+                RNBGDTaskConfig *taskConfig = nil;
+                if (task != nil) {
+                    taskConfig = taskToConfigMap[@(task.taskIdentifier)];
+                    [taskToConfigMap removeObjectForKey:@(task.taskIdentifier)];
+                }
+
+                // Update mappings with new task
+                if (taskConfig != nil) {
+                    taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
+                    [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                }
+
+                self->idToTaskMap[identifier] = newTask;
+                [self->idToResumeDataMap removeObjectForKey:identifier];
+                [newTask resume];
+            }
+        } else if (task != nil && task.state == NSURLSessionTaskStateSuspended) {
+            // Task was suspended normally, just resume it
+            DLog(@"[RNBackgroundDownloader] - [resumeTask] resuming suspended task for %@", identifier);
             [task resume];
+        } else {
+            DLog(@"[RNBackgroundDownloader] - [resumeTask] no task or resume data found for %@", identifier);
         }
     }
 }
@@ -325,12 +365,14 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
             [task cancel];
             [self removeTaskFromMap:task];
         }
+        // Also remove any stored resume data
+        [self->idToResumeDataMap removeObjectForKey:identifier];
     }
 }
 
 RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] jobId: %@", jobId);
-    
+
     // Defensive programming: Check if we have valid parameters
     if (!jobId || !resolve) {
         DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] Invalid parameters");
@@ -339,7 +381,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
         }
         return;
     }
-    
+
     // Ensure we're on main queue for completion handler execution
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
@@ -351,7 +393,7 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
             } else {
                 DLog(@"[RNBackgroundDownloader] - [completeHandlerIOS] No stored completion handler found");
             }
-            
+
             // Resolve the promise
             resolve(nil);
         } @catch (NSException *exception) {
@@ -501,7 +543,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             NSNumber *prevBytes = idToLastBytesMap[taskConfig.id];
             NSNumber *percent;
             BOOL percentThresholdMet = NO;
-            
+
             // Handle unknown total bytes (realtime streams)
             if (bytesTotalExpectedToWrite > 0) {
                 percent = [NSNumber numberWithFloat:(float)bytesTotalWritten/(float)bytesTotalExpectedToWrite];
@@ -509,11 +551,11 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             } else {
                 percent = @0.0; // Unknown total, set to 0
             }
-            
+
             // Check if we should report progress based on percentage OR bytes threshold
             long long lastReportedBytes = prevBytes ? [prevBytes longLongValue] : 0;
             BOOL bytesThresholdMet = bytesTotalWritten - lastReportedBytes >= progressMinBytes;
-            
+
             // Report progress if either threshold is met, or if total bytes unknown (for streams)
             if (percentThresholdMet || bytesThresholdMet || bytesTotalExpectedToWrite <= 0) {
                 progressReports[taskConfig.id] = @{
@@ -538,7 +580,7 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
 }
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
-    DLog(@"[RNBackgroundDownloader] - [didCompleteWithError]");
+    DLog(@"[RNBackgroundDownloader] - [didCompleteWithError] error: %@", error);
     @synchronized (sharedLock) {
         if (error == nil) {
             return;
@@ -549,15 +591,24 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
             return;
         }
 
-        // -999 code represents incomplete tasks.
-        // Required to continue resume tasks.
-        if (error.code != -999) {
-            if (self != nil) {
+        // -999 code (NSURLErrorCancelled) is used for:
+        // 1. Tasks that were paused via cancelByProducingResumeData
+        // 2. Tasks that were explicitly cancelled
+        // Check if we have resume data for this task - if so, it was paused, not failed
+        NSData *resumeData = idToResumeDataMap[taskConfig.id];
+        if (error.code == -999 && resumeData != nil) {
+            // Task was paused, not failed - don't send error event
+            DLog(@"[RNBackgroundDownloader] - [didCompleteWithError] task was paused, ignoring error for %@", taskConfig.id);
+            return;
+        }
+
+        // For all other errors (including -999 without resume data), treat as failure
+        if (error.code != -999 || resumeData == nil) {
+            if (self.bridge && isJavascriptLoaded) {
                 [self sendEventWithName:@"downloadFailed" body:@{
                     @"id": taskConfig.id,
                     @"error": [error localizedDescription],
-                    // TODO
-                    @"errorCode": @-1
+                    @"errorCode": [NSNumber numberWithInteger:error.code]
                 }];
             }
             [self removeTaskFromMap:task];
