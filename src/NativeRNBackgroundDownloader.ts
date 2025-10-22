@@ -1,5 +1,8 @@
-import { TurboModuleRegistry, NativeModules } from 'react-native'
 import type { TurboModule } from 'react-native'
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+const NitroModules = require('react-native-nitro-modules')
+
 // import type { DownloadTask } from './index.d'
 
 type DownloadTask = {
@@ -59,28 +62,7 @@ export interface Spec extends TurboModule {
   removeListeners?: (count: number) => void
 }
 
-// Support both New Architecture (TurboModules) and Old Architecture (Bridge)
-// Try TurboModule first, fall back to NativeModules
-let NativeRNBackgroundDownloader: Spec
-try {
-  // New Architecture - TurboModules
-  NativeRNBackgroundDownloader = TurboModuleRegistry.getEnforcing<Spec>(
-    'RNBackgroundDownloader'
-  )
-  // Validate that the TurboModule has the expected methods
-  if (!NativeRNBackgroundDownloader || typeof NativeRNBackgroundDownloader.checkForExistingDownloads !== 'function')
-    throw new Error('TurboModule does not have required methods')
-} catch (error) {
-  // Old Architecture - Bridge or TurboModule not available
-  // Fallback to traditional NativeModules access
-  console.warn('[RNBackgroundDownloader] TurboModule not available, falling back to bridge:', error.message || error)
-  NativeRNBackgroundDownloader = NativeModules.RNBackgroundDownloader
-
-  // Validate bridge module
-  if (!NativeRNBackgroundDownloader)
-    console.error('[RNBackgroundDownloader] Neither TurboModule nor Bridge module available')
-  else if (typeof NativeRNBackgroundDownloader.checkForExistingDownloads !== 'function')
-    console.error('[RNBackgroundDownloader] Bridge module missing required methods')
-}
+// Use Nitro Modules exclusively
+const NativeRNBackgroundDownloader: Spec = NitroModules.createHybridObject('RNBackgroundDownloader')
 
 export default NativeRNBackgroundDownloader
