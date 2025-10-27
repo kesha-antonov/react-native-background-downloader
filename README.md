@@ -8,7 +8,9 @@ There's currently WIP going on to make the library support New Architecture. If 
 
 The most stable version is `3.2.6`. If you want to use the latest version, please be aware that it's a work in progress.
 
-Readme for this version: [3.2.6 readme](https://github.com/kesha-antonov/react-native-background-downloader/blob/8f4b8a844a2d7f00d1558f6ea65bac94c8dd6fc9/README.md)
+Readme for that version: [3.2.6 readme](https://github.com/kesha-antonov/react-native-background-downloader/blob/8f4b8a844a2d7f00d1558f6ea65bac94c8dd6fc9/README.md)
+
+I'm working on making the library compatible with the New Architecture while keeping backward compatibility with the old one. I plan to use Nitro Modules so apps on the old architecture can also benefit from the performance improvements.
 
 # @kesha-antonov/react-native-background-downloader
 
