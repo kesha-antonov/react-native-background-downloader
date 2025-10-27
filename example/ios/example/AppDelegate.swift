@@ -31,11 +31,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     return true
   }
-  
-  override func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+
+  override func application(
+    _ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+    completionHandler: @escaping () -> Void
+  ) {
     print("handling background url session \(identifier)")
 
-    RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
+    RNBackgroundDownloader.setCompletionHandlerWithIdentifier(
+      identifier, completionHandler: completionHandler)
   }
 }
 

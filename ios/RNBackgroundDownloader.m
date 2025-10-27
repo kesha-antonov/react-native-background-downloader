@@ -652,13 +652,14 @@ RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rej
     DLog(nil, @"[RNBackgroundDownloader] - [URLSessionDidFinishEventsForBackgroundURLSession]");
 }
 
-+ (void)setCompletionHandlerWithIdentifier: (NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
-    DLog(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
-    NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
-    NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
-    if ([sessionIdentifier isEqualToString:identifier]) {
-        storedCompletionHandler = completionHandler;
-    }
++ (void)setCompletionHandlerWithIdentifier:(NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
+  DLog(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
+  NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
+  NSString *sessionIdentifier =
+      [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
+  if ([sessionIdentifier isEqualToString:identifier]) {
+    storedCompletionHandler = completionHandler;
+  }
 }
 
 - (NSError *)getServerError:(NSURLSessionDownloadTask *)downloadTask {

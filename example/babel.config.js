@@ -1,3 +1,7 @@
+const path = require('path')
+
+const libFolder = path.resolve(__dirname, '../src')
+
 module.exports = function (api) {
   api.cache(true)
 
@@ -12,7 +16,7 @@ module.exports = function (api) {
             {
               extensions: ['.tsx', '.ts', '.js', '.json'],
               alias: {
-                '@kesha-antonov/react-native-background-downloader': '../src',
+                '@kesha-antonov/react-native-background-downloader': libFolder,
               },
             },
           ],

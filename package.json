@@ -24,7 +24,6 @@
     }
   ],
   "main": "src/index.ts",
-  "types": "src/index.d.ts",
   "expo": {
     "plugin": "plugin/build/index.js"
   },
@@ -61,14 +60,15 @@
     ]
   },
   "devDependencies": {
-    "@babel/core": "^7.28.4",
-    "@babel/eslint-parser": "^7.28.4",
-    "@babel/preset-env": "^7.28.3",
-    "@babel/preset-typescript": "^7.27.1",
+    "@babel/core": "^7.28.5",
+    "@babel/eslint-parser": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
     "@babel/runtime": "^7.28.4",
     "@expo/config-plugins": "^54.0.2",
-    "@react-native/babel-preset": "^0.76.5",
-    "@react-native/eslint-config": "^0.76.5",
+    "@react-native/babel-preset": "^0.81.4",
+    "@react-native/eslint-config": "^0.81.4",
+    "@react-native/metro-config": "^0.81.4",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "babel-jest": "^29.7.0",
@@ -87,8 +87,8 @@
     "jest": "^30.2.0",
     "lint-staged": ">=16",
     "metro-react-native-babel-preset": "^0.77.0",
-    "react": "18.2.0",
-    "react-native": "0.73.6",
+    "react": "19.1.0",
+    "react-native": "0.81.4",
     "react-native-fs": "^2.20.0",
     "react-native-vector-icons": "^10.3.0",
     "react-test-renderer": "19.2.0",
@@ -96,6 +96,5 @@
   },
   "peerDependencies": {
     "react-native": ">=0.57.0"
-  },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  }
 }

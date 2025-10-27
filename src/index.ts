@@ -1,6 +1,6 @@
 import { NativeModules, NativeEventEmitter } from 'react-native'
-import DownloadTask from './lib/DownloadTask'
-import { TaskInfoObject } from '@kesha-antonov/react-native-background-downloader'
+import DownloadTask from './DownloadTask'
+import { TaskInfo } from './types'
 
 const { RNBackgroundDownloader } = NativeModules
 const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloader)
@@ -66,7 +66,7 @@ export function setConfig({ headers, progressInterval, isLogsEnabled }) {
 export function checkForExistingDownloads(): DownloadTask[] {
   log('[RNBackgroundDownloader] checkForExistingDownloads-1')
   return RNBackgroundDownloader.checkForExistingDownloads()
-    .then((foundTasks: TaskInfoObject[]) => {
+    .then((foundTasks: TaskInfo[]) => {
       log('[RNBackgroundDownloader] checkForExistingDownloads-2', foundTasks)
       return foundTasks.map(taskInfo => {
         // SECOND ARGUMENT RE-ASSIGNS EVENT HANDLERS
