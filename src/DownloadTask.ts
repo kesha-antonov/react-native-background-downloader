@@ -1,9 +1,9 @@
 import { NativeModules } from 'react-native'
-import { TaskInfo } from './index.d'
+import { TaskInfo } from '..'
 
 const { RNBackgroundDownloader } = NativeModules
 
-function validateHandler (handler) {
+function validateHandler(handler) {
   const type = typeof handler
 
   if (type !== 'function')
@@ -13,6 +13,7 @@ function validateHandler (handler) {
 export default class DownloadTask {
   id = ''
   state = 'PENDING'
+  errorCode = 0
   metadata = {}
 
   bytesDownloaded = 0
@@ -23,7 +24,7 @@ export default class DownloadTask {
   doneHandler
   errorHandler
 
-  constructor (taskInfo: TaskInfo, originalTask?: TaskInfo) {
+  constructor(taskInfo: TaskInfo, originalTask?: TaskInfo) {
     this.id = taskInfo.id
     this.bytesDownloaded = taskInfo.bytesDownloaded ?? 0
     this.bytesTotal = taskInfo.bytesTotal ?? 0
@@ -40,69 +41,73 @@ export default class DownloadTask {
     }
   }
 
-  begin (handler) {
+  begin(handler) {
     validateHandler(handler)
     this.beginHandler = handler
     return this
   }
 
-  progress (handler) {
+  progress(handler) {
     validateHandler(handler)
     this.progressHandler = handler
     return this
   }
 
-  done (handler) {
+  done(handler) {
     validateHandler(handler)
     this.doneHandler = handler
     return this
   }
 
-  error (handler) {
+  error(handler) {
     validateHandler(handler)
     this.errorHandler = handler
     return this
   }
 
-  onBegin (params) {
+  onBegin(params) {
     this.state = 'DOWNLOADING'
     this.beginHandler?.(params)
   }
 
-  onProgress ({ bytesDownloaded, bytesTotal }) {
+  onProgress({ bytesDownloaded, bytesTotal }) {
     this.bytesDownloaded = bytesDownloaded
     this.bytesTotal = bytesTotal
     this.progressHandler?.({ bytesDownloaded, bytesTotal })
   }
 
-  onDone (params) {
+  onDone(params) {
     this.state = 'DONE'
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
     this.doneHandler?.(params)
   }
 
-  onError (params) {
+  onError(params) {
     this.state = 'FAILED'
     this.errorHandler?.(params)
   }
 
-  pause () {
+  pause() {
+    console.log('DownloadTask: pause', this.id)
     this.state = 'PAUSED'
     RNBackgroundDownloader.pauseTask(this.id)
   }
 
-  resume () {
+  resume() {
+    console.log('DownloadTask: resume', this.id)
     this.state = 'DOWNLOADING'
+    this.errorCode = 0
     RNBackgroundDownloader.resumeTask(this.id)
   }
 
-  stop () {
+  stop() {
+    console.log('DownloadTask: stop', this.id)
     this.state = 'STOPPED'
     RNBackgroundDownloader.stopTask(this.id)
   }
 
-  tryParseJson (element) {
+  tryParseJson(element) {
     try {
       if (typeof element === 'string')
         element = JSON.parse(element)

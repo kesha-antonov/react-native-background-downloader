@@ -6,26 +6,25 @@
 // Definitions: https://github.com/DefinitelyTyped/DefinitelyTyped
 
 export interface DownloadHeaders {
-  [key: string]: string | null
+  [key: string]: string | null;
 }
 
 export interface Config {
-  headers: DownloadHeaders
-  progressInterval: number
-  progressMinBytes: number
+  headers: DownloadHeaders,
+  progressInterval: number,
   isLogsEnabled: boolean
 }
 
-type SetConfig = (config: Partial<Config>) => void
+type SetConfig = (config: Partial<Config>) => void;
 
 export interface BeginHandlerObject {
-  expectedBytes: number
-  headers: { [key: string]: string }
+  expectedBytes: number;
+  headers: { [key: string]: string };
 }
 export type BeginHandler = ({
   expectedBytes,
   headers,
-}: BeginHandlerObject) => void
+}: BeginHandlerObject) => void;
 
 export interface ProgressHandlerObject {
   bytesDownloaded: number
@@ -34,7 +33,7 @@ export interface ProgressHandlerObject {
 export type ProgressHandler = ({
   bytesDownloaded,
   bytesTotal,
-}: ProgressHandlerObject) => void
+}: ProgressHandlerObject) => void;
 
 export interface DoneHandlerObject {
   bytesDownloaded: number
@@ -43,7 +42,7 @@ export interface DoneHandlerObject {
 export type DoneHandler = ({
   bytesDownloaded,
   bytesTotal,
-}: DoneHandlerObject) => void
+}: DoneHandlerObject) => void;
 
 export interface ErrorHandlerObject {
   error: string
@@ -52,21 +51,23 @@ export interface ErrorHandlerObject {
 export type ErrorHandler = ({
   error,
   errorCode,
-}: ErrorHandlerObject) => void
+}: ErrorHandlerObject) => void;
 
 export interface TaskInfoObject {
-  id: string
-  metadata: object | string
+  id: string;
+  metadata: object | string;
 
-  bytesDownloaded?: number
-  bytesTotal?: number
+  bytesDownloaded?: number;
+  bytesTotal?: number;
+  errorCode?: number | null;
+  state?: number | null
 
-  beginHandler?: BeginHandler
-  progressHandler?: ProgressHandler
-  doneHandler?: DoneHandler
-  errorHandler?: ErrorHandler
+  beginHandler?: BeginHandler;
+  progressHandler?: ProgressHandler;
+  doneHandler?: DoneHandler;
+  errorHandler?: ErrorHandler;
 }
-export type TaskInfo = TaskInfoObject
+export type TaskInfo = TaskInfoObject;
 
 export type DownloadTaskState =
   | 'PENDING'
@@ -74,59 +75,53 @@ export type DownloadTaskState =
   | 'PAUSED'
   | 'DONE'
   | 'FAILED'
-  | 'STOPPED'
+  | 'STOPPED';
 
 export interface DownloadTask {
-  constructor: (taskInfo: TaskInfo) => DownloadTask
+  constructor: (taskInfo: TaskInfo) => DownloadTask;
 
-  id: string
-  state: DownloadTaskState
+  id: string;
+  state: DownloadTaskState;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  metadata: Record<string, any>
-  bytesDownloaded: number
-  bytesTotal: number
+  metadata: Record<string, any>;
+  bytesDownloaded: number;
+  bytesTotal: number;
 
-  begin: (handler: BeginHandler) => DownloadTask
-  progress: (handler: ProgressHandler) => DownloadTask
-  done: (handler: DoneHandler) => DownloadTask
-  error: (handler: ErrorHandler) => DownloadTask
+  begin: (handler: BeginHandler) => DownloadTask;
+  progress: (handler: ProgressHandler) => DownloadTask;
+  done: (handler: DoneHandler) => DownloadTask;
+  error: (handler: ErrorHandler) => DownloadTask;
 
-  _beginHandler: BeginHandler
-  _progressHandler: ProgressHandler
-  _doneHandler: DoneHandler
-  _errorHandler: ErrorHandler
+  _beginHandler: BeginHandler;
+  _progressHandler: ProgressHandler;
+  _doneHandler: DoneHandler;
+  _errorHandler: ErrorHandler;
 
-  pause: () => void
-  resume: () => void
-  stop: () => void
+  pause: () => void;
+  resume: () => void;
+  stop: () => void;
 }
 
-export type CheckForExistingDownloads = () => Promise<DownloadTask[]>
-export type EnsureDownloadsAreRunning = () => Promise<void>
+export type CheckForExistingDownloads = () => Promise<DownloadTask[]>;
+export type EnsureDownloadsAreRunning = () => Promise<void>;
 
-export interface DownloadOptions {
-  id: string
-  url: string
-  destination: string
-  headers?: DownloadHeaders | undefined
-  metadata?: object
-  isAllowedOverRoaming?: boolean
-  isAllowedOverMetered?: boolean
-  isNotificationVisible?: boolean
-  notificationTitle?: string
-  maxRedirects?: number
+export interface DownloadOption {
+  id: string;
+  url: string;
+  destination: string;
+  headers?: DownloadHeaders | undefined;
+  metadata?: object;
+  isAllowedOverRoaming?: boolean;
+  isAllowedOverMetered?: boolean;
+  isNotificationVisible?: boolean;
+  notificationTitle?: string;
 }
 
-export type Download = (options: DownloadOptions) => DownloadTask
-export type CompleteHandler = (id: string) => void
+export type Download = (options: DownloadOption) => DownloadTask;
+export type CompleteHandler = (id: string) => void;
 
 export interface Directories {
-  documents: string
-}
-
-export interface StorageInfo {
-  isMMKVAvailable: boolean
-  storageType: 'MMKV' | 'SharedPreferences'
+  documents: string;
 }
 
 export const setConfig: SetConfig
@@ -135,16 +130,14 @@ export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning
 export const download: Download
 export const completeHandler: CompleteHandler
 export const directories: Directories
-export const storageInfo: StorageInfo
 
 export interface RNBackgroundDownloader {
-  setConfig: SetConfig
-  checkForExistingDownloads: CheckForExistingDownloads
-  ensureDownloadsAreRunning: EnsureDownloadsAreRunning
-  download: Download
-  completeHandler: CompleteHandler
-  directories: Directories
-  storageInfo: StorageInfo
+  setConfig: SetConfig;
+  checkForExistingDownloads: CheckForExistingDownloads;
+  ensureDownloadsAreRunning: EnsureDownloadsAreRunning;
+  download: Download;
+  completeHandler: CompleteHandler;
+  directories: Directories;
 }
 
 declare const RNBackgroundDownloader: RNBackgroundDownloader
