@@ -4,11 +4,6 @@ def safeExtGet(prop, fallback) {
     rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
 
-// Add this function in case you don't have it already
-def isNewArchitectureEnabled() {
-    return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
-}
-
 android {
     def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
     // Check AGP version for backward compatibility reasons (for RN < 0.71)
@@ -24,8 +19,6 @@ android {
         versionCode 1
         versionName '1.0'
 
-        buildConfigField("boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString())
-
         // Support for 16KB memory page sizes (Android 15+)
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
@@ -36,16 +29,6 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = false
-        }
-    }
-
-    sourceSets {
-        main {
-            if (isNewArchitectureEnabled()) {
-                java.srcDirs += ['src/newarch']
-            } else {
-                java.srcDirs += ['src/oldarch']
-            }
         }
     }
 }
