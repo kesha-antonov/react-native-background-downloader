@@ -1,9 +1,21 @@
 import { NativeModules } from 'react-native'
-import { TaskInfo } from '..'
+import type {
+  TaskInfo,
+  BeginHandler,
+  ProgressHandler,
+  DoneHandler,
+  ErrorHandler,
+  StateHandler,
+  BeginHandlerObject,
+  ProgressHandlerObject,
+  DoneHandlerObject,
+  ErrorHandlerObject,
+  DownloadTaskState,
+} from './types'
 
 const { RNBackgroundDownloader } = NativeModules
 
-function validateHandler(handler) {
+function validateHandler(handler: unknown) {
   const type = typeof handler
 
   if (type !== 'function')
@@ -12,17 +24,31 @@ function validateHandler(handler) {
 
 export default class DownloadTask {
   id = ''
-  state = 'PENDING'
+  private _state: DownloadTaskState = 'PENDING'
   errorCode = 0
   metadata = {}
 
   bytesDownloaded = 0
   bytesTotal = 0
 
-  beginHandler
-  progressHandler
-  doneHandler
-  errorHandler
+  beginHandler?: BeginHandler
+  progressHandler?: ProgressHandler
+  doneHandler?: DoneHandler
+  errorHandler?: ErrorHandler
+  stateHandler?: StateHandler
+
+  get state(): DownloadTaskState {
+    return this._state
+  }
+
+  set state(newState: DownloadTaskState) {
+    if (this._state !== newState) {
+      const oldState = this._state
+      this._state = newState
+      if (this.stateHandler)
+        this.stateHandler({ oldState, newState })
+    }
+  }
 
   constructor(taskInfo: TaskInfo, originalTask?: TaskInfo) {
     this.id = taskInfo.id
@@ -38,52 +64,59 @@ export default class DownloadTask {
       this.progressHandler = originalTask.progressHandler
       this.doneHandler = originalTask.doneHandler
       this.errorHandler = originalTask.errorHandler
+      this.stateHandler = originalTask.stateHandler
     }
   }
 
-  begin(handler) {
+  begin(handler: BeginHandler) {
     validateHandler(handler)
     this.beginHandler = handler
     return this
   }
 
-  progress(handler) {
+  progress(handler: ProgressHandler) {
     validateHandler(handler)
     this.progressHandler = handler
     return this
   }
 
-  done(handler) {
+  done(handler: DoneHandler) {
     validateHandler(handler)
     this.doneHandler = handler
     return this
   }
 
-  error(handler) {
+  error(handler: ErrorHandler) {
     validateHandler(handler)
     this.errorHandler = handler
     return this
   }
 
-  onBegin(params) {
+  stateChange(handler: StateHandler) {
+    validateHandler(handler)
+    this.stateHandler = handler
+    return this
+  }
+
+  onBegin(params: BeginHandlerObject) {
     this.state = 'DOWNLOADING'
     this.beginHandler?.(params)
   }
 
-  onProgress({ bytesDownloaded, bytesTotal }) {
+  onProgress({ bytesDownloaded, bytesTotal }: ProgressHandlerObject) {
     this.bytesDownloaded = bytesDownloaded
     this.bytesTotal = bytesTotal
     this.progressHandler?.({ bytesDownloaded, bytesTotal })
   }
 
-  onDone(params) {
+  onDone(params: DoneHandlerObject) {
     this.state = 'DONE'
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
     this.doneHandler?.(params)
   }
 
-  onError(params) {
+  onError(params: ErrorHandlerObject) {
     this.state = 'FAILED'
     this.errorHandler?.(params)
   }
@@ -107,7 +140,7 @@ export default class DownloadTask {
     RNBackgroundDownloader.stopTask(this.id)
   }
 
-  tryParseJson(element) {
+  tryParseJson(element: unknown) {
     try {
       if (typeof element === 'string')
         element = JSON.parse(element)

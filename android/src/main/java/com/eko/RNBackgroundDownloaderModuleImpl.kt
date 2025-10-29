@@ -373,22 +373,26 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         val headers = options.getMap("headers")
         val metadata = options.getString("metadata")
         val notificationTitle = options.getString("notificationTitle")
-        
-        val progressIntervalScope = options.getInt("progressInterval")
-        if (progressIntervalScope > 0) {
-            progressInterval = progressIntervalScope
-            saveConfigMap()
+
+        if (options.hasKey("progressInterval")) {
+            val progressIntervalScope = options.getInt("progressInterval")
+            if (progressIntervalScope > 0) {
+                progressInterval = progressIntervalScope
+                saveConfigMap()
+            }
         }
 
-        val progressMinBytesScope = options.getDouble("progressMinBytes")
-        if (progressMinBytesScope > 0) {
-            progressMinBytes = progressMinBytesScope.toLong()
-            saveConfigMap()
+        if (options.hasKey("progressMinBytes")) {
+            val progressMinBytesScope = options.getDouble("progressMinBytes")
+            if (progressMinBytesScope > 0) {
+                progressMinBytes = progressMinBytesScope.toLong()
+                saveConfigMap()
+            }
         }
 
-        val isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming")
-        val isAllowedOverMetered = options.getBoolean("isAllowedOverMetered")
-        val isNotificationVisible = options.getBoolean("isNotificationVisible")
+        val isAllowedOverRoaming = if (options.hasKey("isAllowedOverRoaming")) options.getBoolean("isAllowedOverRoaming") else true
+        val isAllowedOverMetered = if (options.hasKey("isAllowedOverMetered")) options.getBoolean("isAllowedOverMetered") else true
+        val isNotificationVisible = if (options.hasKey("isNotificationVisible")) options.getBoolean("isNotificationVisible") else true
 
         // Get maxRedirects parameter
         var maxRedirects = 0
