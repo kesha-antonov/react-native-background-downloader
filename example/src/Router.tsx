@@ -1,9 +1,9 @@
-import React from 'react'
-import { createStackNavigator } from '@react-navigation/stack'
-import WelcomeScreen from './screens/Welcome'
-import BasicExampleScreen from './screens/BasicExample'
+import React from 'react';
+import { createStackNavigator } from '@react-navigation/stack';
+import WelcomeScreen from './screens/Welcome';
+import BasicExampleScreen from './screens/BasicExample';
 
-const RootStack = createStackNavigator()
+const RootStack = createStackNavigator();
 
 const Router = () => {
   return (
@@ -28,7 +28,7 @@ const Router = () => {
         component={BasicExampleScreen}
       />
     </RootStack.Navigator>
-  )
-}
+  );
+};
 
-export default Router
+export default Router;
