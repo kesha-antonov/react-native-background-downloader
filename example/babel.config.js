@@ -1,9 +1,9 @@
-const path = require('path')
+const path = require('path');
 
-const libFolder = path.resolve(__dirname, '../src')
+const libFolder = path.resolve(__dirname, '../src');
 
 module.exports = function (api) {
-  api.cache(true)
+  api.cache(true);
 
   return {
     presets: ['module:@react-native/babel-preset', '@babel/preset-typescript'],
@@ -32,5 +32,5 @@ module.exports = function (api) {
       ],
       '@babel/plugin-proposal-export-namespace-from',
     ],
-  }
-}
+  };
+};

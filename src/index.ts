@@ -1,8 +1,9 @@
 import { NativeModules, NativeEventEmitter } from 'react-native'
 import DownloadTask from './DownloadTask'
-import { TaskInfo } from './types'
+import { TaskInfo, Config } from './types'
 
 const { RNBackgroundDownloader } = NativeModules
+
 const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloader)
 
 const MIN_PROGRESS_INTERVAL = 250
@@ -14,7 +15,7 @@ const config = {
   isLogsEnabled: false,
 }
 
-function log(...args) {
+function log(...args: unknown[]) {
   if (config.isLogsEnabled)
     console.log('[RNBackgroundDownloader]', ...args)
 }
@@ -51,7 +52,7 @@ RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }) =>
   tasksMap.delete(id)
 })
 
-export function setConfig({ headers, progressInterval, isLogsEnabled }) {
+export function setConfig({ headers, progressInterval, isLogsEnabled }: Partial<Config>) {
   if (typeof headers === 'object') config.headers = headers
 
   if (progressInterval != null)
@@ -63,7 +64,7 @@ export function setConfig({ headers, progressInterval, isLogsEnabled }) {
   if (typeof isLogsEnabled === 'boolean') config.isLogsEnabled = isLogsEnabled
 }
 
-export function checkForExistingDownloads(): DownloadTask[] {
+export function checkForExistingDownloads(): Promise<DownloadTask[]> {
   log('[RNBackgroundDownloader] checkForExistingDownloads-1')
   return RNBackgroundDownloader.checkForExistingDownloads()
     .then((foundTasks: TaskInfo[]) => {
@@ -120,15 +121,16 @@ export function completeHandler(jobId: string) {
 }
 
 type DownloadOptions = {
-  id: string,
-  url: string,
-  destination: string,
-  headers?: object,
-  metadata?: object,
-  isAllowedOverRoaming?: boolean,
-  isAllowedOverMetered?: boolean,
+  id: string;
+  url: string;
+  destination: string;
+  headers?: object;
+  metadata?: object;
+  isAllowedOverRoaming?: boolean;
+  isAllowedOverMetered?: boolean;
   isNotificationVisible?: boolean;
-  notificationTitle?: string,
+  notificationTitle?: string;
+  maxRedirects?: number;
 }
 
 export function download(options: DownloadOptions) {
@@ -165,6 +167,9 @@ export function download(options: DownloadOptions) {
 export const directories = {
   documents: RNBackgroundDownloader.documents,
 }
+
+export * from './types'
+export { type DownloadTask }
 
 export default {
   download,

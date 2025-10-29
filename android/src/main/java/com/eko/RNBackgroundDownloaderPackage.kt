@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class RNBackgroundDownloaderPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(RNBackgroundDownloaderModule(reactContext))
+        return listOf(RNBackgroundDownloaderModuleImpl(reactContext))
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

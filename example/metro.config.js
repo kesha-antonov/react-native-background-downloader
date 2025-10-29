@@ -1,5 +1,8 @@
-const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config')
-const path = require('path')
+const path = require('path');
+const { getDefaultConfig } = require('@react-native/metro-config');
+const { withMetroConfig } = require('react-native-monorepo-config');
+
+const root = path.resolve(__dirname, '..');
 
 /**
  * Metro configuration
@@ -7,13 +10,20 @@ const path = require('path')
  *
  * @type {import('@react-native/metro-config').MetroConfig}
  */
-const config = {
-  watchFolders: [path.resolve(__dirname, '..')],
-  resolver: {
-    extraNodeModules: {
-      '@kesha-antonov/react-native-background-downloader': path.resolve(__dirname, '../src'),
-    },
-  },
-}
+const config = withMetroConfig(getDefaultConfig(__dirname), {
+  root,
+  dirname: __dirname,
+});
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config)
+config.watchFolders = [root];
+
+// Ensure node_modules are resolved correctly
+config.resolver = {
+  ...config.resolver,
+  nodeModulesPaths: [
+    path.resolve(__dirname, 'node_modules'),
+    path.resolve(root, 'node_modules'),
+  ],
+};
+
+module.exports = config;

@@ -1,6 +1,6 @@
-import React from 'react'
-import { Text, StyleSheet } from 'react-native'
-import { ExButton, ExWrapper } from '../../components/commons'
+import React from 'react';
+import { Text, StyleSheet } from 'react-native';
+import { ExButton, ExWrapper } from '../../components/commons';
 
 const WelcomeScreen = ({ navigation }) => {
   return (
@@ -12,8 +12,8 @@ const WelcomeScreen = ({ navigation }) => {
         onPress={() => navigation.navigate('root.basic_example')}
       />
     </ExWrapper>
-  )
-}
+  );
+};
 
 const styles = StyleSheet.create({
   title: {
@@ -30,6 +30,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: 6,
   },
-})
+});
 
-export default WelcomeScreen
+export default WelcomeScreen;

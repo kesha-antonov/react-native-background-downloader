@@ -115,12 +115,20 @@ RCT_EXPORT_MODULE();
 
 - (void)handleBridgeHotReload:(NSNotification *) note {
     DLog(nil, @"[RNBackgroundDownloader] - [handleBridgeHotReload]");
+    isJavascriptLoaded = NO;
     [self unregisterSession];
     [self unregisterBridgeListener];
 }
 
 - (void)lazyRegisterSession {
     DLog(nil, @"[RNBackgroundDownloader] - [lazyRegisterSession]");
+    NSLog(@"[RNBackgroundDownloader] lazyRegisterSession called - current isJavascriptLoaded: %d", isJavascriptLoaded);
+    [self registerBridgeListener];
+    // If we're being called from JavaScript, JavaScript must be loaded
+    if (!isJavascriptLoaded) {
+        isJavascriptLoaded = YES;
+        NSLog(@"[RNBackgroundDownloader] Setting isJavascriptLoaded to YES in lazyRegisterSession");
+    }
     @synchronized (sharedLock) {
         if (urlSession == nil) {
             urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
