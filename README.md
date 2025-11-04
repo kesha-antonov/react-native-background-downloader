@@ -287,7 +287,7 @@ const task = createDownloadTask({
 task.start()
 
 // Platform-aware pause/resume handling
-function createDownloadTask() {
+function pauseDownloadTask() {
   if (Platform.OS === 'ios') {
     task.pause()
     console.log('Download paused')
@@ -296,7 +296,7 @@ function createDownloadTask() {
   }
 }
 
-function createDownloadTask() {
+function resumeDownloadTask() {
   if (Platform.OS === 'ios') {
     task.resume()
     console.log('Download resumed')
