@@ -1,5 +1,5 @@
 /**
- * Test for checkForExistingDownloads function to ensure it works on both
+ * Test for getExistingDownloadTasks function to ensure it works on both
  * new architecture (TurboModules) and old architecture (Bridge)
  */
 
@@ -8,22 +8,22 @@ import { NativeModules } from 'react-native'
 
 const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
 
-describe('checkForExistingDownloads', () => {
-  test('checkForExistingDownloads should be defined and callable', async () => {
+describe('getExistingDownloadTasks', () => {
+  test('getExistingDownloadTasks should be defined and callable', async () => {
     // Mock the native method to return an empty array
-    RNBackgroundDownloaderNative.checkForExistingDownloads.mockResolvedValue([])
+    RNBackgroundDownloaderNative.getExistingDownloadTasks.mockResolvedValue([])
 
-    // This should not throw TypeError: checkForExistingDownloads is not a function
-    expect(typeof RNBackgroundDownloader.checkForExistingDownloads).toBe('function')
+    // This should not throw TypeError: getExistingDownloadTasks is not a function
+    expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
 
-    const result = await RNBackgroundDownloader.checkForExistingDownloads()
+    const result = await RNBackgroundDownloader.getExistingDownloadTasks()
 
     // Should return an array (even if empty)
     expect(Array.isArray(result)).toBe(true)
-    expect(RNBackgroundDownloaderNative.checkForExistingDownloads).toHaveBeenCalled()
+    expect(RNBackgroundDownloaderNative.getExistingDownloadTasks).toHaveBeenCalled()
   })
 
-  test('checkForExistingDownloads should handle existing downloads', async () => {
+  test('getExistingDownloadTasks should handle existing downloads', async () => {
     const mockExistingDownloads = [
       {
         id: 'existing-download-1',
@@ -41,9 +41,9 @@ describe('checkForExistingDownloads', () => {
       },
     ]
 
-    RNBackgroundDownloaderNative.checkForExistingDownloads.mockResolvedValue(mockExistingDownloads)
+    RNBackgroundDownloaderNative.getExistingDownloadTasks.mockResolvedValue(mockExistingDownloads)
 
-    const result = await RNBackgroundDownloader.checkForExistingDownloads()
+    const result = await RNBackgroundDownloader.getExistingDownloadTasks()
 
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe('existing-download-1')

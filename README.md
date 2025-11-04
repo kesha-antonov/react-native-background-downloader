@@ -228,7 +228,7 @@ import { download, completeHandler, directories } from '@kesha-antonov/react-nat
 
 const jobId = 'file123'
 
-let task = download({
+let task = createDownloadTask({
   id: jobId,
   url: 'https://link-to-very.large/file.zip',
   destination: `${directories.documents}/file.zip`,
@@ -248,6 +248,9 @@ let task = download({
   console.log('Download canceled due to error: ', { error, errorCode });
 })
 
+// starts download
+task.start()
+
 // Pause the task (iOS only)
 // Note: On Android, pause/resume is not supported by DownloadManager
 task.pause()
@@ -266,7 +269,7 @@ task.stop()
 import { Platform } from 'react-native'
 import { download, directories } from '@kesha-antonov/react-native-background-downloader'
 
-let task = download({
+const task = createDownloadTask({
   id: 'file123',
   url: 'https://link-to-very.large/file.zip',
   destination: `${directories.documents}/file.zip`,
@@ -281,8 +284,10 @@ let task = download({
   console.log('Download canceled due to error: ', { error, errorCode });
 })
 
+task.start()
+
 // Platform-aware pause/resume handling
-function pauseDownload() {
+function createDownloadTask() {
   if (Platform.OS === 'ios') {
     task.pause()
     console.log('Download paused')
@@ -291,7 +296,7 @@ function pauseDownload() {
   }
 }
 
-function resumeDownload() {
+function createDownloadTask() {
   if (Platform.OS === 'ios') {
     task.resume()
     console.log('Download resumed')
@@ -312,7 +317,7 @@ Add this code to app's init stage, and you'll never lose a download again!
 ```javascript
 import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader'
 
-let lostTasks = await RNBackgroundDownloader.checkForExistingDownloads()
+let lostTasks = await RNBackgroundDownloader.getExistingDownloadTasks()
 for (let task of lostTasks) {
   console.log(`Task ${task.id} was found!`)
   task.progress(({ bytesDownloaded, bytesTotal }) => {
@@ -340,9 +345,9 @@ RNBackgroundDownloader.setConfig({
 ```
 This way, all downloads with have the given headers.
 
-2) Per download by passing a headers object in the options of `RNBackgroundDownloader.download()`:
+2) Per download by passing a headers object in the options of `RNBackgroundDownloader.createDownloadTask()`:
 ```javascript
-let task = RNBackgroundDownloader.download({
+const task = RNBackgroundDownloader.createDownloadTask({
   id: 'file123',
   url: 'https://link-to-very.large/file.zip'
   destination: `${RNBackgroundDownloader.directories.documents}/file.zip`,
@@ -358,6 +363,8 @@ let task = RNBackgroundDownloader.download({
 }).error(({ error, errorCode }) => {
   console.log('Download canceled due to error: ', { error, errorCode })
 })
+
+task.start()
 ```
 Headers given in the `download` function are **merged** with the ones given in `setConfig({ headers: { ... } })`.
 
@@ -382,7 +389,7 @@ import { Platform } from 'react-native'
 import { download, directories } from '@kesha-antonov/react-native-background-downloader'
 
 // Example: Podcast URL with multiple redirects
-let task = download({
+const task = createDownloadTask({
   id: 'podcast-episode',
   url: 'https://pdst.fm/e/chrt.fm/track/479722/arttrk.com/p/example.mp3',
   destination: `${directories.documents}/episode.mp3`,
@@ -400,6 +407,8 @@ let task = download({
     console.log('Consider increasing maxRedirects or using a different URL')
   }
 })
+
+task.start()
 ```
 
 **Notes on maxRedirects:**
@@ -413,7 +422,7 @@ let task = download({
 
 ### RNBackgroundDownloader
 
-### `download(options)`
+### `createDownloadTask(options)`
 
 Download a file to destination
 
@@ -438,7 +447,7 @@ An object containing options properties
 
 `DownloadTask` - The download task to control and monitor this download
 
-### `checkForExistingDownloads()`
+### `getExistingDownloadTasks()`
 
 Checks for downloads that ran in background while you app was terminated. And also forces them to resume downloads.
 
@@ -485,7 +494,7 @@ Here's example of how you can use it:
 Either stop all tasks:
 
 ```javascript
-const tasks = await checkForExistingDownloads()
+const tasks = await getExistingDownloadTasks()
 for (const task of tasks)
   task.stop()
 ```
@@ -493,7 +502,7 @@ for (const task of tasks)
 Or re-attach them:
 
 ```javascript
-const tasks = await checkForExistingDownloads()
+const tasks = await getExistingDownloadTasks()
 for (const task of tasks) {
   task.pause()
   //

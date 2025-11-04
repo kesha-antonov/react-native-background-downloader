@@ -56,7 +56,7 @@ describe('MMKV 4+ Compatibility', () => {
   it('should maintain API compatibility with MMKV dependency change', () => {
     // Ensure all core API functions are still available
     expect(typeof RNBackgroundDownloader.download).toBe('function')
-    expect(typeof RNBackgroundDownloader.checkForExistingDownloads).toBe('function')
+    expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
     expect(typeof RNBackgroundDownloader.ensureDownloadsAreRunning).toBe('function')
     expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
     expect(typeof RNBackgroundDownloader.setConfig).toBe('function')
@@ -66,9 +66,9 @@ describe('MMKV 4+ Compatibility', () => {
     expect(RNBackgroundDownloader.directories.documents).toBeDefined()
   })
 
-  it('should handle checkForExistingDownloads with updated dependency', async () => {
+  it('should handle getExistingDownloadTasks with updated dependency', async () => {
     // Test that existing download restoration works with mmkv-shared
-    const existingDownloads = await RNBackgroundDownloader.checkForExistingDownloads()
+    const existingDownloads = await RNBackgroundDownloader.getExistingDownloadTasks()
     expect(Array.isArray(existingDownloads)).toBe(true)
   })
 })

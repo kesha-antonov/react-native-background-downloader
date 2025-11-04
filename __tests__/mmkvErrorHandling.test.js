@@ -40,18 +40,18 @@ describe('MMKV Error Handling for Android 12', () => {
     }).not.toThrow()
   })
 
-  it('should handle checkForExistingDownloads when MMKV is unavailable', async () => {
+  it('should handle getExistingDownloadTasks when MMKV is unavailable', async () => {
     // When MMKV is not available, there should be no existing downloads to restore
     // but the function should not crash
 
-    const existingDownloads = await RNBackgroundDownloader.checkForExistingDownloads()
+    const existingDownloads = await RNBackgroundDownloader.getExistingDownloadTasks()
     expect(Array.isArray(existingDownloads)).toBe(true)
   })
 
   it('should maintain core API functionality despite MMKV issues', () => {
     // Test that all main API functions are available and don't throw
     expect(typeof RNBackgroundDownloader.download).toBe('function')
-    expect(typeof RNBackgroundDownloader.checkForExistingDownloads).toBe('function')
+    expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
     expect(typeof RNBackgroundDownloader.ensureDownloadsAreRunning).toBe('function')
     expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
     expect(typeof RNBackgroundDownloader.setConfig).toBe('function')

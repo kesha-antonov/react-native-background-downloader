@@ -4,7 +4,7 @@ import RNFS from 'react-native-fs'
 import {
   completeHandler,
   directories,
-  checkForExistingDownloads,
+  getExistingDownloadTasks,
   download,
   setConfig,
 } from '@kesha-antonov/react-native-background-downloader'
@@ -77,7 +77,7 @@ const BasicExampleScreen = () => {
    */
   const resumeExistingTasks = async () => {
     try {
-      const tasks = await checkForExistingDownloads()
+      const tasks = await getExistingDownloadTasks()
 
       console.log(tasks)
 
@@ -87,7 +87,7 @@ const BasicExampleScreen = () => {
         setIsStarted(true)
       }
     } catch (e) {
-      console.warn('checkForExistingDownloads e', e)
+      console.warn('getExistingDownloadTasks e', e)
     }
   }
 
@@ -166,13 +166,13 @@ const BasicExampleScreen = () => {
         url: item.url,
         destination,
       }
-      
+
       // Add maxRedirects if specified for this URL
       if (item.maxRedirects) {
         taskAttribute.maxRedirects = item.maxRedirects
         console.log(`Setting maxRedirects=${item.maxRedirects} for URL: ${item.url}`)
       }
-      
+
       return taskAttribute
     })
 
@@ -248,7 +248,7 @@ const BasicExampleScreen = () => {
                 <Text>Url: {item.url}</Text>
                 {item.maxRedirects && (
                   <Text style={styles.redirectInfo}>
-                    Max redirects: {item.maxRedirects} 
+                    Max redirects: {item.maxRedirects}
                     {item.title && ` (${item.title})`}
                   </Text>
                 )}

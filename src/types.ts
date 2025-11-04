@@ -1,73 +1,57 @@
-// Type definitions for @kesha-antonov/react-native-background-downloader 2.6
-// Project: https://github.com/kesha-antonov/react-native-background-downloader
-// Definitions by: Philip Su <https://github.com/fivecar>,
-//                 Adam Hunter <https://github.com/adamrhunter>,
-//                 Junseong Park <https://github.com/Kweiza>
-// Definitions: https://github.com/DefinitelyTyped/DefinitelyTyped
-
-export interface DownloadHeaders {
-  [key: string]: string | null;
-}
+export type Headers = Record<string, string | null>
 
 export interface Config {
-  headers: DownloadHeaders,
-  progressInterval: number,
-  isLogsEnabled: boolean
+  headers?: Headers
+  progressInterval?: number
+  isLogsEnabled?: boolean
 }
 
-type SetConfig = (config: Partial<Config>) => void;
+type SetConfig = (config: Partial<Config>) => void
 
-export interface BeginHandlerObject {
-  expectedBytes: number;
-  headers: { [key: string]: string };
+export type BeginHandlerParams = {
+  expectedBytes: number
+  headers: Headers
 }
-export type BeginHandler = ({
-  expectedBytes,
-  headers,
-}: BeginHandlerObject) => void;
 
-export interface ProgressHandlerObject {
+export type BeginHandler = (params: BeginHandlerParams) => void
+
+export type ProgressHandlerParams = {
   bytesDownloaded: number
   bytesTotal: number
 }
-export type ProgressHandler = ({
-  bytesDownloaded,
-  bytesTotal,
-}: ProgressHandlerObject) => void;
 
-export interface DoneHandlerObject {
+export type ProgressHandler = (params: ProgressHandlerParams) => void
+
+export type DoneHandlerParams = {
   bytesDownloaded: number
   bytesTotal: number
 }
-export type DoneHandler = ({
-  bytesDownloaded,
-  bytesTotal,
-}: DoneHandlerObject) => void;
 
-export interface ErrorHandlerObject {
+export type DoneHandler = (params: DoneHandlerParams) => void
+
+export interface ErrorHandlerParams {
   error: string
   errorCode: number
 }
-export type ErrorHandler = ({
-  error,
-  errorCode,
-}: ErrorHandlerObject) => void;
 
-export interface TaskInfoObject {
-  id: string;
-  metadata: object | string;
+export type ErrorHandler = (params: ErrorHandlerParams) => void
 
-  bytesDownloaded?: number;
-  bytesTotal?: number;
-  errorCode?: number | null;
-  state?: number | null
+export type Metadata = Record<string, unknown>
 
-  beginHandler?: BeginHandler;
-  progressHandler?: ProgressHandler;
-  doneHandler?: DoneHandler;
-  errorHandler?: ErrorHandler;
+export interface TaskInfoNative {
+  id: string
+  metadata: Metadata
+
+  bytesDownloaded: number
+  bytesTotal: number
+  errorCode: number
+  state: number
 }
-export type TaskInfo = TaskInfoObject;
+
+export interface TaskInfo {
+  id: string
+  metadata?: object
+}
 
 export type DownloadTaskState =
   | 'PENDING'
@@ -75,69 +59,83 @@ export type DownloadTaskState =
   | 'PAUSED'
   | 'DONE'
   | 'FAILED'
-  | 'STOPPED';
+  | 'STOPPED'
+
+export type DownloadParams = {
+  url: string
+  destination: string
+  headers?: object
+  isAllowedOverRoaming?: boolean
+  isAllowedOverMetered?: boolean
+  isNotificationVisible?: boolean
+  notificationTitle?: string
+}
 
 export interface DownloadTask {
-  constructor: (taskInfo: TaskInfo) => DownloadTask;
+  constructor: (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTask) => DownloadTask
 
-  id: string;
-  state: DownloadTaskState;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  metadata: Record<string, any>;
-  bytesDownloaded: number;
-  bytesTotal: number;
+  id: string
+  state: DownloadTaskState
+  metadata: Metadata
+  bytesDownloaded: number
+  bytesTotal: number
+  downloadParams: DownloadParams
 
-  begin: (handler: BeginHandler) => DownloadTask;
-  progress: (handler: ProgressHandler) => DownloadTask;
-  done: (handler: DoneHandler) => DownloadTask;
-  error: (handler: ErrorHandler) => DownloadTask;
+  begin: (handler: BeginHandler) => DownloadTask
+  progress: (handler: ProgressHandler) => DownloadTask
+  done: (handler: DoneHandler) => DownloadTask
+  error: (handler: ErrorHandler) => DownloadTask
 
-  _beginHandler: BeginHandler;
-  _progressHandler: ProgressHandler;
-  _doneHandler: DoneHandler;
-  _errorHandler: ErrorHandler;
+  beginHandler: BeginHandler
+  progressHandler: ProgressHandler
+  doneHandler: DoneHandler
+  errorHandler: ErrorHandler
 
-  pause: () => void;
-  resume: () => void;
-  stop: () => void;
+  setDownloadParams: (params: DownloadParams) => void
+  start: () => void
+  pause: () => void
+  resume: () => void
+  stop: () => void
+
+  tryParseJson: (element: DownloadTask['metadata']) => void
 }
 
-export type CheckForExistingDownloads = () => Promise<DownloadTask[]>;
-export type EnsureDownloadsAreRunning = () => Promise<void>;
+export type getExistingDownloadTasks = () => Promise<DownloadTask[]>
+export type EnsureDownloadsAreRunning = () => Promise<void>
 
 export interface DownloadOption {
-  id: string;
-  url: string;
-  destination: string;
-  headers?: DownloadHeaders | undefined;
-  metadata?: object;
-  isAllowedOverRoaming?: boolean;
-  isAllowedOverMetered?: boolean;
-  isNotificationVisible?: boolean;
-  notificationTitle?: string;
+  id: string
+  url: string
+  destination: string
+  headers?: Headers | undefined
+  metadata?: object
+  isAllowedOverRoaming?: boolean
+  isAllowedOverMetered?: boolean
+  isNotificationVisible?: boolean
+  notificationTitle?: string
 }
 
-export type Download = (options: DownloadOption) => DownloadTask;
-export type CompleteHandler = (id: string) => void;
+export type Download = (options: DownloadOption) => DownloadTask
+export type CompleteHandler = (id: string) => void
 
 export interface Directories {
-  documents: string;
+  documents: string
 }
 
 export const setConfig: SetConfig
-export const checkForExistingDownloads: CheckForExistingDownloads
+export const getExistingDownloadTasks: getExistingDownloadTasks
 export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning
 export const download: Download
 export const completeHandler: CompleteHandler
 export const directories: Directories
 
 export interface RNBackgroundDownloader {
-  setConfig: SetConfig;
-  checkForExistingDownloads: CheckForExistingDownloads;
-  ensureDownloadsAreRunning: EnsureDownloadsAreRunning;
-  download: Download;
-  completeHandler: CompleteHandler;
-  directories: Directories;
+  setConfig: SetConfig
+  getExistingDownloadTasks: getExistingDownloadTasks
+  ensureDownloadsAreRunning: EnsureDownloadsAreRunning
+  download: Download
+  completeHandler: CompleteHandler
+  directories: Directories
 }
 
 declare const RNBackgroundDownloader: RNBackgroundDownloader

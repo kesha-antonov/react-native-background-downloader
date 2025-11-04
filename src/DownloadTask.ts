@@ -1,37 +1,48 @@
 import { NativeModules } from 'react-native'
-import { TaskInfo } from '..'
+import {
+  TaskInfo,
+  DownloadTask as DownloadTaskType,
+  BeginHandler,
+  ProgressHandler,
+  DoneHandler,
+  ErrorHandler,
+  BeginHandlerParams,
+  ProgressHandlerParams,
+  DoneHandlerParams,
+  ErrorHandlerParams,
+  TaskInfoNative,
+  DownloadParams,
+} from './types'
+import { config, log } from '.'
 
 const { RNBackgroundDownloader } = NativeModules
 
-function validateHandler(handler) {
-  const type = typeof handler
-
-  if (type !== 'function')
-    throw new TypeError(`[RNBackgroundDownloader] expected argument to be a function, got: ${type}`)
-}
-
 export default class DownloadTask {
   id = ''
-  state = 'PENDING'
-  errorCode = 0
   metadata = {}
 
+  state = 'PENDING'
+  errorCode = 0
   bytesDownloaded = 0
   bytesTotal = 0
+
+  downloadParams?: DownloadParams
 
   beginHandler
   progressHandler
   doneHandler
   errorHandler
 
-  constructor(taskInfo: TaskInfo, originalTask?: TaskInfo) {
-    this.id = taskInfo.id
-    this.bytesDownloaded = taskInfo.bytesDownloaded ?? 0
-    this.bytesTotal = taskInfo.bytesTotal ?? 0
+  constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
+    this.id = taskParams.id
 
-    const metadata = this.tryParseJson(taskInfo.metadata)
-    if (metadata)
-      this.metadata = metadata
+    if ((taskParams as TaskInfoNative).bytesDownloaded)
+      this.bytesDownloaded = (taskParams as TaskInfoNative).bytesDownloaded
+
+    if ((taskParams as TaskInfoNative).bytesTotal)
+      this.bytesTotal = (taskParams as TaskInfoNative).bytesTotal
+
+    this.metadata = this.tryParseJson(taskParams.metadata) ?? {}
 
     if (originalTask) {
       this.beginHandler = originalTask.beginHandler
@@ -41,78 +52,105 @@ export default class DownloadTask {
     }
   }
 
-  begin(handler) {
-    validateHandler(handler)
+  // event listeners setters
+
+  begin (handler: BeginHandler) {
     this.beginHandler = handler
     return this
   }
 
-  progress(handler) {
-    validateHandler(handler)
+  progress (handler: ProgressHandler) {
     this.progressHandler = handler
     return this
   }
 
-  done(handler) {
-    validateHandler(handler)
+  done (handler: DoneHandler) {
     this.doneHandler = handler
     return this
   }
 
-  error(handler) {
-    validateHandler(handler)
+  error (handler: ErrorHandler) {
     this.errorHandler = handler
     return this
   }
 
-  onBegin(params) {
+  // event listeners
+
+  onBegin (params: BeginHandlerParams) {
     this.state = 'DOWNLOADING'
     this.beginHandler?.(params)
   }
 
-  onProgress({ bytesDownloaded, bytesTotal }) {
-    this.bytesDownloaded = bytesDownloaded
-    this.bytesTotal = bytesTotal
-    this.progressHandler?.({ bytesDownloaded, bytesTotal })
+  onProgress (params: ProgressHandlerParams) {
+    this.bytesDownloaded = params.bytesDownloaded
+    this.bytesTotal = params.bytesTotal
+    this.progressHandler?.(params)
   }
 
-  onDone(params) {
+  onDone (params: DoneHandlerParams) {
     this.state = 'DONE'
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
     this.doneHandler?.(params)
   }
 
-  onError(params) {
+  onError (params: ErrorHandlerParams) {
     this.state = 'FAILED'
     this.errorHandler?.(params)
   }
 
-  pause() {
+  // methods
+
+  setDownloadParams (downloadParams: DownloadParams) {
+    this.downloadParams = downloadParams
+  }
+
+  pause () {
     console.log('DownloadTask: pause', this.id)
     this.state = 'PAUSED'
     RNBackgroundDownloader.pauseTask(this.id)
   }
 
-  resume() {
+  resume () {
     console.log('DownloadTask: resume', this.id)
     this.state = 'DOWNLOADING'
     this.errorCode = 0
     RNBackgroundDownloader.resumeTask(this.id)
   }
 
-  stop() {
-    console.log('DownloadTask: stop', this.id)
+  start () {
+    if (this.state !== 'PENDING') {
+      log('DownloadTask: start. Download already started, can\' start again... ', this.id)
+      return
+    }
+
+    if (!this.downloadParams) {
+      log('DownloadTask: start. downloadParams is missing. "setDownloadParams" wasn\'t called before "start"', this.id)
+      return
+    }
+
+    // kick-off download after returning the task
+    RNBackgroundDownloader.download({
+      id: this.id,
+      metadata: JSON.stringify(this.metadata),
+      progressInterval: config.progressInterval,
+      ...this.downloadParams,
+    })
+  }
+
+  stop () {
+    log('DownloadTask: stop', this.id)
+
     this.state = 'STOPPED'
     RNBackgroundDownloader.stopTask(this.id)
   }
 
-  tryParseJson(element) {
+  tryParseJson (metadata?: DownloadTask['metadata']) {
     try {
-      if (typeof element === 'string')
-        element = JSON.parse(element)
+      if (typeof metadata === 'string')
+        metadata = JSON.parse(metadata)
 
-      return element
+      return metadata
     } catch (e) {
       console.warn('DownloadTask tryParseJson', e)
       return null

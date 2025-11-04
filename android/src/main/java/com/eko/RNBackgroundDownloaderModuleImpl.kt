@@ -373,7 +373,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         val headers = options.getMap("headers")
         val metadata = options.getString("metadata")
         val notificationTitle = options.getString("notificationTitle")
-        
+
         val progressIntervalScope = options.getInt("progressInterval")
         if (progressIntervalScope > 0) {
             progressInterval = progressIntervalScope
@@ -538,7 +538,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
 
     @ReactMethod
     @Suppress("unused")
-    fun checkForExistingDownloads(promise: Promise) {
+    fun getExistingDownloadTasks(promise: Promise) {
         val foundTasks = Arguments.createArray()
 
         synchronized(sharedLock) {
@@ -593,7 +593,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                     }
                 }
             } catch (e: Exception) {
-                Log.e(name, "checkForExistingDownloads: ${Log.getStackTraceString(e)}")
+                Log.e(name, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
             }
         }
 

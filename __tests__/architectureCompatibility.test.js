@@ -40,14 +40,14 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
   it('should handle existing downloads check without MMKV', async () => {
     // When MMKV is not available, there should be no existing downloads to restore
     // but the function should not crash
-    const existingDownloads = await RNBackgroundDownloader.checkForExistingDownloads()
+    const existingDownloads = await RNBackgroundDownloader.getExistingDownloadTasks()
     expect(Array.isArray(existingDownloads)).toBe(true)
   })
 
   it('should maintain all API functions despite storage limitations', () => {
     // Test that all main API functions are available and functional
     expect(typeof RNBackgroundDownloader.download).toBe('function')
-    expect(typeof RNBackgroundDownloader.checkForExistingDownloads).toBe('function')
+    expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
     expect(typeof RNBackgroundDownloader.ensureDownloadsAreRunning).toBe('function')
     expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
     expect(typeof RNBackgroundDownloader.setConfig).toBe('function')

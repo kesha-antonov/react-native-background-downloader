@@ -19,7 +19,7 @@ NativeModules.RNBackgroundDownloader = {
     TaskSuspended: 1,
     TaskCanceling: 2,
     TaskCompleted: 3,
-    checkForExistingDownloads: jest.fn().mockImplementation(() => {
+    getExistingDownloadTasks: jest.fn().mockImplementation(() => {
         foundDownloads = [
             {
                 id: 'taskRunning',

@@ -129,10 +129,10 @@ test('stop', () => {
   expect(RNBackgroundDownloaderNative.stopTask).toHaveBeenCalled()
 })
 
-test('checkForExistingDownloads', () => {
-  return RNBackgroundDownloader.checkForExistingDownloads()
+test('getExistingDownloadTasks', () => {
+  return RNBackgroundDownloader.getExistingDownloadTasks()
     .then(foundDownloads => {
-      expect(RNBackgroundDownloaderNative.checkForExistingDownloads).toHaveBeenCalled()
+      expect(RNBackgroundDownloaderNative.getExistingDownloadTasks).toHaveBeenCalled()
       expect(foundDownloads.length).toBe(4)
       foundDownloads.forEach(foundDownload => {
         expect(foundDownload).toBeInstanceOf(DownloadTask)

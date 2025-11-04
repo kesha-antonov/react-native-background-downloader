@@ -240,7 +240,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:url]];
-    // Query in the checkForExistingDownloads function.
+    // Query in the getExistingDownloadTasks function.
     [request setValue:identifier forHTTPHeaderField:@"configId"];
     if (headers != nil) {
         for (NSString *headerKey in headers) {
@@ -375,8 +375,8 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
     resolve(nil);
 }
 
-RCT_EXPORT_METHOD(checkForExistingDownloads: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    DLog(nil, @"[RNBackgroundDownloader] - [checkForExistingDownloads]");
+RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    DLog(nil, @"[RNBackgroundDownloader] - [getExistingDownloadTasks]");
     [self lazyRegisterSession];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         @synchronized (self->sharedLock) {
