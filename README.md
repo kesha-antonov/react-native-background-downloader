@@ -224,7 +224,7 @@ expo prebuild --clean
 
 ```javascript
 import { Platform } from 'react-native'
-import { download, completeHandler, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, completeHandler, directories } from '@kesha-antonov/react-native-background-downloader'
 
 const jobId = 'file123'
 
@@ -267,7 +267,7 @@ task.stop()
 
 ```javascript
 import { Platform } from 'react-native'
-import { download, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
 
 const task = createDownloadTask({
   id: 'file123',
@@ -315,9 +315,9 @@ What happens to your downloads after the OS stopped your app? Well, they are sti
 Add this code to app's init stage, and you'll never lose a download again!
 
 ```javascript
-import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader'
+import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
 
-let lostTasks = await RNBackgroundDownloader.getExistingDownloadTasks()
+let lostTasks = await getExistingDownloadTasks()
 for (let task of lostTasks) {
   console.log(`Task ${task.id} was found!`)
   task.progress(({ bytesDownloaded, bytesTotal }) => {
@@ -335,9 +335,11 @@ for (let task of lostTasks) {
 ### Using custom headers
 If you need to send custom headers with your download request, you can do in it 2 ways:
 
-1) Globally using `RNBackgroundDownloader.setConfig()`:
+1) Globally using `setConfig()`:
 ```javascript
-RNBackgroundDownloader.setConfig({
+import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+setConfig({
   headers: {
     Authorization: 'Bearer 2we$@$@Ddd223',
   }
@@ -345,12 +347,14 @@ RNBackgroundDownloader.setConfig({
 ```
 This way, all downloads with have the given headers.
 
-2) Per download by passing a headers object in the options of `RNBackgroundDownloader.createDownloadTask()`:
+2) Per download by passing a headers object in the options of `createDownloadTask()`:
 ```javascript
-const task = RNBackgroundDownloader.createDownloadTask({
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+
+const task = createDownloadTask({
   id: 'file123',
   url: 'https://link-to-very.large/file.zip'
-  destination: `${RNBackgroundDownloader.directories.documents}/file.zip`,
+  destination: `${directories.documents}/file.zip`,
   headers: {
     Authorization: 'Bearer 2we$@$@Ddd223'
   }
@@ -366,7 +370,7 @@ const task = RNBackgroundDownloader.createDownloadTask({
 
 task.start()
 ```
-Headers given in the `download` function are **merged** with the ones given in `setConfig({ headers: { ... } })`.
+Headers given in `createDownloadTask()` are **merged** with the ones given in `setConfig({ headers: { ... } })`.
 
 ### Handling Slow-Responding URLs
 
@@ -386,7 +390,7 @@ To handle this, you can use the `maxRedirects` option to pre-resolve redirects b
 
 ```javascript
 import { Platform } from 'react-native'
-import { download, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
 
 // Example: Podcast URL with multiple redirects
 const task = createDownloadTask({
@@ -420,7 +424,34 @@ task.start()
 
 ## API
 
-### RNBackgroundDownloader
+### Named Exports
+
+The library exports the following functions and objects:
+
+```typescript
+import {
+  setConfig,
+  createDownloadTask,
+  getExistingDownloadTasks,
+  ensureDownloadsAreRunning,
+  completeHandler,
+  directories
+} from '@kesha-antonov/react-native-background-downloader'
+```
+
+**Default Export:**
+
+```typescript
+import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader'
+
+// Contains all the above as properties:
+RNBackgroundDownloader.setConfig
+RNBackgroundDownloader.createDownloadTask
+RNBackgroundDownloader.getExistingDownloadTasks
+RNBackgroundDownloader.ensureDownloadsAreRunning
+RNBackgroundDownloader.completeHandler
+RNBackgroundDownloader.directories
+```
 
 ### `createDownloadTask(options)`
 
@@ -432,11 +463,11 @@ An object containing options properties
 
 | Property      | Type                                             | Required | Platforms | Info                                                                                                                                                                                                                                 |
 | ------------- | ------------------------------------------------ | :------: | :-------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`          | String |    ✅     |    All    | A Unique ID to provide for this download. This ID will help to identify the download task when the app re-launches |
+| `id`          | String |    ✅     |    All    | A unique ID to provide for this download. This ID will help to identify the download task when the app re-launches |
 | `url`         | String |    ✅     |    All    | URL to file you want to download |
-| `destination` | String |    ✅     |    All    | Where to copy the file to once the download is done |
-| `metadata`    | Object |           |    All    | Data to be preserved on reboot. |
-| `headers`     | Object |           |    All    | Costume headers to add to the download request. These are merged with the headers given in the `setConfig({ headers: { ... } })` function |
+| `destination` | String |    ✅     |    All    | Where to copy the file to once the download is done. The 'file://' prefix will be automatically removed if present |
+| `metadata`    | Record<string, unknown> |           |    All    | Custom data to be preserved across app restarts. Will be serialized to JSON |
+| `headers`     | Record<string, string \| null> |           |    All    | Custom headers to add to the download request. These are merged with the headers given in `setConfig({ headers: { ... } })`. Headers with null values will be removed |
 | `maxRedirects` | Number |          |  Android  | Maximum number of redirects to follow before passing URL to DownloadManager. If not specified or 0, no redirect resolution is performed. Helps avoid ERROR_TOO_MANY_REDIRECTS for URLs with many redirects (e.g., podcast URLs) |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
@@ -445,47 +476,63 @@ An object containing options properties
 
 **returns**
 
-`DownloadTask` - The download task to control and monitor this download
+`DownloadTask` - The download task to control and monitor this download. Call `task.start()` to begin the download.
 
 ### `getExistingDownloadTasks()`
 
-Checks for downloads that ran in background while you app was terminated. And also forces them to resume downloads.
+Checks for downloads that ran in background while your app was terminated.
 
 Recommended to run at the init stage of the app.
 
 **returns**
 
-`DownloadTask[]` - Array of tasks that were running in the background so you can re-attach callbacks to them
+`Promise<DownloadTask[]>` - A promise that resolves to an array of tasks that were running in the background so you can re-attach callbacks to them
 
-### `setConfig({})`
+### `setConfig(config)`
+
+Sets global configuration for the downloader.
+
+**config**
+
+An object containing configuration properties
 
 | Name           | Type   | Info                                                                                                 |
 | -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| `headers`     | Object | optional headers to use in all future downloads |
-| `progressInterval` | Number | Interval in which download progress sent from downloader. Number should be >= 250. It's in ms |
-| `progressMinBytes` | Number | Minimum number of bytes that must be downloaded before triggering progress callbacks. Used for hybrid progress reporting (triggers on either percentage >1% OR bytes threshold). Default is 1048576 (1MB). Number should be >= 0 |
-| `isLogsEnabled`   | Boolean | Enables/disables logs in library |
+| `headers`     | Record<string, string \| null> | Optional headers to use in all future downloads. Headers with null values will be removed |
+| `progressInterval` | Number | Interval in milliseconds for download progress updates. Must be >= 250. Default is 1000 |
+| `isLogsEnabled`   | Boolean | Enables/disables debug logs in library. Default is false |
 
 ### DownloadTask
 
-A class representing a download task created by `RNBackgroundDownloader.download`
+A class representing a download task created by `createDownloadTask()`. Note: You must call `task.start()` to begin the download after setting up event handlers.
 
 ### `Members`
 | Name           | Type   | Info                                                                                                 |
 | -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| `id`           | String | The id you gave the task when calling `RNBackgroundDownloader.download`                              |
-| `metadata`     | Object | The metadata you gave the task when calling `RNBackgroundDownloader.download`                        |
+| `id`           | String | The id you gave the task when calling `createDownloadTask`                              |
+| `metadata`     | Record<string, unknown> | The metadata you gave the task when calling `createDownloadTask`                        |
+| `state`        | 'PENDING' \| 'DOWNLOADING' \| 'PAUSED' \| 'DONE' \| 'FAILED' \| 'STOPPED' | Current state of the download task |
 | `bytesDownloaded` | Number | The number of bytes currently written by the task                                                    |
 | `bytesTotal`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded |
+| `downloadParams` | DownloadParams | The download parameters set for this task |
 
-### `completeHandler(jobId)`
+### `completeHandler(jobId: string)`
 
 Finishes download job and informs OS that app can be closed in background if needed.
 After finishing download in background you have some time to process your JS logic and finish the job.
 
-### `ensureDownloadsAreRunning` (iOS only)
+**Parameters:**
+- `jobId` (String) - The ID of the download task to complete
+
+**Note:** This should be called after processing your download in the `done` callback to properly signal completion to the OS.
+
+### `ensureDownloadsAreRunning()` (iOS only)
 
 Pauses and resumes all downloads - this is fix for stuck downloads. Use it when your app loaded and is ready for handling downloads (all your logic loaded and ready to handle download callbacks).
+
+**returns**
+
+`Promise<void>` - A promise that resolves when all downloads have been paused and resumed
 
 Here's example of how you can use it:
 
@@ -494,6 +541,8 @@ Here's example of how you can use it:
 Either stop all tasks:
 
 ```javascript
+import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
+
 const tasks = await getExistingDownloadTasks()
 for (const task of tasks)
   task.stop()
@@ -502,6 +551,8 @@ for (const task of tasks)
 Or re-attach them:
 
 ```javascript
+import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
+
 const tasks = await getExistingDownloadTasks()
 for (const task of tasks) {
   task.pause()
@@ -517,6 +568,7 @@ for (const task of tasks) {
 3. Add listener to handle when your app goes foreground (be sure to do it only after you stopped all tasks or re-attached them!)
 
 ```javascript
+import { ensureDownloadsAreRunning } from '@kesha-antonov/react-native-background-downloader'
 
 function handleAppStateChange (appState) {
   if (appState !== 'active')
@@ -537,10 +589,10 @@ All callback methods return the current instance of the `DownloadTask` for chain
 
 | Function   | Callback Arguments                | Info|
 | ---------- | --------------------------------- | ---- |
-| `begin`    | { expectedBytes, headers } | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
-| `progress` | { bytesDownloaded, bytesTotal } | Called at max every 1.5s so you can update your progress bar accordingly |
-| `done`     | { bytesDownloaded, bytesTotal } | Called when the download is done, the file is at the destination you've set |
-| `error`    | { error, errorCode } | Called when the download stops due to an error |
+| `begin`    | `{ expectedBytes: number, headers: Record<string, string \| null> }` | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
+| `progress` | `{ bytesDownloaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly |
+| `done`     | `{ bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set |
+| `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error |
 
 ### `pause()`  (iOS only)
 Pauses the download
