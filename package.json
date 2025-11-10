@@ -32,6 +32,7 @@
     "LICENSE",
     "react-native-background-downloader.podspec",
     "package.json",
+    "app.plugin.js",
     "src/",
     "ios/",
     "android/build.gradle",
