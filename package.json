@@ -24,8 +24,10 @@
     }
   ],
   "main": "src/index.ts",
+  "react-native": "src/index.ts",
+  "types": "src/index.d.ts",
   "expo": {
-    "plugin": "plugin/build/index.js"
+    "plugin": "./app.plugin.js"
   },
   "codegenConfig": {
     "name": "RNBackgroundDownloaderSpec",
@@ -40,6 +42,7 @@
     "LICENSE",
     "react-native-background-downloader.podspec",
     "package.json",
+    "app.plugin.js",
     "src/",
     "ios/",
     "android/build.gradle",

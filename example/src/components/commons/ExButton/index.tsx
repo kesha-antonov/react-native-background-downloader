@@ -6,7 +6,11 @@ import {
   StyleSheet,
 } from 'react-native'
 
-const ExButton = ({ title, style, ...props }: TouchableOpacityProps) => {
+interface ExButtonProps extends TouchableOpacityProps {
+  title?: string
+}
+
+const ExButton = ({ title, style, ...props }: ExButtonProps) => {
   return (
     <TouchableOpacity
       style={[styles.wrapper, style]}

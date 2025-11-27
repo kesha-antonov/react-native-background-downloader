@@ -1,40 +1,20 @@
 {
-  "module": "nodenext",
-  "moduleResolution": "nodenext",
-  "extends": "@react-native/typescript-config",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "allowJs": true,
-    "allowSyntheticDefaultImports": true,
-    "experimentalDecorators": true,
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "jsx": "react-native",
-    "lib": [
-      "es2019"
-    ],
-    "target": "esnext",
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
     "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "jsx": "react-native",
     "baseUrl": ".",
     "paths": {
-      "@src": [
-        "./src"
-      ]
+      "@kesha-antonov/react-native-background-downloader": ["../src/index"]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    "../src/**/*.ts",
-    "../src/**/*.tsx",
+    "**/*.tsx"
   ],
   "exclude": [
-    "**/node_modules",
-    "**/Pods",
-    "babel.config.js",
-    "metro.config.js",
-    "jest.config.js"
+    "node_modules"
   ]
 }

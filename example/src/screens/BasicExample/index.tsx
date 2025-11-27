@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, Platform } from 'react-native'
-import RNFS from 'react-native-fs'
+import { StyleSheet, View, Text, FlatList } from 'react-native'
+import * as FileSystem from 'expo-file-system'
 import {
   completeHandler,
   directories,
   getExistingDownloadTasks,
-  download,
+  createDownloadTask,
   setConfig,
 } from '@kesha-antonov/react-native-background-downloader'
 import Slider from '@react-native-community/slider'
@@ -18,6 +18,15 @@ setConfig({
   isLogsEnabled: true,
 })
 
+interface FooterProps {
+  onStart: () => void
+  onStop: () => void
+  onReset: () => void
+  onClear: () => void
+  onRead: () => void
+  isStarted: boolean
+}
+
 const Footer = ({
   onStart,
   onStop,
@@ -26,16 +35,14 @@ const Footer = ({
   onRead,
   isStarted,
   ...props
-}) => {
+}: FooterProps) => {
   return (
     <View style={styles.headerWrapper} {...props}>
-      {isStarted
-        ? (
-          <ExButton title={'Stop'} onPress={onStop} />
-        )
-        : (
-          <ExButton title={'Start'} onPress={onStart} />
-        )}
+      {isStarted ? (
+        <ExButton title={'Stop'} onPress={onStop} />
+      ) : (
+        <ExButton title={'Start'} onPress={onStart} />
+      )}
 
       <ExButton title={'Reset'} onPress={onReset} />
       <ExButton title={'Delete files'} onPress={onClear} />
@@ -44,8 +51,15 @@ const Footer = ({
   )
 }
 
+interface UrlItem {
+  id: string
+  url: string
+  maxRedirects?: number
+  title?: string
+}
+
 const BasicExampleScreen = () => {
-  const [urlList] = useState([
+  const [urlList] = useState<UrlItem[]>([
     {
       id: uuid(),
       url: 'https://sabnzbd.org/tests/internetspeed/20MB.bin',
@@ -70,7 +84,7 @@ const BasicExampleScreen = () => {
 
   const [isStarted, setIsStarted] = useState(false)
 
-  const [downloadTasks, setDownloadTasks] = useState([])
+  const [downloadTasks, setDownloadTasks] = useState<any[]>([])
 
   /**
    * It is used to resume your incomplete or unfinished downloads.
@@ -92,35 +106,45 @@ const BasicExampleScreen = () => {
   }
 
   const readStorage = async () => {
-    const files = await RNFS.readdir(defaultDir)
-    toast('Check logs')
-    console.log(`Downloaded files: ${files}`)
+    try {
+      const files = await FileSystem.readDirectoryAsync(defaultDir)
+      toast('Check logs')
+      console.log(`Downloaded files: ${files}`)
+    } catch (e) {
+      console.warn('readStorage error:', e)
+      toast('Error reading files')
+    }
   }
 
   const clearStorage = async () => {
-    const files = await RNFS.readdir(defaultDir)
+    try {
+      const files = await FileSystem.readDirectoryAsync(defaultDir)
 
-    if (files.length > 0)
-      await Promise.all(
-        files.map(file => RNFS.unlink(defaultDir + '/' + file))
-      )
+      if (files.length > 0)
+        await Promise.all(
+          files.map(file => FileSystem.deleteAsync(defaultDir + '/' + file, { idempotent: true }))
+        )
 
-    toast('Check logs')
-    console.log(`Deleted file count: ${files.length}`)
+      toast('Check logs')
+      console.log(`Deleted file count: ${files.length}`)
+    } catch (e) {
+      console.warn('clearStorage error:', e)
+      toast('Error clearing files')
+    }
   }
 
-  const process = task => {
+  const process = (task: any) => {
     const { index } = getTask(task.id)
 
     return task
-      .begin(({ expectedBytes, headers }) => {
+      .begin(({ expectedBytes, headers }: { expectedBytes: number; headers: any }) => {
         console.log('task: begin', { id: task.id, expectedBytes, headers })
         setDownloadTasks(downloadTasks => {
           downloadTasks[index] = task
           return [...downloadTasks]
         })
       })
-      .progress(({ bytesDownloaded, bytesTotal }) => {
+      .progress(({ bytesDownloaded, bytesTotal }: { bytesDownloaded: number; bytesTotal: number }) => {
         console.log('task: progress', { id: task.id, bytesDownloaded, bytesTotal })
         setDownloadTasks(downloadTasks => {
           downloadTasks[index] = task
@@ -136,7 +160,7 @@ const BasicExampleScreen = () => {
 
         completeHandler(task.id)
       })
-      .error(e => {
+      .error((e: any) => {
         console.error('task: error', { id: task.id, e })
         setDownloadTasks(downloadTasks => {
           downloadTasks[index] = task
@@ -161,7 +185,7 @@ const BasicExampleScreen = () => {
      */
     const taskAttributes = urlList.map(item => {
       const destination = defaultDir + '/' + item.id
-      const taskAttribute = {
+      const taskAttribute: any = {
         id: item.id,
         url: item.url,
         destination,
@@ -176,9 +200,13 @@ const BasicExampleScreen = () => {
       return taskAttribute
     })
 
-    const tasks = taskAttributes.map(taskAttribute =>
-      process(download(taskAttribute))
-    )
+    // Create download tasks using the new API
+    const tasks = taskAttributes.map(taskAttribute => {
+      const task = createDownloadTask(taskAttribute)
+      process(task)
+      task.start() // Start the download
+      return task
+    })
 
     setDownloadTasks(downloadTasks => [...downloadTasks, ...tasks])
     setIsStarted(true)
@@ -194,7 +222,7 @@ const BasicExampleScreen = () => {
     setIsStarted(false)
   }
 
-  const pause = id => {
+  const pause = (id: string) => {
     const { index, task } = getTask(id)
 
     task.pause()
@@ -204,7 +232,7 @@ const BasicExampleScreen = () => {
     })
   }
 
-  const resume = id => {
+  const resume = (id: string) => {
     const { index, task } = getTask(id)
 
     task.resume()
@@ -214,7 +242,7 @@ const BasicExampleScreen = () => {
     })
   }
 
-  const cancel = id => {
+  const cancel = (id: string) => {
     const { index, task } = getTask(id)
 
     task.stop()
@@ -224,7 +252,7 @@ const BasicExampleScreen = () => {
     })
   }
 
-  const getTask = id => {
+  const getTask = (id: string) => {
     const index = downloadTasks.findIndex(task => task.id === id)
     const task = downloadTasks[index]
     return { index, task }
@@ -288,16 +316,14 @@ const BasicExampleScreen = () => {
               </View>
               <View>
                 {!isEnded &&
-                  (isDownloading
-                    ? (
-                      <ExButton title={'Pause'} onPress={() => pause(item.id)} />
-                    )
-                    : (
-                      <ExButton
-                        title={'Resume'}
-                        onPress={() => resume(item.id)}
-                      />
-                    ))}
+                  (isDownloading ? (
+                    <ExButton title={'Pause'} onPress={() => pause(item.id)} />
+                  ) : (
+                    <ExButton
+                      title={'Resume'}
+                      onPress={() => resume(item.id)}
+                    />
+                  ))}
                 <ExButton title={'Cancel'} onPress={() => cancel(item.id)} />
               </View>
             </View>

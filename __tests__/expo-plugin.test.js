@@ -1,4 +1,4 @@
-const plugin = require('../plugin/build/index.js').default
+const plugin = require('../app.plugin.js')
 
 describe('RNBackgroundDownloader Expo Plugin', () => {
   it('should be a valid config plugin', () => {

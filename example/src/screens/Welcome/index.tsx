@@ -2,7 +2,7 @@ import React from 'react'
 import { Text, StyleSheet } from 'react-native'
 import { ExButton, ExWrapper } from '../../components/commons'
 
-const WelcomeScreen = ({ navigation }) => {
+const WelcomeScreen = ({ navigation }: any) => {
   return (
     <ExWrapper>
       <Text style={styles.title}>React Native Background Downloader</Text>
