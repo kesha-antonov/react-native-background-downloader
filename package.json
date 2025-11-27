@@ -27,6 +27,14 @@
   "expo": {
     "plugin": "plugin/build/index.js"
   },
+  "codegenConfig": {
+    "name": "RNBackgroundDownloaderSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.eko"
+    }
+  },
   "files": [
     "README.md",
     "LICENSE",
@@ -53,11 +61,17 @@
     "preset": "react-native",
     "setupFiles": [
       "./__mocks__/RNBackgroundDownloader.js",
-      "./node_modules/react-native/Libraries/EventEmitter/__mocks__/NativeEventEmitter.js"
+      "./__mocks__/NativeEventEmitter.js"
     ],
     "roots": [
       "./__tests__"
-    ]
+    ],
+    "transformIgnorePatterns": [
+      "node_modules/(?!(react-native|@react-native|@react-navigation)/)"
+    ],
+    "moduleNameMapper": {
+      "^react-native/jest/mock\\.js$": "<rootDir>/__mocks__/react-native-mock.js"
+    }
   },
   "devDependencies": {
     "@babel/core": "^7.28.5",

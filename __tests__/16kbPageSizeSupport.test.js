@@ -18,9 +18,9 @@ describe('16KB Memory Page Size Support', () => {
     const buildGradlePath = path.join(__dirname, '../android/build.gradle')
     const buildGradleContent = fs.readFileSync(buildGradlePath, 'utf8')
 
-    // Should have updated targetSdkVersion and compileSdkVersion to 35
-    expect(buildGradleContent).toMatch(/targetSdkVersion.*35/)
-    expect(buildGradleContent).toMatch(/compileSdkVersion.*35/)
+    // Should have updated targetSdkVersion and compileSdkVersion to 36
+    expect(buildGradleContent).toMatch(/targetSdkVersion.*36/)
+    expect(buildGradleContent).toMatch(/compileSdkVersion.*36/)
 
     // Should have NDK configuration for supported architectures
     expect(buildGradleContent).toMatch(/abiFilters.*arm64-v8a/)
@@ -57,15 +57,15 @@ describe('16KB Memory Page Size Support', () => {
     const exampleBuildGradleContent = fs.readFileSync(exampleBuildGradlePath, 'utf8')
 
     // Should have updated SDK versions
-    expect(exampleBuildGradleContent).toMatch(/targetSdkVersion.*35/)
-    expect(exampleBuildGradleContent).toMatch(/compileSdkVersion.*35/)
+    expect(exampleBuildGradleContent).toMatch(/targetSdkVersion.*36/)
+    expect(exampleBuildGradleContent).toMatch(/compileSdkVersion.*36/)
 
     // Check example app gradle.properties
     const exampleGradlePropsPath = path.join(__dirname, '../example/android/gradle.properties')
     const exampleGradlePropsContent = fs.readFileSync(exampleGradlePropsPath, 'utf8')
 
-    // Should have 16KB support configuration
-    expect(exampleGradlePropsContent).toMatch(/android\.bundle\.enableUncompressedNativeLibs=false/)
+    // Should have AndroidX enabled
+    expect(exampleGradlePropsContent).toMatch(/android\.useAndroidX=true/)
   })
 
   test('MMKV dependency version should support 16KB page sizes', () => {

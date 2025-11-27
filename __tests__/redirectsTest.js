@@ -13,12 +13,13 @@ describe('Redirects Tests', () => {
     jest.clearAllMocks()
   })
 
-  test('download without maxRedirects should work as before', () => {
-    const task = RNBackgroundDownloader.download({
+  test('createDownloadTask without maxRedirects should work as before', () => {
+    const task = RNBackgroundDownloader.createDownloadTask({
       id: 'testNoRedirects',
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',
     })
+    task.start()
 
     expect(task).toBeInstanceOf(DownloadTask)
     expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()
@@ -34,13 +35,14 @@ describe('Redirects Tests', () => {
     expect(lastCallArgs[0].maxRedirects).toBeUndefined()
   })
 
-  test('download with maxRedirects should pass parameter to native module', () => {
-    const task = RNBackgroundDownloader.download({
+  test('createDownloadTask with maxRedirects should pass parameter to native module', () => {
+    const task = RNBackgroundDownloader.createDownloadTask({
       id: 'testWithRedirects',
       url: 'https://pdst.fm/e/example.mp3',
       destination: '/tmp/file.mp3',
       maxRedirects: 10,
     })
+    task.start()
 
     expect(task).toBeInstanceOf(DownloadTask)
     expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()
@@ -54,13 +56,14 @@ describe('Redirects Tests', () => {
     })
   })
 
-  test('download with maxRedirects = 0 should work (no redirect resolution)', () => {
-    const task = RNBackgroundDownloader.download({
+  test('createDownloadTask with maxRedirects = 0 should work (no redirect resolution)', () => {
+    const task = RNBackgroundDownloader.createDownloadTask({
       id: 'testZeroRedirects',
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',
       maxRedirects: 0,
     })
+    task.start()
 
     expect(task).toBeInstanceOf(DownloadTask)
     expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()
@@ -74,8 +77,8 @@ describe('Redirects Tests', () => {
     })
   })
 
-  test('download with headers and maxRedirects should pass both', () => {
-    const task = RNBackgroundDownloader.download({
+  test('createDownloadTask with headers and maxRedirects should pass both', () => {
+    const task = RNBackgroundDownloader.createDownloadTask({
       id: 'testRedirectsWithHeaders',
       url: 'https://pdst.fm/e/example.mp3',
       destination: '/tmp/file.mp3',
@@ -85,6 +88,7 @@ describe('Redirects Tests', () => {
         'Custom-Header': 'value',
       },
     })
+    task.start()
 
     expect(task).toBeInstanceOf(DownloadTask)
     expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()
@@ -103,9 +107,9 @@ describe('Redirects Tests', () => {
   })
 
   test('maxRedirects parameter should be optional', () => {
-    // Test various ways to call download without maxRedirects
+    // Test various ways to call createDownloadTask without maxRedirects
     expect(() => {
-      RNBackgroundDownloader.download({
+      RNBackgroundDownloader.createDownloadTask({
         id: 'testOptional1',
         url: 'https://example.com/file1.zip',
         destination: '/tmp/file1.zip',
@@ -113,7 +117,7 @@ describe('Redirects Tests', () => {
     }).not.toThrow()
 
     expect(() => {
-      RNBackgroundDownloader.download({
+      RNBackgroundDownloader.createDownloadTask({
         id: 'testOptional2',
         url: 'https://example.com/file2.zip',
         destination: '/tmp/file2.zip',
@@ -122,7 +126,7 @@ describe('Redirects Tests', () => {
     }).not.toThrow()
 
     expect(() => {
-      RNBackgroundDownloader.download({
+      RNBackgroundDownloader.createDownloadTask({
         id: 'testOptional3',
         url: 'https://example.com/file3.zip',
         destination: '/tmp/file3.zip',

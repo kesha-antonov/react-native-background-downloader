@@ -1,8 +1,26 @@
-import { NativeModules, NativeEventEmitter } from 'react-native'
+import { NativeModules, NativeEventEmitter, Platform } from 'react-native'
 import DownloadTask from './DownloadTask'
 import { Config, DownloadParams, TaskInfo, TaskInfoNative } from './types'
 
-const { RNBackgroundDownloader } = NativeModules
+// Try to get the native module using TurboModuleRegistry first (new architecture),
+// then fall back to NativeModules (old architecture)
+const isTurboModuleEnabled = global.__turboModuleProxy != null
+
+let RNBackgroundDownloader
+if (isTurboModuleEnabled)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  RNBackgroundDownloader = require('./NativeRNBackgroundDownloader').default
+else
+  RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
+
+if (!RNBackgroundDownloader)
+  throw new Error(
+    'The package \'@kesha-antonov/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
+    Platform.select({ ios: '- You have run \'pod install\'\n', default: '' }) +
+    '- You rebuilt the app after installing the package\n' +
+    '- You are not using Expo Go\n'
+  )
+
 const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloader)
 
 const MIN_PROGRESS_INTERVAL = 250

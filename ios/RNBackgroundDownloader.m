@@ -2,6 +2,10 @@
 #import "RNBGDTaskConfig.h"
 #import <MMKV/MMKV.h>
 
+#ifdef RCT_NEW_ARCH_ENABLED
+#import <RNBackgroundDownloaderSpec/RNBackgroundDownloaderSpec.h>
+#endif
+
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
 
@@ -771,5 +775,13 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
     return path;
 }
+
+#ifdef RCT_NEW_ARCH_ENABLED
+- (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
+    (const facebook::react::ObjCTurboModule::InitParams &)params
+{
+    return std::make_shared<facebook::react::NativeRNBackgroundDownloaderSpecJSI>(params);
+}
+#endif
 
 @end

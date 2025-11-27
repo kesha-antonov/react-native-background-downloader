@@ -21,8 +21,6 @@ import com.eko.utils.FileUtils
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.bridge.ReactContextBaseJavaModule
-import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
@@ -38,8 +36,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
-open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext) {
+class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicationContext) {
 
     companion object {
         const val NAME = "RNBackgroundDownloader"
@@ -86,28 +83,28 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
 
     init {
         // Initialize SharedPreferences as fallback
-        sharedPreferences = reactContext.getSharedPreferences(name + "_prefs", Context.MODE_PRIVATE)
+        sharedPreferences = reactContext.getSharedPreferences(NAME + "_prefs", Context.MODE_PRIVATE)
 
         // Try to initialize MMKV with comprehensive error handling
         try {
             MMKV.initialize(reactContext)
-            mmkv = MMKV.mmkvWithID(name)
+            mmkv = MMKV.mmkvWithID(NAME)
             isMMKVAvailable = true
-            Log.d(name, "MMKV initialized successfully")
+            Log.d(NAME, "MMKV initialized successfully")
         } catch (e: UnsatisfiedLinkError) {
-            Log.e(name, "Failed to initialize MMKV (libmmkv.so not found): ${e.message}")
-            Log.w(name, "This may be due to unsupported architecture (x86/ARMv7). Using SharedPreferences fallback.")
-            Log.w(name, "Download persistence across app restarts will use basic storage.")
+            Log.e(NAME, "Failed to initialize MMKV (libmmkv.so not found): ${e.message}")
+            Log.w(NAME, "This may be due to unsupported architecture (x86/ARMv7). Using SharedPreferences fallback.")
+            Log.w(NAME, "Download persistence across app restarts will use basic storage.")
             mmkv = null
             isMMKVAvailable = false
         } catch (e: NoClassDefFoundError) {
-            Log.e(name, "MMKV classes not found: ${e.message}")
-            Log.w(name, "MMKV library not available on this architecture. Using SharedPreferences fallback.")
+            Log.e(NAME, "MMKV classes not found: ${e.message}")
+            Log.w(NAME, "MMKV library not available on this architecture. Using SharedPreferences fallback.")
             mmkv = null
             isMMKVAvailable = false
         } catch (e: Exception) {
-            Log.e(name, "Failed to initialize MMKV: ${e.message}")
-            Log.w(name, "Using SharedPreferences fallback for persistence.")
+            Log.e(NAME, "Failed to initialize MMKV: ${e.message}")
+            Log.w(NAME, "Using SharedPreferences fallback for persistence.")
             mmkv = null
             isMMKVAvailable = false
         }
@@ -118,15 +115,11 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         downloader = Downloader(reactContext)
     }
 
-    @NonNull
-    override fun getName(): String = NAME
-
-    override fun getConstants(): Map<String, Any>? {
-        val context = reactApplicationContext
+    fun getConstants(): Map<String, Any>? {
         val constants = mutableMapOf<String, Any>()
 
-        val externalDirectory = context.getExternalFilesDir(null)
-        constants["documents"] = externalDirectory?.absolutePath ?: context.filesDir.absolutePath
+        val externalDirectory = reactContext.getExternalFilesDir(null)
+        constants["documents"] = externalDirectory?.absolutePath ?: reactContext.filesDir.absolutePath
 
         constants["TaskRunning"] = TASK_RUNNING
         constants["TaskSuspended"] = TASK_SUSPENDED
@@ -140,9 +133,8 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         return constants
     }
 
-    override fun initialize() {
-        super.initialize()
-        ee = reactApplicationContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+    fun initialize() {
+        ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
         registerDownloadReceiver()
 
         for ((downloadId, config) in downloadIdToConfig) {
@@ -150,12 +142,11 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         }
     }
 
-    override fun invalidate() {
+    fun invalidate() {
         unregisterDownloadReceiver()
     }
 
     private fun registerDownloadReceiver() {
-        val context = reactApplicationContext
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
 
         downloadReceiver = object : BroadcastReceiver() {
@@ -196,7 +187,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
             }
         }
 
-        compatRegisterReceiver(context, downloadReceiver!!, filter, true)
+        compatRegisterReceiver(reactContext, downloadReceiver!!, filter, true)
     }
 
     // TAKEN FROM
@@ -220,7 +211,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
 
     private fun unregisterDownloadReceiver() {
         downloadReceiver?.let {
-            reactApplicationContext.unregisterReceiver(it)
+            reactContext.unregisterReceiver(it)
             downloadReceiver = null
         }
     }
@@ -253,7 +244,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                 val onProgressFuture = cachedExecutorPool.submit(onProgressCallable)
                 configIdToProgressFuture[config.id] = onProgressFuture
             } catch (e: Exception) {
-                Log.e(name, "resumeTasks: ${Log.getStackTraceString(e)}")
+                Log.e(NAME, "resumeTasks: ${Log.getStackTraceString(e)}")
             }
         }.start()
     }
@@ -319,7 +310,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                     // This is a redirect
                     val location = connection.getHeaderField("Location")
                     if (location == null) {
-                        Log.w(name, "Redirect response without Location header at: $currentUrl")
+                        Log.w(NAME, "Redirect response without Location header at: $currentUrl")
                         break
                     }
 
@@ -336,7 +327,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                         else -> location
                     }
 
-                    Log.d(name, "Redirect ${redirectCount + 1}/$maxRedirects: $currentUrl -> $location")
+                    Log.d(NAME, "Redirect ${redirectCount + 1}/$maxRedirects: $currentUrl -> $location")
                     redirectCount++
                 } else {
                     // Not a redirect, we've found the final URL
@@ -352,20 +343,18 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                     "Reached maximum redirects ($maxRedirects) for URL: $originalUrl. Final URL: $currentUrl"
                 )
             } else {
-                Log.d(name, "Resolved URL after $redirectCount redirects: $currentUrl")
+                Log.d(NAME, "Resolved URL after $redirectCount redirects: $currentUrl")
             }
 
             return currentUrl
 
         } catch (e: Exception) {
-            Log.e(name, "Failed to resolve redirects for URL: $originalUrl. Error: ${e.message}")
+            Log.e(NAME, "Failed to resolve redirects for URL: $originalUrl. Error: ${e.message}")
             // Return original URL if redirect resolution fails
             return originalUrl
         }
     }
 
-    @ReactMethod
-    @Suppress("unused")
     fun download(options: ReadableMap) {
         val id = options.getString("id")
         var url = options.getString("url")
@@ -397,15 +386,15 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         }
 
         if (id == null || url == null || destination == null) {
-            Log.e(name, "download: id, url and destination must be set.")
+            Log.e(NAME, "download: id, url and destination must be set.")
             return
         }
 
         // Resolve redirects if maxRedirects is specified
         if (maxRedirects > 0) {
-            Log.d(name, "Resolving redirects for URL: $url (maxRedirects: $maxRedirects)")
+            Log.d(NAME, "Resolving redirects for URL: $url (maxRedirects: $maxRedirects)")
             url = resolveRedirects(url, maxRedirects, headers)
-            Log.d(name, "Final resolved URL: $url")
+            Log.d(NAME, "Final resolved URL: $url")
         }
 
         val request = DownloadManager.Request(Uri.parse(url))
@@ -442,7 +431,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         val uuid = (System.currentTimeMillis() and 0xfffffff).toInt()
         val extension = MimeTypeMap.getFileExtensionFromUrl(destination)
         val filename = "$uuid.$extension"
-        request.setDestinationInExternalFilesDir(reactApplicationContext, null, filename)
+        request.setDestinationInExternalFilesDir(reactContext, null, filename)
 
         val downloadId = downloader.download(request)
         val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)
@@ -459,8 +448,6 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
     // Pause functionality is not supported by Android DownloadManager.
     // This method will throw an UnsupportedOperationException to clearly indicate
     // that pause is not available on Android platform.
-    @ReactMethod
-    @Suppress("unused")
     fun pauseTask(configId: String) {
         synchronized(sharedLock) {
             val downloadId = configIdToDownloadId[configId]
@@ -479,8 +466,6 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
     // Resume functionality is not supported by Android DownloadManager.
     // This method will throw an UnsupportedOperationException to clearly indicate
     // that resume is not available on Android platform.
-    @ReactMethod
-    @Suppress("unused")
     fun resumeTask(configId: String) {
         synchronized(sharedLock) {
             val downloadId = configIdToDownloadId[configId]
@@ -496,8 +481,6 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         }
     }
 
-    @ReactMethod
-    @Suppress("unused")
     fun stopTask(configId: String) {
         synchronized(sharedLock) {
             val downloadId = configIdToDownloadId[configId]
@@ -509,17 +492,15 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
         }
     }
 
-    @ReactMethod
-    @Suppress("unused")
     fun completeHandler(configId: String) {
         // Firebase Performance compatibility: Add defensive programming to prevent crashes
         // when Firebase Performance SDK is installed and uses bytecode instrumentation
 
-        Log.d(name, "completeHandler called with configId: $configId")
+        Log.d(NAME, "completeHandler called with configId: $configId")
 
         // Defensive programming: Validate parameters
         if (configId.isEmpty()) {
-            Log.w(name, "completeHandler: Invalid configId provided")
+            Log.w(NAME, "completeHandler: Invalid configId provided")
             return
         }
 
@@ -527,17 +508,15 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
             // Currently this method doesn't have any implementation on Android
             // as completion handlers are handled differently than iOS.
             // This defensive structure ensures Firebase Performance compatibility.
-            Log.d(name, "completeHandler executed successfully for configId: $configId")
+            Log.d(NAME, "completeHandler executed successfully for configId: $configId")
 
         } catch (e: Exception) {
             // Catch any potential exceptions that might be thrown due to Firebase Performance
             // bytecode instrumentation interfering with method dispatch
-            Log.e(name, "completeHandler: Exception occurred: ${Log.getStackTraceString(e)}")
+            Log.e(NAME, "completeHandler: Exception occurred: ${Log.getStackTraceString(e)}")
         }
     }
 
-    @ReactMethod
-    @Suppress("unused")
     fun getExistingDownloadTasks(promise: Promise) {
         val foundTasks = Arguments.createArray()
 
@@ -563,7 +542,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                                                 val future = setFileChangesBeforeCompletion(localUri, config.destination)
                                                 future.get()
                                             } catch (e: Exception) {
-                                                Log.e(name, "Error moving completed download file: ${e.message}")
+                                                Log.e(NAME, "Error moving completed download file: ${e.message}")
                                                 // Continue with normal processing even if file move fails
                                             }
                                         }
@@ -593,20 +572,16 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                     }
                 }
             } catch (e: Exception) {
-                Log.e(name, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
+                Log.e(NAME, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
             }
         }
 
         promise.resolve(foundTasks)
     }
 
-    @ReactMethod
-    @Suppress("unused")
     fun addListener(eventName: String) {
     }
 
-    @ReactMethod
-    @Suppress("unused")
     fun removeListeners(count: Int) {
     }
 
@@ -725,15 +700,15 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
 
                 if (isMMKVAvailable && mmkv != null) {
                     mmkv!!.encode("${name}_downloadIdToConfig", str)
-                    Log.d(name, "Saved download config to MMKV")
+                    Log.d(NAME, "Saved download config to MMKV")
                 } else {
                     sharedPreferences.edit()
                         .putString("${name}_downloadIdToConfig", str)
                         .apply()
-                    Log.d(name, "Saved download config to SharedPreferences fallback")
+                    Log.d(NAME, "Saved download config to SharedPreferences fallback")
                 }
             } catch (e: Exception) {
-                Log.e(name, "Failed to save download config: ${e.message}")
+                Log.e(NAME, "Failed to save download config: ${e.message}")
             }
         }
     }
@@ -745,11 +720,11 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
             try {
                 val str = if (isMMKVAvailable && mmkv != null) {
                     mmkv!!.decodeString("${name}_downloadIdToConfig")?.also {
-                        Log.d(name, "Loaded download config from MMKV")
+                        Log.d(NAME, "Loaded download config from MMKV")
                     }
                 } else {
                     sharedPreferences.getString("${name}_downloadIdToConfig", null)?.also {
-                        Log.d(name, "Loaded download config from SharedPreferences fallback")
+                        Log.d(NAME, "Loaded download config from SharedPreferences fallback")
                     }
                 }
 
@@ -758,10 +733,10 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                     val mapType = object : TypeToken<Map<Long, RNBGDTaskConfig>>() {}.type
                     downloadIdToConfig = gson.fromJson(str, mapType)
                 } else {
-                    Log.d(name, "No existing download config found, starting with empty map")
+                    Log.d(NAME, "No existing download config found, starting with empty map")
                 }
             } catch (e: Exception) {
-                Log.e(name, "Failed to load download config: ${e.message}")
+                Log.e(NAME, "Failed to load download config: ${e.message}")
                 downloadIdToConfig = mutableMapOf()
             }
         }
@@ -773,16 +748,16 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                 if (isMMKVAvailable && mmkv != null) {
                     mmkv!!.encode("${name}_progressInterval", progressInterval)
                     mmkv!!.encode("${name}_progressMinBytes", progressMinBytes)
-                    Log.d(name, "Saved config to MMKV")
+                    Log.d(NAME, "Saved config to MMKV")
                 } else {
                     sharedPreferences.edit()
                         .putInt("${name}_progressInterval", progressInterval)
                         .putLong("${name}_progressMinBytes", progressMinBytes)
                         .apply()
-                    Log.d(name, "Saved config to SharedPreferences fallback")
+                    Log.d(NAME, "Saved config to SharedPreferences fallback")
                 }
             } catch (e: Exception) {
-                Log.e(name, "Failed to save config: ${e.message}")
+                Log.e(NAME, "Failed to save config: ${e.message}")
             }
         }
     }
@@ -799,7 +774,7 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                     if (progressMinBytesScope > 0) {
                         progressMinBytes = progressMinBytesScope
                     }
-                    Log.d(name, "Loaded config from MMKV")
+                    Log.d(NAME, "Loaded config from MMKV")
                 } else {
                     val progressIntervalScope = sharedPreferences.getInt("${name}_progressInterval", 0)
                     if (progressIntervalScope > 0) {
@@ -809,10 +784,10 @@ open class RNBackgroundDownloaderModuleImpl(reactContext: ReactApplicationContex
                     if (progressMinBytesScope > 0) {
                         progressMinBytes = progressMinBytesScope
                     }
-                    Log.d(name, "Loaded config from SharedPreferences fallback")
+                    Log.d(NAME, "Loaded config from SharedPreferences fallback")
                 }
             } catch (e: Exception) {
-                Log.e(name, "Failed to load config: ${e.message}")
+                Log.e(NAME, "Failed to load config: ${e.message}")
             }
         }
     }

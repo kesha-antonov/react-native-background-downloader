@@ -13,11 +13,12 @@ describe('Android pause/resume limitations', () => {
   let task
 
   beforeEach(() => {
-    task = RNBackgroundDownloader.download({
+    task = RNBackgroundDownloader.createDownloadTask({
       id: 'test-android-limitations',
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',
     })
+    task.start()
   })
 
   test('pause method should not crash on Android', () => {

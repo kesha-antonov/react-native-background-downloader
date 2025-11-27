@@ -15,7 +15,16 @@ import {
 } from './types'
 import { config, log } from '.'
 
-const { RNBackgroundDownloader } = NativeModules
+// Try to get the native module using TurboModuleRegistry first (new architecture),
+// then fall back to NativeModules (old architecture)
+const isTurboModuleEnabled = global.__turboModuleProxy != null
+
+let RNBackgroundDownloader
+if (isTurboModuleEnabled)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  RNBackgroundDownloader = require('./NativeRNBackgroundDownloader').default
+else
+  RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
 
 export default class DownloadTask {
   id = ''
@@ -55,21 +64,33 @@ export default class DownloadTask {
   // event listeners setters
 
   begin (handler: BeginHandler) {
+    if (typeof handler !== 'function')
+      throw new Error('begin handler must be a function')
+
     this.beginHandler = handler
     return this
   }
 
   progress (handler: ProgressHandler) {
+    if (typeof handler !== 'function')
+      throw new Error('progress handler must be a function')
+
     this.progressHandler = handler
     return this
   }
 
   done (handler: DoneHandler) {
+    if (typeof handler !== 'function')
+      throw new Error('done handler must be a function')
+
     this.doneHandler = handler
     return this
   }
 
   error (handler: ErrorHandler) {
+    if (typeof handler !== 'function')
+      throw new Error('error handler must be a function')
+
     this.errorHandler = handler
     return this
   }

@@ -17,7 +17,7 @@ describe('MMKV 4+ Compatibility', () => {
 
     expect(() => {
       // Test basic functionality still works with updated dependency
-      RNBackgroundDownloader.download({
+      RNBackgroundDownloader.createDownloadTask({
         id: 'test-mmkv4-compatibility',
         url: 'https://example.com/file.zip',
         destination: '/tmp/test-file.zip',
@@ -47,7 +47,7 @@ describe('MMKV 4+ Compatibility', () => {
 
     expect(() => {
       downloads.forEach(options => {
-        const task = RNBackgroundDownloader.download(options)
+        const task = RNBackgroundDownloader.createDownloadTask(options)
         expect(task.id).toBe(options.id)
       })
     }).not.toThrow()
@@ -55,7 +55,7 @@ describe('MMKV 4+ Compatibility', () => {
 
   it('should maintain API compatibility with MMKV dependency change', () => {
     // Ensure all core API functions are still available
-    expect(typeof RNBackgroundDownloader.download).toBe('function')
+    expect(typeof RNBackgroundDownloader.createDownloadTask).toBe('function')
     expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
     expect(typeof RNBackgroundDownloader.ensureDownloadsAreRunning).toBe('function')
     expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')

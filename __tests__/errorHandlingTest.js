@@ -6,7 +6,7 @@ const nativeEmitter = new NativeEventEmitter(RNBackgroundDownloaderNative)
 
 test('ERROR_CANNOT_RESUME handling', () => {
   return new Promise(resolve => {
-    const errorDT = RNBackgroundDownloader.download({
+    const errorDT = RNBackgroundDownloader.createDownloadTask({
       id: 'testCannotResume',
       url: 'test',
       destination: 'test',
@@ -18,6 +18,7 @@ test('ERROR_CANNOT_RESUME handling', () => {
       expect(errorDT.state).toBe('FAILED')
       resolve()
     })
+    errorDT.start()
 
     // Simulate the ERROR_CANNOT_RESUME error
     nativeEmitter.emit('downloadFailed', {

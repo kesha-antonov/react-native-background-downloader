@@ -13,7 +13,7 @@ const nativeEmitter = new NativeEventEmitter(RNBackgroundDownloaderNative)
 describe('Progress callback with unknown total bytes', () => {
   test('progress event should be called when bytesTotal is 0 (unknown)', () => {
     return new Promise(resolve => {
-      RNBackgroundDownloader.download({
+      const progressDT = RNBackgroundDownloader.createDownloadTask({
         id: 'testProgressUnknownTotal',
         url: 'https://example.com/stream',
         destination: '/tmp/stream.dat',
@@ -22,6 +22,7 @@ describe('Progress callback with unknown total bytes', () => {
         expect(bytesTotal).toBe(0) // Unknown total bytes
         resolve()
       })
+      progressDT.start()
 
       // Simulate native progress event with unknown total bytes
       nativeEmitter.emit('downloadProgress', [{
@@ -34,7 +35,7 @@ describe('Progress callback with unknown total bytes', () => {
 
   test('progress event should be called when bytesTotal is -1 (unknown)', () => {
     return new Promise(resolve => {
-      RNBackgroundDownloader.download({
+      const progressDT = RNBackgroundDownloader.createDownloadTask({
         id: 'testProgressUnknownTotal2',
         url: 'https://example.com/stream2',
         destination: '/tmp/stream2.dat',
@@ -43,6 +44,7 @@ describe('Progress callback with unknown total bytes', () => {
         expect(bytesTotal).toBe(-1) // Some servers return -1 for unknown
         resolve()
       })
+      progressDT.start()
 
       // Simulate native progress event with unknown total bytes (-1)
       nativeEmitter.emit('downloadProgress', [{
@@ -57,7 +59,7 @@ describe('Progress callback with unknown total bytes', () => {
     let progressCount = 0
 
     return new Promise(resolve => {
-      RNBackgroundDownloader.download({
+      const multiProgressDT = RNBackgroundDownloader.createDownloadTask({
         id: 'testProgressMultipleUnknown',
         url: 'https://example.com/stream3',
         destination: '/tmp/stream3.dat',
@@ -74,6 +76,7 @@ describe('Progress callback with unknown total bytes', () => {
           resolve() // All progress calls received
         }
       })
+      multiProgressDT.start()
 
       // Simulate multiple progress events
       nativeEmitter.emit('downloadProgress', [{

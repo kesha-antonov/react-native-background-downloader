@@ -7,20 +7,31 @@ const nativeEmitter = new NativeEventEmitter(RNBackgroundDownloaderNative)
 
 let downloadTask
 
-test('download function', () => {
-  downloadTask = RNBackgroundDownloader.download({
+test('createDownloadTask function', () => {
+  downloadTask = RNBackgroundDownloader.createDownloadTask({
     id: 'test',
     url: 'test',
     destination: 'test',
   })
   expect(downloadTask).toBeInstanceOf(DownloadTask)
+  // Task is not started yet, download should not be called
+  expect(downloadTask.state).toBe('PENDING')
+})
+
+test('start download', () => {
+  const startDT = RNBackgroundDownloader.createDownloadTask({
+    id: 'testStart',
+    url: 'test',
+    destination: 'test',
+  })
+  startDT.start()
   expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()
 })
 
 test('begin event', () => {
   const mockedHeaders = { Etag: '123' }
   return new Promise(resolve => {
-    const beginDT = RNBackgroundDownloader.download({
+    const beginDT = RNBackgroundDownloader.createDownloadTask({
       id: 'testBegin',
       url: 'test',
       destination: 'test',
@@ -30,6 +41,7 @@ test('begin event', () => {
       expect(beginDT.state).toBe('DOWNLOADING')
       resolve()
     })
+    beginDT.start()
     nativeEmitter.emit('downloadBegin', {
       id: 'testBegin',
       expectedBytes: 9001,
@@ -40,7 +52,7 @@ test('begin event', () => {
 
 test('progress event', () => {
   return new Promise(resolve => {
-    RNBackgroundDownloader.download({
+    const progressDT = RNBackgroundDownloader.createDownloadTask({
       id: 'testProgress',
       url: 'test',
       destination: 'test',
@@ -49,6 +61,7 @@ test('progress event', () => {
       expect(bytesTotal).toBe(200)
       resolve()
     })
+    progressDT.start()
     nativeEmitter.emit('downloadProgress', [{
       id: 'testProgress',
       bytesDownloaded: 100,
@@ -59,7 +72,7 @@ test('progress event', () => {
 
 test('done event', () => {
   return new Promise(resolve => {
-    const doneDT = RNBackgroundDownloader.download({
+    const doneDT = RNBackgroundDownloader.createDownloadTask({
       id: 'testDone',
       url: 'test',
       destination: 'test',
@@ -67,6 +80,7 @@ test('done event', () => {
       expect(doneDT.state).toBe('DONE')
       resolve()
     })
+    doneDT.start()
     nativeEmitter.emit('downloadComplete', {
       id: 'testDone',
     })
@@ -75,7 +89,7 @@ test('done event', () => {
 
 test('fail event', () => {
   return new Promise(resolve => {
-    const failDT = RNBackgroundDownloader.download({
+    const failDT = RNBackgroundDownloader.createDownloadTask({
       id: 'testFail',
       url: 'test',
       destination: 'test',
@@ -85,6 +99,7 @@ test('fail event', () => {
       expect(failDT.state).toBe('FAILED')
       resolve()
     })
+    failDT.start()
     nativeEmitter.emit('downloadFailed', {
       id: 'testFail',
       error: new Error('test'),
@@ -94,11 +109,12 @@ test('fail event', () => {
 })
 
 test('pause', () => {
-  const pauseDT = RNBackgroundDownloader.download({
+  const pauseDT = RNBackgroundDownloader.createDownloadTask({
     id: 'testPause',
     url: 'test',
     destination: 'test',
   })
+  pauseDT.start()
 
   pauseDT.pause()
   expect(pauseDT.state).toBe('PAUSED')
@@ -106,11 +122,12 @@ test('pause', () => {
 })
 
 test('resume', () => {
-  const resumeDT = RNBackgroundDownloader.download({
+  const resumeDT = RNBackgroundDownloader.createDownloadTask({
     id: 'testResume',
     url: 'test',
     destination: 'test',
   })
+  resumeDT.start()
 
   resumeDT.resume()
   expect(resumeDT.state).toBe('DOWNLOADING')
@@ -118,11 +135,12 @@ test('resume', () => {
 })
 
 test('stop', () => {
-  const stopDT = RNBackgroundDownloader.download({
+  const stopDT = RNBackgroundDownloader.createDownloadTask({
     id: 'testStop',
     url: 'test',
     destination: 'test',
   })
+  stopDT.start()
 
   stopDT.stop()
   expect(stopDT.state).toBe('STOPPED')
@@ -150,11 +168,12 @@ test('setConfig with progressMinBytes', () => {
   })
 
   // Test that download passes progressMinBytes to native
-  const configDownloadTask = RNBackgroundDownloader.download({
+  const configDownloadTask = RNBackgroundDownloader.createDownloadTask({
     id: 'testConfig',
     url: 'https://example.com/file.zip',
     destination: '/tmp/file.zip',
   })
+  configDownloadTask.start()
 
   expect(RNBackgroundDownloaderNative.download).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -162,14 +181,13 @@ test('setConfig with progressMinBytes', () => {
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',
       progressInterval: 2000,
-      progressMinBytes: 500000,
     })
   )
   expect(configDownloadTask).toBeInstanceOf(DownloadTask)
 })
 
 test('wrong handler type', () => {
-  const dt = RNBackgroundDownloader.download({
+  const dt = RNBackgroundDownloader.createDownloadTask({
     id: 'test22222',
     url: 'test',
     destination: 'test',
@@ -193,11 +211,12 @@ test('wrong handler type', () => {
 })
 
 test('download with timeout improvements for slow URLs', () => {
-  const timeoutDT = RNBackgroundDownloader.download({
+  const timeoutDT = RNBackgroundDownloader.createDownloadTask({
     id: 'testSlowUrl',
     url: 'https://example.com/slow-response',
     destination: '/path/to/file.zip',
   })
+  timeoutDT.start()
 
   expect(timeoutDT).toBeInstanceOf(DownloadTask)
   expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()

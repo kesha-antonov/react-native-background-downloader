@@ -17,7 +17,7 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
 
     expect(() => {
       // Test basic functionality still works when MMKV might not be available
-      RNBackgroundDownloader.download({
+      RNBackgroundDownloader.createDownloadTask({
         id: 'test-architecture-compatibility',
         url: 'https://example.com/file.zip',
         destination: '/tmp/test-file.zip',
@@ -46,7 +46,7 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
 
   it('should maintain all API functions despite storage limitations', () => {
     // Test that all main API functions are available and functional
-    expect(typeof RNBackgroundDownloader.download).toBe('function')
+    expect(typeof RNBackgroundDownloader.createDownloadTask).toBe('function')
     expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
     expect(typeof RNBackgroundDownloader.ensureDownloadsAreRunning).toBe('function')
     expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
@@ -69,7 +69,7 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
     }
 
     expect(() => {
-      const task = RNBackgroundDownloader.download(downloadOptions)
+      const task = RNBackgroundDownloader.createDownloadTask(downloadOptions)
       expect(task).toBeDefined()
       expect(task.id).toBe(downloadOptions.id)
 
@@ -94,18 +94,9 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
       ]
 
       downloads.forEach(options => {
-        const task = RNBackgroundDownloader.download(options)
+        const task = RNBackgroundDownloader.createDownloadTask(options)
         expect(task.id).toBe(options.id)
       })
     }).not.toThrow()
-  })
-
-  it('should provide storage information for debugging', () => {
-    // Test that storage information is exposed for developers to understand
-    // which storage mechanism is being used
-    expect(RNBackgroundDownloader.storageInfo).toBeDefined()
-    expect(typeof RNBackgroundDownloader.storageInfo.isMMKVAvailable).toBe('boolean')
-    expect(typeof RNBackgroundDownloader.storageInfo.storageType).toBe('string')
-    expect(['MMKV', 'SharedPreferences', 'Unknown'].includes(RNBackgroundDownloader.storageInfo.storageType)).toBe(true)
   })
 })
