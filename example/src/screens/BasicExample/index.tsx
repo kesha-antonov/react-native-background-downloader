@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react'
-import { StyleSheet, View, Text, FlatList } from 'react-native'
-import * as FileSystem from 'expo-file-system'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo } from 'react-native'
+import { Directory, Paths } from 'expo-file-system'
 import {
   completeHandler,
-  directories,
   getExistingDownloadTasks,
   createDownloadTask,
   setConfig,
@@ -12,7 +11,9 @@ import Slider from '@react-native-community/slider'
 import { ExButton, ExWrapper } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 
-const defaultDir = directories.documents
+type DownloadTask = ReturnType<typeof createDownloadTask>
+
+const defaultDir = new Directory(Paths.document)
 
 setConfig({
   isLogsEnabled: true,
@@ -27,7 +28,7 @@ interface FooterProps {
   isStarted: boolean
 }
 
-const Footer = ({
+const Footer = React.memo(({
   onStart,
   onStop,
   onReset,
@@ -49,7 +50,7 @@ const Footer = ({
       <ExButton title={'List files'} onPress={onRead} />
     </View>
   )
-}
+})
 
 interface UrlItem {
   id: string
@@ -58,8 +59,46 @@ interface UrlItem {
   title?: string
 }
 
+interface TaskItemProps {
+  task: DownloadTask
+  onPause: (id: string) => void
+  onResume: (id: string) => void
+  onCancel: (id: string) => void
+}
+
+const ENDED_STATES = ['STOPPED', 'DONE', 'FAILED'] as const
+
+const TaskItem = React.memo(({ task, onPause, onResume, onCancel }: TaskItemProps) => {
+  const isEnded = ENDED_STATES.includes(task.state as typeof ENDED_STATES[number])
+  const isDownloading = task.state === 'DOWNLOADING'
+
+  return (
+    <View style={styles.item}>
+      <View style={styles.itemContent}>
+        <Text>{task.id}</Text>
+        <Text>{task.state}</Text>
+        <Slider
+          disabled
+          value={task.bytesDownloaded}
+          minimumValue={0}
+          maximumValue={task.bytesTotal}
+        />
+      </View>
+      <View>
+        {!isEnded &&
+          (isDownloading ? (
+            <ExButton title="Pause" onPress={() => onPause(task.id)} />
+          ) : (
+            <ExButton title="Resume" onPress={() => onResume(task.id)} />
+          ))}
+        <ExButton title="Cancel" onPress={() => onCancel(task.id)} />
+      </View>
+    </View>
+  )
+})
+
 const BasicExampleScreen = () => {
-  const [urlList] = useState<UrlItem[]>([
+  const urlList = useMemo<UrlItem[]>(() => [
     {
       id: uuid(),
       url: 'https://sabnzbd.org/tests/internetspeed/20MB.bin',
@@ -80,111 +119,101 @@ const BasicExampleScreen = () => {
       maxRedirects: 10,
       title: 'Podcast with redirects',
     },
-  ])
+  ], [])
 
   const [isStarted, setIsStarted] = useState(false)
 
-  const [downloadTasks, setDownloadTasks] = useState<any[]>([])
+  const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
+
+  const getTask = useCallback((id: string) => downloadTasks.get(id), [downloadTasks])
+
+  const updateTask = useCallback((task: DownloadTask) => {
+    setDownloadTasks(prev => new Map(prev).set(task.id, task))
+  }, [])
+
+  const process = useCallback((task: DownloadTask) => {
+    return task
+      .begin(({ expectedBytes, headers }) => {
+        console.log('task: begin', { id: task.id, expectedBytes, headers })
+        updateTask(task)
+      })
+      .progress(({ bytesDownloaded, bytesTotal }) => {
+        console.log('task: progress', { id: task.id, bytesDownloaded, bytesTotal })
+        updateTask(task)
+      })
+      .done(() => {
+        console.log('task: done', { id: task.id })
+        updateTask(task)
+        completeHandler(task.id)
+      })
+      .error(({ error, errorCode }) => {
+        console.error('task: error', { id: task.id, error, errorCode })
+        updateTask(task)
+        completeHandler(task.id)
+      })
+  }, [updateTask])
 
   /**
    * It is used to resume your incomplete or unfinished downloads.
    */
-  const resumeExistingTasks = async () => {
+  const resumeExistingTasks = useCallback(async () => {
     try {
       const tasks = await getExistingDownloadTasks()
 
       console.log(tasks)
 
       if (tasks.length > 0) {
-        tasks.map(task => process(task))
-        setDownloadTasks(downloadTasks => [...downloadTasks, ...tasks])
+        tasks.forEach(task => process(task))
+        setDownloadTasks(prev => {
+          const newMap = new Map(prev)
+          tasks.forEach(task => newMap.set(task.id, task))
+          return newMap
+        })
         setIsStarted(true)
       }
     } catch (e) {
       console.warn('getExistingDownloadTasks e', e)
     }
-  }
+  }, [process])
 
-  const readStorage = async () => {
+  const readStorage = useCallback(() => {
     try {
-      const files = await FileSystem.readDirectoryAsync(defaultDir)
+      const contents = defaultDir.list()
+      const fileNames = contents.map(item => item.name)
       toast('Check logs')
-      console.log(`Downloaded files: ${files}`)
-    } catch (e) {
-      console.warn('readStorage error:', e)
+      console.log('Downloaded files:', fileNames)
+    } catch (error) {
+      console.warn('readStorage error:', error)
       toast('Error reading files')
     }
-  }
+  }, [])
 
-  const clearStorage = async () => {
+  const clearStorage = useCallback(() => {
     try {
-      const files = await FileSystem.readDirectoryAsync(defaultDir)
-
-      if (files.length > 0)
-        await Promise.all(
-          files.map(file => FileSystem.deleteAsync(defaultDir + '/' + file, { idempotent: true }))
-        )
-
+      const contents = defaultDir.list()
+      contents.forEach(item => item.delete())
       toast('Check logs')
-      console.log(`Deleted file count: ${files.length}`)
-    } catch (e) {
-      console.warn('clearStorage error:', e)
+      console.log('Deleted file count:', contents.length)
+    } catch (error) {
+      console.warn('clearStorage error:', error)
       toast('Error clearing files')
     }
-  }
+  }, [])
 
-  const process = (task: any) => {
-    const { index } = getTask(task.id)
-
-    return task
-      .begin(({ expectedBytes, headers }: { expectedBytes: number; headers: any }) => {
-        console.log('task: begin', { id: task.id, expectedBytes, headers })
-        setDownloadTasks(downloadTasks => {
-          downloadTasks[index] = task
-          return [...downloadTasks]
-        })
-      })
-      .progress(({ bytesDownloaded, bytesTotal }: { bytesDownloaded: number; bytesTotal: number }) => {
-        console.log('task: progress', { id: task.id, bytesDownloaded, bytesTotal })
-        setDownloadTasks(downloadTasks => {
-          downloadTasks[index] = task
-          return [...downloadTasks]
-        })
-      })
-      .done(() => {
-        console.log('task: done', { id: task.id })
-        setDownloadTasks(downloadTasks => {
-          downloadTasks[index] = task
-          return [...downloadTasks]
-        })
-
-        completeHandler(task.id)
-      })
-      .error((e: any) => {
-        console.error('task: error', { id: task.id, e })
-        setDownloadTasks(downloadTasks => {
-          downloadTasks[index] = task
-          return [...downloadTasks]
-        })
-
-        completeHandler(task.id)
-      })
-  }
-
-  const reset = () => {
-    stop()
-    setDownloadTasks([])
+  const reset = useCallback(() => {
+    downloadTasks.forEach(task => task.stop())
+    setDownloadTasks(new Map())
     setIsStarted(false)
-  }
+  }, [downloadTasks])
 
-  const start = () => {
+  const start = useCallback(() => {
     /**
      * You need to provide the extension of the file in the destination section below.
      * If you cannot provide this, you may experience problems while using your file.
      * For example; Path + File Name + .png
      */
     const taskAttributes = urlList.map(item => {
-      const destination = defaultDir + '/' + item.id
+      const destination = defaultDir.uri + '/' + item.id
       const taskAttribute: any = {
         id: item.id,
         url: item.url,
@@ -201,66 +230,90 @@ const BasicExampleScreen = () => {
     })
 
     // Create download tasks using the new API
-    const tasks = taskAttributes.map(taskAttribute => {
-      const task = createDownloadTask(taskAttribute)
-      process(task)
-      task.start() // Start the download
-      return task
+    setDownloadTasks(prev => {
+      const newMap = new Map(prev)
+      taskAttributes.forEach(taskAttribute => {
+        const task = createDownloadTask(taskAttribute)
+        process(task)
+        task.start() // Start the download
+        newMap.set(task.id, task)
+      })
+      return newMap
     })
-
-    setDownloadTasks(downloadTasks => [...downloadTasks, ...tasks])
     setIsStarted(true)
-  }
+  }, [urlList, process])
 
-  const stop = () => {
-    const tasks = downloadTasks.map(task => {
-      task.stop()
-      return task
-    })
-
-    setDownloadTasks(tasks)
+  const stop = useCallback(() => {
+    downloadTasks.forEach(task => task.stop())
     setIsStarted(false)
-  }
+  }, [downloadTasks])
 
-  const pause = (id: string) => {
-    const { index, task } = getTask(id)
+  const pause = useCallback((id: string) => {
+    const task = getTask(id)
+    if (task) {
+      task.pause()
+      updateTask(task)
+    }
+  }, [getTask, updateTask])
 
-    task.pause()
-    setDownloadTasks(downloadTasks => {
-      downloadTasks[index] = task
-      return [...downloadTasks]
-    })
-  }
+  const resume = useCallback((id: string) => {
+    const task = getTask(id)
+    if (task) {
+      task.resume()
+      updateTask(task)
+    }
+  }, [getTask, updateTask])
 
-  const resume = (id: string) => {
-    const { index, task } = getTask(id)
-
-    task.resume()
-    setDownloadTasks(downloadTasks => {
-      downloadTasks[index] = task
-      return [...downloadTasks]
-    })
-  }
-
-  const cancel = (id: string) => {
-    const { index, task } = getTask(id)
-
-    task.stop()
-    setDownloadTasks(downloadTasks => {
-      downloadTasks[index] = task
-      return [...downloadTasks]
-    })
-  }
-
-  const getTask = (id: string) => {
-    const index = downloadTasks.findIndex(task => task.id === id)
-    const task = downloadTasks[index]
-    return { index, task }
-  }
+  const cancel = useCallback((id: string) => {
+    const task = getTask(id)
+    if (task) {
+      task.stop()
+      updateTask(task)
+    }
+  }, [getTask, updateTask])
 
   useEffect(() => {
     resumeExistingTasks()
   }, [])
+
+  const urlKeyExtractor = useCallback((item: UrlItem) => item.id, [])
+
+  const renderUrlItem = useCallback(({ item }: ListRenderItemInfo<UrlItem>) => (
+    <View style={styles.item}>
+      <View style={styles.itemContent}>
+        <Text>Id: {item.id}</Text>
+        <Text>Url: {item.url}</Text>
+        {item.maxRedirects && (
+          <Text style={styles.redirectInfo}>
+            Max redirects: {item.maxRedirects}
+            {item.title && ` (${item.title})`}
+          </Text>
+        )}
+      </View>
+    </View>
+  ), [])
+
+  const renderFooter = useCallback(() => (
+    <Footer
+      isStarted={isStarted}
+      onStart={start}
+      onStop={stop}
+      onReset={reset}
+      onClear={clearStorage}
+      onRead={readStorage}
+    />
+  ), [isStarted, start, stop, reset, clearStorage, readStorage])
+
+  const taskKeyExtractor = useCallback((item: DownloadTask) => item.id, [])
+
+  const downloadTasksArray = useMemo(() => Array.from(downloadTasks.values()), [downloadTasks])
+
+  const renderTaskItem = useCallback(
+    ({ item }: ListRenderItemInfo<DownloadTask>) => (
+      <TaskItem task={item} onPause={pause} onResume={resume} onCancel={cancel} />
+    ),
+    [pause, resume, cancel]
+  )
 
   return (
     <ExWrapper>
@@ -268,72 +321,22 @@ const BasicExampleScreen = () => {
       <View>
         <FlatList
           data={urlList}
-          keyExtractor={(item, index) => `url-${index}`}
-          renderItem={({ index, item }) => (
-            <View style={styles.item}>
-              <View style={styles.itemContent}>
-                <Text>Id: {item.id}</Text>
-                <Text>Url: {item.url}</Text>
-                {item.maxRedirects && (
-                  <Text style={styles.redirectInfo}>
-                    Max redirects: {item.maxRedirects}
-                    {item.title && ` (${item.title})`}
-                  </Text>
-                )}
-              </View>
-            </View>
-          )}
-          ListFooterComponent={() => (
-            <Footer
-              isStarted={isStarted}
-              onStart={start}
-              onStop={stop}
-              onReset={reset}
-              onClear={clearStorage}
-              onRead={readStorage}
-            />
-          )}
+          keyExtractor={urlKeyExtractor}
+          renderItem={renderUrlItem}
+          ListFooterComponent={renderFooter}
         />
       </View>
       <FlatList
-        style={{ flex: 1, flexGrow: 1 }}
-        data={downloadTasks}
-        renderItem={({ item, index }) => {
-          const isEnded = ['STOPPED', 'DONE', 'FAILED'].includes(item.state)
-          const isDownloading = item.state === 'DOWNLOADING'
-
-          return (
-            <View style={styles.item}>
-              <View style={styles.itemContent}>
-                <Text>{item?.id}</Text>
-                <Text>{item?.state}</Text>
-                <Slider
-                  disabled={true}
-                  value={item?.bytesDownloaded}
-                  minimumValue={0}
-                  maximumValue={item?.bytesTotal}
-                />
-              </View>
-              <View>
-                {!isEnded &&
-                  (isDownloading ? (
-                    <ExButton title={'Pause'} onPress={() => pause(item.id)} />
-                  ) : (
-                    <ExButton
-                      title={'Resume'}
-                      onPress={() => resume(item.id)}
-                    />
-                  ))}
-                <ExButton title={'Cancel'} onPress={() => cancel(item.id)} />
-              </View>
-            </View>
-          )
-        }}
-        keyExtractor={(item, index) => `task-${index}`}
+        style={styles.taskList}
+        data={downloadTasksArray}
+        renderItem={renderTaskItem}
+        keyExtractor={taskKeyExtractor}
       />
     </ExWrapper>
   )
 }
+
+export default BasicExampleScreen
 
 const styles = StyleSheet.create({
   headerWrapper: {
@@ -366,6 +369,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
+  taskList: {
+    flex: 1,
+    flexGrow: 1,
+  },
 })
-
-export default BasicExampleScreen
