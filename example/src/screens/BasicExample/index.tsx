@@ -142,16 +142,22 @@ interface HeaderProps {
   tasksCount: number
 }
 
-const Header = React.memo(({ onClear, onReset, filesCount, tasksCount }: HeaderProps) => (
-  <View style={styles.headerWrapper}>
-    {tasksCount > 0 && (
-      <ExButton title="Remove all tasks" onPress={onReset} />
-    )}
-    {filesCount > 0 && (
-      <ExButton title="Delete Files" onPress={onClear} />
-    )}
-  </View>
-))
+const Header = React.memo(({ onClear, onReset, filesCount, tasksCount }: HeaderProps) => {
+  const hasActions = filesCount > 0 || tasksCount > 0
+  if (!hasActions)
+    return null
+
+  return (
+    <View style={styles.headerWrapper}>
+      {tasksCount > 0 && (
+        <ExButton title="Remove all tasks" onPress={onReset} />
+      )}
+      {filesCount > 0 && (
+        <ExButton title="Delete Files" onPress={onClear} />
+      )}
+    </View>
+  )
+})
 
 interface FileItemProps {
   fileName: string
@@ -444,11 +450,12 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+    marginTop: 8,
   },
   downloadItem: {
     padding: 16,
     marginHorizontal: 12,
-    marginVertical: 6,
+    marginVertical: 8,
     backgroundColor: '#fff',
     borderRadius: 8,
     borderWidth: 1,
