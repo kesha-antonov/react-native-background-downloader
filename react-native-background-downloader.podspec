@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.description  = package['description']
   s.homepage     = package['repository']['url']
   s.license      = package['license']
-  s.platform     = :ios, '13.4'
+  s.platform     = :ios, '15.1'
   s.author       = package['author']
   s.source       = { git: 'https://github.com/kesha-antonov/react-native-background-downloader.git', tag: 'main' }
 

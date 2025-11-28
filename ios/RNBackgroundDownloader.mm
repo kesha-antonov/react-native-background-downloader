@@ -1,9 +1,11 @@
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
 #import <MMKV/MMKV.h>
+#import <React/RCTBridge.h>
 
 #ifdef RCT_NEW_ARCH_ENABLED
 #import <RNBackgroundDownloaderSpec/RNBackgroundDownloaderSpec.h>
+#import <ReactCommon/TurboModule.h>
 #endif
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
@@ -46,19 +48,24 @@ static CompletionHandler storedCompletionHandler;
     NSDate *lastProgressReportedAt;
     BOOL isBridgeListenerInited;
     BOOL isJavascriptLoaded;
+    BOOL hasListeners;
 }
 
 RCT_EXPORT_MODULE();
 
+// Enable interop layer so NativeModules.RNBackgroundDownloader is available
+// This is required for NativeEventEmitter to work with TurboModules
++ (BOOL)requiresMainQueueSetup {
+    return YES;
+}
+
 #pragma mark - Helper methods
 
 - (BOOL)canSendEvents {
-#ifdef RCT_NEW_ARCH_ENABLED
-    // TurboModules: if this module instance exists and has listeners, events can be sent
-    return true;
-#else
-    return self.bridge && isJavascriptLoaded;
-#endif
+    // Always return YES - let RCTEventEmitter handle listener management
+    // The warning "Sending X with no listeners registered" is harmless
+    // and events will be properly received once JS listeners are set up
+    return YES;
 }
 
 - (RNBGDTaskConfig *)configForTask:(NSURLSessionTask *)task {
@@ -70,10 +77,7 @@ RCT_EXPORT_MODULE();
     return dispatch_queue_create("com.eko.backgrounddownloader", DISPATCH_QUEUE_SERIAL);
 }
 
-+ (BOOL)requiresMainQueueSetup {
-    return YES;
-}
-
+#ifndef RCT_NEW_ARCH_ENABLED
 - (NSArray<NSString *> *)supportedEvents {
     return @[
         @"downloadBegin",
@@ -82,6 +86,14 @@ RCT_EXPORT_MODULE();
         @"downloadFailed"
     ];
 }
+#endif
+
+#ifndef RCT_NEW_ARCH_ENABLED
+// Old architecture override to ensure events are sent
+- (void)sendEventWithName:(NSString *)eventName body:(id)body {
+    [super sendEventWithName:eventName body:body];
+}
+#endif
 
 - (NSDictionary *)constantsToExport {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
@@ -102,7 +114,15 @@ RCT_EXPORT_MODULE();
 
 - (id)init {
     DLog(nil, @"[RNBackgroundDownloader] - [init]");
+#ifdef RCT_NEW_ARCH_ENABLED
+    // New architecture uses generated base class
     self = [super init];
+#else
+    // Use initWithDisabledObservation to bypass listener count check
+    // This ensures events are always sent even when JS uses DeviceEventEmitter
+    // instead of NativeEventEmitter (which would call addListener)
+    self = [super initWithDisabledObservation];
+#endif
     if (self) {
         [MMKV initializeMMKV:nil];
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
@@ -509,13 +529,26 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 }
 #endif
 
+// RCTEventEmitter lifecycle methods - called when JS adds/removes listeners
+- (void)startObserving {
+    hasListeners = YES;
+}
+
+- (void)stopObserving {
+    // Keep hasListeners = YES since downloads may still need to send events
+    // and new listeners might be added later
+}
+
 // Event emitter methods required by TurboModule spec
 - (void)addListener:(NSString *)eventName {
-    // No-op: Required for RCTEventEmitter / TurboModule spec conformance
+    // For TurboModules - also set hasListeners here
+    hasListeners = YES;
 }
 
 - (void)removeListeners:(double)count {
-    // No-op: Required for RCTEventEmitter / TurboModule spec conformance
+    // Note: count represents how many listeners were removed
+    // We keep hasListeners = YES since we don't track individual listener counts
+    // and downloads may still need to send events
 }
 
 - (RNBGDTaskConfig *)findAndReconcileTaskConfig:(NSURLSessionDownloadTask *)task {
@@ -636,13 +669,30 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
 - (void)sendDownloadCompletionEvent:(RNBGDTaskConfig *)taskConfig task:(NSURLSessionDownloadTask *)task error:(NSError *)error {
     if (error) {
+#ifdef RCT_NEW_ARCH_ENABLED
+        [self emitOnDownloadFailed:@{
+            @"id": taskConfig.id,
+            @"error": [error localizedDescription],
+            @"errorCode": @(error.code)
+        }];
+#else
         [self sendEventWithName:@"downloadFailed" body:@{
             @"id": taskConfig.id,
             @"error": [error localizedDescription],
             @"errorCode": @(error.code)
         }];
+#endif
     } else {
         NSDictionary *responseHeaders = ((NSHTTPURLResponse *)task.response).allHeaderFields;
+#ifdef RCT_NEW_ARCH_ENABLED
+        [self emitOnDownloadComplete:@{
+            @"id": taskConfig.id,
+            @"headers": responseHeaders,
+            @"location": taskConfig.destination,
+            @"bytesDownloaded": @(task.countOfBytesReceived),
+            @"bytesTotal": @(task.countOfBytesExpectedToReceive)
+        }];
+#else
         [self sendEventWithName:@"downloadComplete" body:@{
             @"id": taskConfig.id,
             @"headers": responseHeaders,
@@ -650,6 +700,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             @"bytesDownloaded": @(task.countOfBytesReceived),
             @"bytesTotal": @(task.countOfBytesExpectedToReceive)
         }];
+#endif
     }
 }
 
@@ -687,11 +738,19 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
     if ([self canSendEvents]) {
         NSDictionary *responseHeaders = ((NSHTTPURLResponse *)task.response).allHeaderFields;
+#ifdef RCT_NEW_ARCH_ENABLED
+        [self emitOnDownloadBegin:@{
+            @"id": taskConfig.id,
+            @"expectedBytes": @(expectedBytes),
+            @"headers": responseHeaders
+        }];
+#else
         [self sendEventWithName:@"downloadBegin" body:@{
             @"id": taskConfig.id,
             @"expectedBytes": @(expectedBytes),
             @"headers": responseHeaders
         }];
+#endif
     }
     taskConfig.reportedBegin = YES;
 }
@@ -728,7 +787,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     NSDate *now = [NSDate date];
     if ([now timeIntervalSinceDate:lastProgressReportedAt] > progressInterval) {
         if ([self canSendEvents]) {
+#ifdef RCT_NEW_ARCH_ENABLED
+            [self emitOnDownloadProgress:[progressReports allValues]];
+#else
             [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
+#endif
         }
         lastProgressReportedAt = now;
         [progressReports removeAllObjects];
@@ -757,11 +820,19 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
         // Handle failure
         if ([self canSendEvents]) {
+#ifdef RCT_NEW_ARCH_ENABLED
+            [self emitOnDownloadFailed:@{
+                @"id": taskConfig.id,
+                @"error": [error localizedDescription],
+                @"errorCode": @(error.code)
+            }];
+#else
             [self sendEventWithName:@"downloadFailed" body:@{
                 @"id": taskConfig.id,
                 @"error": [error localizedDescription],
                 @"errorCode": @(error.code)
             }];
+#endif
         }
         [self removeTaskFromMap:task];
     }

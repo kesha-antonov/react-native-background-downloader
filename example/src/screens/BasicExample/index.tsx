@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo } from 'react-native'
-import { Directory, Paths } from 'expo-file-system'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, SectionList, SectionListData } from 'react-native'
+import { Directory, File, Paths } from 'expo-file-system'
 import {
   completeHandler,
   getExistingDownloadTasks,
@@ -31,6 +31,7 @@ interface UrlItem {
 interface DownloadItemData {
   urlItem: UrlItem
   task: DownloadTask | null
+  destination: string | null
 }
 
 interface DownloadItemProps {
@@ -39,10 +40,11 @@ interface DownloadItemProps {
   onStop: (id: string) => void
   onPause: (id: string) => void
   onResume: (id: string) => void
+  onDelete: (id: string) => void
 }
 
-const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: DownloadItemProps) => {
-  const { urlItem, task } = item
+const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onDelete }: DownloadItemProps) => {
+  const { urlItem, task, destination } = item
   const state = task?.state ?? 'IDLE'
   const isIdle = !task
   const isPending = task?.state === 'PENDING'
@@ -55,8 +57,10 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: D
 
   const bytesDownloaded = task?.bytesDownloaded ?? 0
   const bytesTotal = task?.bytesTotal ?? 0
-  const progress = bytesTotal > 0 ? bytesDownloaded / bytesTotal : 0
-  const progressPercent = Math.round(progress * 100)
+  // bytesTotal can be -1 when server doesn't send Content-Length header
+  const isTotalUnknown = bytesTotal <= 0
+  const progress = isTotalUnknown ? 0 : bytesDownloaded / bytesTotal
+  const progressPercent = isTotalUnknown ? 0 : Math.round(progress * 100)
 
   const getStateColor = () => {
     switch (state) {
@@ -73,6 +77,9 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: D
     <View style={styles.downloadItem}>
       <Text style={styles.itemId}>{urlItem.id}</Text>
       <Text style={styles.itemUrl} numberOfLines={2}>{urlItem.url}</Text>
+      {destination && (
+        <Text style={styles.itemDestination} numberOfLines={1}>📁 {destination}</Text>
+      )}
       {urlItem.title && (
         <Text style={styles.itemTitle}>{urlItem.title}</Text>
       )}
@@ -82,23 +89,26 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: D
         <View style={styles.progressContainer}>
           <View style={styles.progressHeader}>
             <Text style={[styles.stateText, { color: getStateColor() }]}>{state}</Text>
-            <Text style={styles.progressPercent}>{progressPercent}%</Text>
+            <Text style={styles.progressPercent}>{isTotalUnknown ? '—' : `${progressPercent}%`}</Text>
           </View>
 
           {/* Progress Bar */}
           <View style={styles.progressBarContainer}>
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%`, backgroundColor: getStateColor() }]} />
+            <View style={[styles.progressBarFill, { width: isTotalUnknown ? '100%' : `${progressPercent}%`, backgroundColor: getStateColor(), opacity: isTotalUnknown ? 0.3 : 1 }]} />
           </View>
 
           <Text style={styles.progressText}>
-            {formatBytes(bytesDownloaded)} / {formatBytes(bytesTotal)}
+            {formatBytes(bytesDownloaded)}{isTotalUnknown ? '' : ` / ${formatBytes(bytesTotal)}`}
           </Text>
         </View>
       )}
 
       <View style={styles.buttonRow}>
-        {(!task || isEnded) && (
+        {(!task || isFailed || isStopped) && (
           <ExButton title="Start" onPress={() => onStart(urlItem)} />
+        )}
+        {isDone && (
+          <ExButton title="Delete File" onPress={() => onDelete(urlItem.id)} />
         )}
         {task && !isEnded && (
           <>
@@ -117,6 +127,7 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: D
 })
 
 const formatBytes = (bytes: number): string => {
+  if (bytes < 0) return 'Unknown'
   if (!bytes || bytes === 0) return '0 B'
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB']
@@ -126,17 +137,51 @@ const formatBytes = (bytes: number): string => {
 
 interface HeaderProps {
   onClear: () => void
-  onRead: () => void
   onReset: () => void
+  filesCount: number
+  tasksCount: number
 }
 
-const Header = React.memo(({ onClear, onRead, onReset }: HeaderProps) => (
+const Header = React.memo(({ onClear, onReset, filesCount, tasksCount }: HeaderProps) => (
   <View style={styles.headerWrapper}>
-    <ExButton title="Reset All" onPress={onReset} />
-    <ExButton title="Delete Files" onPress={onClear} />
-    <ExButton title="List Files" onPress={onRead} />
+    {tasksCount > 0 && (
+      <ExButton title="Remove all tasks" onPress={onReset} />
+    )}
+    {filesCount > 0 && (
+      <ExButton title="Delete Files" onPress={onClear} />
+    )}
   </View>
 ))
+
+interface FileItemProps {
+  fileName: string
+  onDelete: (fileName: string) => void
+}
+
+const FileItem = React.memo(({ fileName, onDelete }: FileItemProps) => (
+  <View style={styles.fileItem}>
+    <Text style={styles.fileName} numberOfLines={1}>📄 {fileName}</Text>
+    <ExButton title="Delete" onPress={() => onDelete(fileName)} />
+  </View>
+))
+
+interface FooterProps {
+  files: string[]
+  onDeleteFile: (fileName: string) => void
+}
+
+const Footer = React.memo(({ files, onDeleteFile }: FooterProps) => {
+  if (files.length === 0) return null
+
+  return (
+    <View style={styles.footerWrapper}>
+      <Text style={styles.footerTitle}>Downloaded Files ({files.length})</Text>
+      {files.map(fileName => (
+        <FileItem key={fileName} fileName={fileName} onDelete={onDeleteFile} />
+      ))}
+    </View>
+  )
+})
 
 const BasicExampleScreen = () => {
   const insets = useSafeAreaInsets()
@@ -163,9 +208,12 @@ const BasicExampleScreen = () => {
   ], [])
 
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
+  const [destinations, setDestinations] = useState<Map<string, string>>(new Map())
+  const [downloadedFiles, setDownloadedFiles] = useState<string[]>([])
 
   const updateTask = useCallback((task: DownloadTask) => {
-    setDownloadTasks(prev => new Map(prev).set(task.id, { ...task } as DownloadTask))
+    // Store the actual task instance, not a copy, to preserve methods
+    setDownloadTasks(prev => new Map(prev).set(task.id, task))
   }, [])
 
   const process = useCallback((task: DownloadTask) => {
@@ -182,6 +230,7 @@ const BasicExampleScreen = () => {
         console.log('task: done', { id: task.id })
         updateTask(task)
         completeHandler(task.id)
+        readStorage()
       })
       .error(({ error, errorCode }) => {
         console.error('task: error', { id: task.id, error, errorCode })
@@ -212,7 +261,7 @@ const BasicExampleScreen = () => {
     try {
       const contents = defaultDir.list()
       const fileNames = contents.map(item => item.name)
-      toast('Check logs')
+      setDownloadedFiles(fileNames)
       console.log('Downloaded files:', fileNames)
     } catch (error) {
       console.warn('readStorage error:', error)
@@ -224,7 +273,8 @@ const BasicExampleScreen = () => {
     try {
       const contents = defaultDir.list()
       contents.forEach(item => item.delete())
-      toast('Check logs')
+      setDownloadedFiles([])
+      toast('All files deleted')
       console.log('Deleted file count:', contents.length)
     } catch (error) {
       console.warn('clearStorage error:', error)
@@ -238,9 +288,10 @@ const BasicExampleScreen = () => {
   }, [downloadTasks])
 
   const startDownload = useCallback((urlItem: UrlItem) => {
-    // Use library's documents directory - expo-file-system paths may not be compatible
-    const destination = directories.documents + '/' + urlItem.id
-    console.log('Starting download with destination:', destination)
+    // Use library's documents directory, fall back to expo path if undefined
+    const documentsDir = directories.documents ?? defaultDir.uri?.replace('file://', '')
+    const destination = documentsDir + '/' + urlItem.id
+    console.log('Starting download with destination:', destination, 'directories.documents:', directories.documents)
     const taskAttribute: any = {
       id: urlItem.id,
       url: urlItem.url,
@@ -252,10 +303,11 @@ const BasicExampleScreen = () => {
       console.log(`Setting maxRedirects=${urlItem.maxRedirects} for URL: ${urlItem.url}`)
     }
 
-    const task = createDownloadTask(taskAttribute)
-    process(task)
+    let task = createDownloadTask(taskAttribute)
+    task = process(task)
     task.start()
     setDownloadTasks(prev => new Map(prev).set(task.id, task))
+    setDestinations(prev => new Map(prev).set(urlItem.id, destination))
   }, [process])
 
   const stopDownload = useCallback((id: string) => {
@@ -282,16 +334,60 @@ const BasicExampleScreen = () => {
     }
   }, [downloadTasks, updateTask])
 
+  const deleteFile = useCallback((id: string) => {
+    try {
+      const documentsDir = directories.documents ?? defaultDir.uri?.replace('file://', '')
+      const filePath = documentsDir + '/' + id
+      const file = new File(filePath)
+      if (file.exists) {
+        file.delete()
+        toast('File deleted')
+      }
+      setDownloadTasks(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(id)
+        return newMap
+      })
+      setDestinations(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(id)
+        return newMap
+      })
+      setDownloadedFiles(prev => prev.filter(name => name !== id))
+    } catch (error) {
+      console.warn('deleteFile error:', error)
+      toast('Error deleting file')
+    }
+  }, [])
+
+  const deleteSingleFile = useCallback((fileName: string) => {
+    try {
+      const documentsDir = directories.documents ?? defaultDir.uri?.replace('file://', '')
+      const filePath = documentsDir + '/' + fileName
+      const file = new File(filePath)
+      if (file.exists) {
+        file.delete()
+        toast('File deleted')
+      }
+      setDownloadedFiles(prev => prev.filter(name => name !== fileName))
+    } catch (error) {
+      console.warn('deleteSingleFile error:', error)
+      toast('Error deleting file')
+    }
+  }, [])
+
   useEffect(() => {
     resumeExistingTasks()
+    readStorage()
   }, [])
 
   const downloadItems = useMemo<DownloadItemData[]>(() =>
     urlList.map(urlItem => ({
       urlItem,
       task: downloadTasks.get(urlItem.id) || null,
+      destination: destinations.get(urlItem.id) || null,
     }))
-  , [urlList, downloadTasks])
+  , [urlList, downloadTasks, destinations])
 
   const keyExtractor = useCallback((item: DownloadItemData) => item.urlItem.id, [])
 
@@ -302,12 +398,17 @@ const BasicExampleScreen = () => {
       onStop={stopDownload}
       onPause={pauseDownload}
       onResume={resumeDownload}
+      onDelete={deleteFile}
     />
-  ), [startDownload, stopDownload, pauseDownload, resumeDownload])
+  ), [startDownload, stopDownload, pauseDownload, resumeDownload, deleteFile])
 
   const renderHeader = useCallback(() => (
-    <Header onReset={reset} onClear={clearStorage} onRead={readStorage} />
-  ), [reset, clearStorage, readStorage])
+    <Header onReset={reset} onClear={clearStorage} filesCount={downloadedFiles.length} tasksCount={downloadTasks.size} />
+  ), [reset, clearStorage, downloadedFiles.length, downloadTasks.size])
+
+  const renderFooter = useCallback(() => (
+    <Footer files={downloadedFiles} onDeleteFile={deleteSingleFile} />
+  ), [downloadedFiles, deleteSingleFile])
 
   return (
     <FlatList
@@ -316,6 +417,7 @@ const BasicExampleScreen = () => {
       keyExtractor={keyExtractor}
       renderItem={renderItem}
       ListHeaderComponent={renderHeader}
+      ListFooterComponent={renderFooter}
       contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
     />
   )
@@ -368,6 +470,11 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 4,
   },
+  itemDestination: {
+    fontSize: 10,
+    color: '#4CAF50',
+    marginBottom: 4,
+  },
   itemTitle: {
     fontSize: 12,
     fontStyle: 'italic',
@@ -413,5 +520,34 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     gap: 8,
     marginTop: 8,
+  },
+  footerWrapper: {
+    marginTop: 20,
+    marginHorizontal: 12,
+    padding: 12,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#b0d4f1',
+  },
+  footerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  fileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+  },
+  fileName: {
+    flex: 1,
+    fontSize: 12,
+    color: '#333',
+    marginRight: 8,
   },
 })

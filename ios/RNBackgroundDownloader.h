@@ -10,7 +10,8 @@ NS_ASSUME_NONNULL_BEGIN
 typedef void (^CompletionHandler)(void);
 
 #ifdef RCT_NEW_ARCH_ENABLED
-@interface RNBackgroundDownloader : RCTEventEmitter <NativeRNBackgroundDownloaderSpec, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
+// Use the generated base class for new architecture which provides emit* methods
+@interface RNBackgroundDownloader : NativeRNBackgroundDownloaderSpecBase <NativeRNBackgroundDownloaderSpec, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
 #else
 @interface RNBackgroundDownloader : RCTEventEmitter <RCTBridgeModule, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
 #endif
