@@ -1,12 +1,21 @@
 import { NativeModules, NativeEventEmitter, Platform } from 'react-native'
 import DownloadTask from './DownloadTask'
-import { Config, DownloadParams, TaskInfo, TaskInfoNative } from './types'
+import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative } from './types'
+import type { Spec } from './NativeRNBackgroundDownloader'
 
 // Try to get the native module using TurboModuleRegistry first (new architecture),
 // then fall back to NativeModules (old architecture)
 const isTurboModuleEnabled = global.__turboModuleProxy != null
 
-let RNBackgroundDownloader
+type NativeModule = Spec & {
+  TaskRunning: number
+  TaskSuspended: number
+  TaskCanceling: number
+  TaskCompleted: number
+  documents: string
+}
+
+let RNBackgroundDownloader: NativeModule
 if (isTurboModuleEnabled)
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   RNBackgroundDownloader = require('./NativeRNBackgroundDownloader').default
@@ -25,26 +34,56 @@ const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloa
 
 const MIN_PROGRESS_INTERVAL = 250
 const DEFAULT_PROGRESS_INTERVAL = 1000
-const tasksMap = new Map()
+const tasksMap = new Map<string, DownloadTask>()
 
-export const config = {
+interface ConfigState {
+  headers: Headers
+  progressInterval: number
+  isLogsEnabled: boolean
+}
+
+export const config: ConfigState = {
   headers: {},
   progressInterval: DEFAULT_PROGRESS_INTERVAL,
   isLogsEnabled: false,
 }
 
-export const log = (...args) => {
+export const log = (...args: unknown[]): void => {
   if (config.isLogsEnabled)
     console.log('[RNBackgroundDownloader]', ...args)
 }
 
-RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, ...rest }) => {
+interface DownloadBeginEvent {
+  id: string
+  expectedBytes: number
+  headers: Headers
+}
+
+interface DownloadProgressEvent {
+  id: string
+  bytesDownloaded: number
+  bytesTotal: number
+}
+
+interface DownloadCompleteEvent {
+  id: string
+  bytesDownloaded: number
+  bytesTotal: number
+}
+
+interface DownloadFailedEvent {
+  id: string
+  error: string
+  errorCode: number
+}
+
+RNBackgroundDownloaderEmitter.addListener('downloadBegin', ({ id, ...rest }: DownloadBeginEvent) => {
   log('downloadBegin', id, rest)
   const task = tasksMap.get(id)
   task?.onBegin(rest)
 })
 
-RNBackgroundDownloaderEmitter.addListener('downloadProgress', events => {
+RNBackgroundDownloaderEmitter.addListener('downloadProgress', (events: DownloadProgressEvent[]) => {
   log('downloadProgress-1', events, tasksMap)
   for (const event of events) {
     const { id, ...rest } = event
@@ -54,7 +93,7 @@ RNBackgroundDownloaderEmitter.addListener('downloadProgress', events => {
   }
 })
 
-RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, ...rest }) => {
+RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, ...rest }: DownloadCompleteEvent) => {
   log('downloadComplete', id, rest)
   const task = tasksMap.get(id)
   task?.onDone(rest)
@@ -62,7 +101,7 @@ RNBackgroundDownloaderEmitter.addListener('downloadComplete', ({ id, ...rest }) 
   tasksMap.delete(id)
 })
 
-RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }) => {
+RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }: DownloadFailedEvent) => {
   log('downloadFailed', id, rest)
   const task = tasksMap.get(id)
   task?.onError(rest)
@@ -120,7 +159,7 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
     }
 
     return task
-  }).filter(task => !!task)
+  }).filter((task): task is DownloadTask => task !== undefined)
 
   for (const task of downloadTasks)
     tasksMap.set(task.id, task)

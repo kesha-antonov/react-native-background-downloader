@@ -6,7 +6,7 @@ export interface Config {
   isLogsEnabled?: boolean
 }
 
-type SetConfig = (config: Partial<Config>) => void
+export type SetConfig = (config: Partial<Config>) => void
 
 export type BeginHandlerParams = {
   expectedBytes: number
@@ -64,32 +64,32 @@ export type DownloadTaskState =
 export type DownloadParams = {
   url: string
   destination: string
-  headers?: object
+  headers?: Headers
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
   isNotificationVisible?: boolean
   notificationTitle?: string
+  maxRedirects?: number
 }
 
 export interface DownloadTask {
-  constructor: (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTask) => DownloadTask
-
   id: string
   state: DownloadTaskState
   metadata: Metadata
+  errorCode: number
   bytesDownloaded: number
   bytesTotal: number
-  downloadParams: DownloadParams
+  downloadParams?: DownloadParams
 
   begin: (handler: BeginHandler) => DownloadTask
   progress: (handler: ProgressHandler) => DownloadTask
   done: (handler: DoneHandler) => DownloadTask
   error: (handler: ErrorHandler) => DownloadTask
 
-  beginHandler: BeginHandler
-  progressHandler: ProgressHandler
-  doneHandler: DoneHandler
-  errorHandler: ErrorHandler
+  beginHandler?: BeginHandler
+  progressHandler?: ProgressHandler
+  doneHandler?: DoneHandler
+  errorHandler?: ErrorHandler
 
   setDownloadParams: (params: DownloadParams) => void
   start: () => void
@@ -97,7 +97,7 @@ export interface DownloadTask {
   resume: () => void
   stop: () => void
 
-  tryParseJson: (element: DownloadTask['metadata']) => void
+  tryParseJson: (metadata?: string | Metadata) => Metadata | null
 }
 
 export type getExistingDownloadTasks = () => Promise<DownloadTask[]>
@@ -121,22 +121,3 @@ export type CompleteHandler = (id: string) => void
 export interface Directories {
   documents: string
 }
-
-export const setConfig: SetConfig
-export const getExistingDownloadTasks: getExistingDownloadTasks
-export const ensureDownloadsAreRunning: EnsureDownloadsAreRunning
-export const download: Download
-export const completeHandler: CompleteHandler
-export const directories: Directories
-
-export interface RNBackgroundDownloader {
-  setConfig: SetConfig
-  getExistingDownloadTasks: getExistingDownloadTasks
-  ensureDownloadsAreRunning: EnsureDownloadsAreRunning
-  download: Download
-  completeHandler: CompleteHandler
-  directories: Directories
-}
-
-declare const RNBackgroundDownloader: RNBackgroundDownloader
-export default RNBackgroundDownloader

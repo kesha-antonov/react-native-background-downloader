@@ -12,14 +12,17 @@ import {
   ErrorHandlerParams,
   TaskInfoNative,
   DownloadParams,
+  DownloadTaskState,
+  Metadata,
 } from './types'
 import { config, log } from '.'
+import type { Spec } from './NativeRNBackgroundDownloader'
 
 // Try to get the native module using TurboModuleRegistry first (new architecture),
 // then fall back to NativeModules (old architecture)
 const isTurboModuleEnabled = global.__turboModuleProxy != null
 
-let RNBackgroundDownloader
+let RNBackgroundDownloader: Spec
 if (isTurboModuleEnabled)
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   RNBackgroundDownloader = require('./NativeRNBackgroundDownloader').default
@@ -27,20 +30,20 @@ else
   RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
 
 export default class DownloadTask {
-  id = ''
-  metadata = {}
+  id: string = ''
+  metadata: Metadata = {}
 
-  state = 'PENDING'
-  errorCode = 0
-  bytesDownloaded = 0
-  bytesTotal = 0
+  state: DownloadTaskState = 'PENDING'
+  errorCode: number = 0
+  bytesDownloaded: number = 0
+  bytesTotal: number = 0
 
   downloadParams?: DownloadParams
 
-  beginHandler
-  progressHandler
-  doneHandler
-  errorHandler
+  beginHandler?: BeginHandler
+  progressHandler?: ProgressHandler
+  doneHandler?: DoneHandler
+  errorHandler?: ErrorHandler
 
   constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
     this.id = taskParams.id
@@ -127,13 +130,13 @@ export default class DownloadTask {
   }
 
   pause () {
-    console.log('DownloadTask: pause', this.id)
+    log('DownloadTask: pause', this.id)
     this.state = 'PAUSED'
     RNBackgroundDownloader.pauseTask(this.id)
   }
 
   resume () {
-    console.log('DownloadTask: resume', this.id)
+    log('DownloadTask: resume', this.id)
     this.state = 'DOWNLOADING'
     this.errorCode = 0
     RNBackgroundDownloader.resumeTask(this.id)
@@ -166,14 +169,14 @@ export default class DownloadTask {
     RNBackgroundDownloader.stopTask(this.id)
   }
 
-  tryParseJson (metadata?: DownloadTask['metadata']) {
+  tryParseJson (metadata?: string | Metadata): Metadata | null {
     try {
       if (typeof metadata === 'string')
-        metadata = JSON.parse(metadata)
+        return JSON.parse(metadata) as Metadata
 
-      return metadata
+      return metadata ?? null
     } catch (e) {
-      console.warn('DownloadTask tryParseJson', e)
+      log('DownloadTask tryParseJson', e)
       return null
     }
   }
