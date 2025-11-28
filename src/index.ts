@@ -22,17 +22,14 @@ const isNewArchitecture = turboModule != null
 if (turboModule) {
   // TurboModules use getConstants() method
   const constants = turboModule.getConstants()
-  console.log('[RNBackgroundDownloader] TurboModule constants:', constants)
   RNBackgroundDownloader = Object.assign(turboModule, constants) as NativeModule
 } else {
   // Fall back to old architecture
   RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
-  console.log('[RNBackgroundDownloader] Old arch module:', RNBackgroundDownloader?.documents)
 
   // For old architecture, constants may need to be fetched via getConstants() as well
   if (RNBackgroundDownloader && !RNBackgroundDownloader.documents && typeof RNBackgroundDownloader.getConstants === 'function') {
     const constants = RNBackgroundDownloader.getConstants()
-    console.log('[RNBackgroundDownloader] Fetched constants via getConstants():', constants)
     if (constants)
       Object.assign(RNBackgroundDownloader, constants)
   }
@@ -45,8 +42,6 @@ if (!RNBackgroundDownloader)
     '- You rebuilt the app after installing the package\n' +
     '- You are not using Expo Go\n'
   )
-
-console.log('[RNBackgroundDownloader] Using architecture:', isNewArchitecture ? 'New (TurboModules)' : 'Old (Bridge)')
 
 const MIN_PROGRESS_INTERVAL = 250
 const DEFAULT_PROGRESS_INTERVAL = 1000
@@ -97,14 +92,9 @@ interface DownloadFailedEvent {
 }
 
 // Set up event listeners based on architecture
-console.log('[RNBackgroundDownloader] Setting up event listeners...')
-
 if (isNewArchitecture && turboModule) {
   // New architecture: use EventEmitter from TurboModule spec
-  console.log('[RNBackgroundDownloader] Using TurboModule EventEmitter subscriptions')
-
   turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadBegin received:', data)
     const { id, ...rest } = data
     log('downloadBegin', id, rest)
     const task = tasksMap.get(id)
@@ -112,18 +102,15 @@ if (isNewArchitecture && turboModule) {
   })
 
   turboModule.onDownloadProgress((events: DownloadProgressEvent[]) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadProgress received:', events)
-    log('downloadProgress-1', events, tasksMap)
+    log('downloadProgress', events)
     for (const event of events) {
       const { id, ...rest } = event
       const task = tasksMap.get(id)
-      log('downloadProgress-2', id, task)
       task?.onProgress(rest)
     }
   })
 
   turboModule.onDownloadComplete((data: DownloadCompleteEvent) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadComplete received:', data)
     const { id, ...rest } = data
     log('downloadComplete', id, rest)
     const task = tasksMap.get(id)
@@ -132,7 +119,6 @@ if (isNewArchitecture && turboModule) {
   })
 
   turboModule.onDownloadFailed((data: DownloadFailedEvent) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadFailed received:', data)
     const { id, ...rest } = data
     log('downloadFailed', id, rest)
     const task = tasksMap.get(id)
@@ -141,10 +127,7 @@ if (isNewArchitecture && turboModule) {
   })
 } else {
   // Old architecture: use DeviceEventEmitter
-  console.log('[RNBackgroundDownloader] Using DeviceEventEmitter subscriptions')
-
   DeviceEventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadBegin received:', data)
     const { id, ...rest } = data
     log('downloadBegin', id, rest)
     const task = tasksMap.get(id)
@@ -152,18 +135,15 @@ if (isNewArchitecture && turboModule) {
   })
 
   DeviceEventEmitter.addListener('downloadProgress', (events: DownloadProgressEvent[]) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadProgress received:', events)
-    log('downloadProgress-1', events, tasksMap)
+    log('downloadProgress', events)
     for (const event of events) {
       const { id, ...rest } = event
       const task = tasksMap.get(id)
-      log('downloadProgress-2', id, task)
       task?.onProgress(rest)
     }
   })
 
   DeviceEventEmitter.addListener('downloadComplete', (data: DownloadCompleteEvent) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadComplete received:', data)
     const { id, ...rest } = data
     log('downloadComplete', id, rest)
     const task = tasksMap.get(id)
@@ -172,7 +152,6 @@ if (isNewArchitecture && turboModule) {
   })
 
   DeviceEventEmitter.addListener('downloadFailed', (data: DownloadFailedEvent) => {
-    console.log('[RNBackgroundDownloader] EVENT downloadFailed received:', data)
     const { id, ...rest } = data
     log('downloadFailed', id, rest)
     const task = tasksMap.get(id)
@@ -180,8 +159,6 @@ if (isNewArchitecture && turboModule) {
     tasksMap.delete(id)
   })
 }
-
-console.log('[RNBackgroundDownloader] Event listeners set up complete')
 
 export function setConfig ({
   headers = {},
@@ -205,8 +182,22 @@ export function setConfig ({
 }
 
 export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
-  const downloads: TaskInfoNative[] = await RNBackgroundDownloader.getExistingDownloadTasks()
-  const downloadTasks: DownloadTask[] = downloads.map(taskInfo => {
+  const downloads = await RNBackgroundDownloader.getExistingDownloadTasks()
+  const downloadTasks: DownloadTask[] = downloads.map(downloadInfo => {
+    // Parse metadata from JSON string to object
+    let metadata = {}
+    if (downloadInfo.metadata)
+      try {
+        metadata = JSON.parse(downloadInfo.metadata)
+      } catch {
+        // Keep empty object if parsing fails
+      }
+
+    const taskInfo: TaskInfoNative = {
+      ...downloadInfo,
+      metadata,
+      errorCode: downloadInfo.errorCode ?? 0,
+    }
     // second argument re-assigns event handlers
     const task = new DownloadTask(taskInfo, tasksMap.get(taskInfo.id))
 
@@ -248,8 +239,6 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
 }
 
 export const ensureDownloadsAreRunning = async (): Promise<void> => {
-  log('ensureDownloadsAreRunning')
-
   const tasks: DownloadTask[] = await getExistingDownloadTasks()
   const tasksDownloading = tasks.filter(task => task.state === 'DOWNLOADING')
 
@@ -274,13 +263,6 @@ export function createDownloadTask ({
   isNotificationVisible = false,
   ...rest
 }: TaskInfo & DownloadParams) {
-  log('createDownloadTask', {
-    isAllowedOverRoaming,
-    isAllowedOverMetered,
-    isNotificationVisible,
-    ...rest,
-  })
-
   if (!rest.id || !rest.url || !rest.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')
 
