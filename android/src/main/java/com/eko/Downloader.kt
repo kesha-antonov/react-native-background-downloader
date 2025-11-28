@@ -8,7 +8,16 @@ import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 
+/**
+ * Wrapper around Android's DownloadManager for managing file downloads.
+ * Provides methods for downloading, canceling, and querying download status.
+ */
 class Downloader(private val context: Context) {
+
+    companion object {
+        private const val TAG = "RNBackgroundDownloader"
+    }
+
     val downloadManager: DownloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
 
     fun download(request: DownloadManager.Request): Long {
@@ -64,7 +73,7 @@ class Downloader(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            Log.e("RNBackgroundDownloader", "Downloader: ${Log.getStackTraceString(e)}")
+            Log.e(TAG, "Downloader: ${Log.getStackTraceString(e)}")
         }
 
         return result

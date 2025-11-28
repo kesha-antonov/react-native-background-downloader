@@ -9,10 +9,21 @@ import java.net.URL
 import java.net.URLConnection
 import java.util.concurrent.Callable
 
+/**
+ * Callable that fetches download headers and expected bytes before download begins.
+ * Executes a HEAD request to retrieve metadata without downloading content.
+ */
 class OnBegin(
     private val config: RNBGDTaskConfig,
     private val callback: BeginCallback
 ) : Callable<OnBeginState> {
+
+    companion object {
+        /** Timeout for establishing connection (milliseconds) */
+        private const val CONNECT_TIMEOUT_MS = 30000  // 30 seconds
+        /** Timeout for reading initial response (milliseconds) */
+        private const val READ_TIMEOUT_MS = 60000     // 60 seconds
+    }
 
     override fun call(): OnBeginState {
         var urlConnection: HttpURLConnection? = null
@@ -42,8 +53,8 @@ class OnBegin(
 
         // Set timeout values to prevent downloads from staying in PENDING state
         // when URLs are slow to respond (e.g., taking 2-6 minutes)
-        urlConnection.connectTimeout = 30000 // 30 seconds to establish connection
-        urlConnection.readTimeout = 60000    // 60 seconds to read initial response
+        urlConnection.connectTimeout = CONNECT_TIMEOUT_MS
+        urlConnection.readTimeout = READ_TIMEOUT_MS
 
         // 200 and 206 codes are successful http codes.
         val httpStatusCode = urlConnection.responseCode

@@ -3,6 +3,7 @@ export type Headers = Record<string, string | null>
 export interface Config {
   headers?: Headers
   progressInterval?: number
+  progressMinBytes?: number
   isLogsEnabled?: boolean
 }
 

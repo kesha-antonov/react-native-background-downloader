@@ -34,17 +34,20 @@ const RNBackgroundDownloaderEmitter = new NativeEventEmitter(RNBackgroundDownloa
 
 const MIN_PROGRESS_INTERVAL = 250
 const DEFAULT_PROGRESS_INTERVAL = 1000
+const DEFAULT_PROGRESS_MIN_BYTES = 1024 * 1024 // 1MB
 const tasksMap = new Map<string, DownloadTask>()
 
 interface ConfigState {
   headers: Headers
   progressInterval: number
+  progressMinBytes: number
   isLogsEnabled: boolean
 }
 
 export const config: ConfigState = {
   headers: {},
   progressInterval: DEFAULT_PROGRESS_INTERVAL,
+  progressMinBytes: DEFAULT_PROGRESS_MIN_BYTES,
   isLogsEnabled: false,
 }
 
@@ -112,6 +115,7 @@ RNBackgroundDownloaderEmitter.addListener('downloadFailed', ({ id, ...rest }: Do
 export function setConfig ({
   headers = {},
   progressInterval = DEFAULT_PROGRESS_INTERVAL,
+  progressMinBytes = DEFAULT_PROGRESS_MIN_BYTES,
   isLogsEnabled = false,
 }: Config) {
   config.headers = headers
@@ -120,6 +124,11 @@ export function setConfig ({
     config.progressInterval = progressInterval
   else
     console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= ${MIN_PROGRESS_INTERVAL}. You passed ${progressInterval}`)
+
+  if (progressMinBytes >= 0)
+    config.progressMinBytes = progressMinBytes
+  else
+    console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
 
   config.isLogsEnabled = isLogsEnabled
 }

@@ -41,16 +41,32 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     companion object {
         const val NAME = "RNBackgroundDownloader"
 
+        // Library version
+        private const val VERSION = "3.2.6"
+        private const val USER_AGENT = "ReactNative-BackgroundDownloader/$VERSION"
+
+        // Task state constants
         private const val TASK_RUNNING = 0
         private const val TASK_SUSPENDED = 1
         private const val TASK_CANCELING = 2
         private const val TASK_COMPLETED = 3
 
+        // Error code constants
         private const val ERR_STORAGE_FULL = 0
         private const val ERR_NO_INTERNET = 1
         private const val ERR_NO_WRITE_PERMISSION = 2
         private const val ERR_FILE_NOT_FOUND = 3
         private const val ERR_OTHERS = 100
+
+        // Network timeout constants (milliseconds)
+        private const val REDIRECT_CONNECT_TIMEOUT_MS = 10000  // 10 seconds
+        private const val REDIRECT_READ_TIMEOUT_MS = 10000     // 10 seconds
+
+        // Progress reporting constants
+        private const val PROGRESS_REPORT_THRESHOLD = 0.01  // 1% change
+
+        // HTTP header constants
+        private const val KEEP_ALIVE_HEADER_VALUE = "timeout=600, max=1000"
 
         private val stateMap = mapOf(
             DownloadManager.STATUS_FAILED to TASK_CANCELING,
@@ -77,7 +93,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     private val configIdToProgressFuture = mutableMapOf<String, Future<OnProgressState?>>()
     private val progressReports = mutableMapOf<String, WritableMap>()
     private var progressInterval = 0
-    private var progressMinBytes: Long = 1024 * 1024 // Default 1MB
+    private var progressMinBytes: Long = 0
     private var lastProgressReportedAt = Date()
     private lateinit var ee: DeviceEventManagerModule.RCTDeviceEventEmitter
 
@@ -294,15 +310,15 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
                 // Add default headers for consistency with DownloadManager
                 connection.setRequestProperty("Connection", "keep-alive")
-                connection.setRequestProperty("Keep-Alive", "timeout=600, max=1000")
+                connection.setRequestProperty("Keep-Alive", KEEP_ALIVE_HEADER_VALUE)
                 if (!hasUserAgentHeader(headers)) {
-                    connection.setRequestProperty("User-Agent", "ReactNative-BackgroundDownloader/3.2.6")
+                    connection.setRequestProperty("User-Agent", USER_AGENT)
                 }
 
                 connection.instanceFollowRedirects = false
                 connection.requestMethod = "HEAD" // Use HEAD to avoid downloading content
-                connection.connectTimeout = 10000 // 10 second timeout
-                connection.readTimeout = 10000
+                connection.connectTimeout = REDIRECT_CONNECT_TIMEOUT_MS
+                connection.readTimeout = REDIRECT_READ_TIMEOUT_MS
 
                 val responseCode = connection.responseCode
 
@@ -339,7 +355,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
             if (redirectCount >= maxRedirects) {
                 Log.w(
-                    name,
+                    NAME,
                     "Reached maximum redirects ($maxRedirects) for URL: $originalUrl. Final URL: $currentUrl"
                 )
             } else {
@@ -413,11 +429,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         // Add default headers to improve connection handling for slow-responding URLs
         // These headers encourage longer connections and help prevent premature timeouts
         request.addRequestHeader("Connection", "keep-alive")
-        request.addRequestHeader("Keep-Alive", "timeout=600, max=1000")
+        request.addRequestHeader("Keep-Alive", KEEP_ALIVE_HEADER_VALUE)
 
         // Add a proper User-Agent to improve server compatibility
         if (!hasUserAgentHeader(headers)) {
-            request.addRequestHeader("User-Agent", "ReactNative-BackgroundDownloader/3.2.6")
+            request.addRequestHeader("User-Agent", USER_AGENT)
         }
 
         headers?.let {
@@ -601,8 +617,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val percent = if (bytesTotal > 0.0) bytesDownloaded.toDouble() / bytesTotal else 0.0
 
         // Check if we should report progress based on percentage OR bytes threshold
-        val percentThresholdMet = percent - prevPercent > 0.01
-        val bytesThresholdMet = bytesDownloaded - prevBytes >= progressMinBytes
+        val percentThresholdMet = percent - prevPercent > PROGRESS_REPORT_THRESHOLD
+        // Only check bytes threshold if progressMinBytes > 0
+        val bytesThresholdMet = progressMinBytes > 0 && (bytesDownloaded - prevBytes >= progressMinBytes)
 
         // Report progress if either threshold is met, or if total bytes unknown (for realtime streams)
         if (percentThresholdMet || bytesThresholdMet || bytesTotal <= 0) {
@@ -660,7 +677,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     private fun onFailedDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
         Log.e(
-            name, "onFailedDownload: " +
+            NAME, "onFailedDownload: " +
                     "${downloadStatus.getInt("status")}:" +
                     "${downloadStatus.getInt("reason")}:" +
                     downloadStatus.getString("reasonText")
@@ -672,7 +689,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         // Enhanced handling for ERROR_CANNOT_RESUME (1008)
         if (reason == DownloadManager.ERROR_CANNOT_RESUME) {
             Log.w(
-                name, "ERROR_CANNOT_RESUME detected for download: ${config.id}" +
+                NAME, "ERROR_CANNOT_RESUME detected for download: ${config.id}" +
                         ". This is a known Android DownloadManager issue with larger files. " +
                         "Consider restarting the download or using smaller file segments."
             )
@@ -699,11 +716,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                 val str = gson.toJson(downloadIdToConfig)
 
                 if (isMMKVAvailable && mmkv != null) {
-                    mmkv!!.encode("${name}_downloadIdToConfig", str)
+                    mmkv!!.encode("${NAME}_downloadIdToConfig", str)
                     Log.d(NAME, "Saved download config to MMKV")
                 } else {
                     sharedPreferences.edit()
-                        .putString("${name}_downloadIdToConfig", str)
+                        .putString("${NAME}_downloadIdToConfig", str)
                         .apply()
                     Log.d(NAME, "Saved download config to SharedPreferences fallback")
                 }
@@ -719,11 +736,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
             try {
                 val str = if (isMMKVAvailable && mmkv != null) {
-                    mmkv!!.decodeString("${name}_downloadIdToConfig")?.also {
+                    mmkv!!.decodeString("${NAME}_downloadIdToConfig")?.also {
                         Log.d(NAME, "Loaded download config from MMKV")
                     }
                 } else {
-                    sharedPreferences.getString("${name}_downloadIdToConfig", null)?.also {
+                    sharedPreferences.getString("${NAME}_downloadIdToConfig", null)?.also {
                         Log.d(NAME, "Loaded download config from SharedPreferences fallback")
                     }
                 }
@@ -746,13 +763,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         synchronized(sharedLock) {
             try {
                 if (isMMKVAvailable && mmkv != null) {
-                    mmkv!!.encode("${name}_progressInterval", progressInterval)
-                    mmkv!!.encode("${name}_progressMinBytes", progressMinBytes)
+                    mmkv!!.encode("${NAME}_progressInterval", progressInterval)
+                    mmkv!!.encode("${NAME}_progressMinBytes", progressMinBytes)
                     Log.d(NAME, "Saved config to MMKV")
                 } else {
                     sharedPreferences.edit()
-                        .putInt("${name}_progressInterval", progressInterval)
-                        .putLong("${name}_progressMinBytes", progressMinBytes)
+                        .putInt("${NAME}_progressInterval", progressInterval)
+                        .putLong("${NAME}_progressMinBytes", progressMinBytes)
                         .apply()
                     Log.d(NAME, "Saved config to SharedPreferences fallback")
                 }
@@ -766,21 +783,21 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         synchronized(sharedLock) {
             try {
                 if (isMMKVAvailable && mmkv != null) {
-                    val progressIntervalScope = mmkv!!.decodeInt("${name}_progressInterval")
+                    val progressIntervalScope = mmkv!!.decodeInt("${NAME}_progressInterval")
                     if (progressIntervalScope > 0) {
                         progressInterval = progressIntervalScope
                     }
-                    val progressMinBytesScope = mmkv!!.decodeLong("${name}_progressMinBytes")
+                    val progressMinBytesScope = mmkv!!.decodeLong("${NAME}_progressMinBytes")
                     if (progressMinBytesScope > 0) {
                         progressMinBytes = progressMinBytesScope
                     }
                     Log.d(NAME, "Loaded config from MMKV")
                 } else {
-                    val progressIntervalScope = sharedPreferences.getInt("${name}_progressInterval", 0)
+                    val progressIntervalScope = sharedPreferences.getInt("${NAME}_progressInterval", 0)
                     if (progressIntervalScope > 0) {
                         progressInterval = progressIntervalScope
                     }
-                    val progressMinBytesScope = sharedPreferences.getLong("${name}_progressMinBytes", 0)
+                    val progressMinBytesScope = sharedPreferences.getLong("${NAME}_progressMinBytes", 0)
                     if (progressMinBytesScope > 0) {
                         progressMinBytes = progressMinBytesScope
                     }

@@ -5,7 +5,9 @@
 #import <RNBackgroundDownloaderSpec/RNBackgroundDownloaderSpec.h>
 #endif
 
-typedef void (^CompletionHandler)();
+NS_ASSUME_NONNULL_BEGIN
+
+typedef void (^CompletionHandler)(void);
 
 #ifdef RCT_NEW_ARCH_ENABLED
 @interface RNBackgroundDownloader : RCTEventEmitter <NativeRNBackgroundDownloaderSpec, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
@@ -13,6 +15,8 @@ typedef void (^CompletionHandler)();
 @interface RNBackgroundDownloader : RCTEventEmitter <RCTBridgeModule, NSURLSessionDelegate, NSURLSessionDownloadDelegate>
 #endif
 
-+ (void)setCompletionHandlerWithIdentifier:(NSString *)identifier completionHandler:(CompletionHandler)completionHandler;
++ (void)setCompletionHandlerWithIdentifier:(NSString *)identifier completionHandler:(nullable CompletionHandler)completionHandler;
 
 @end
+
+NS_ASSUME_NONNULL_END

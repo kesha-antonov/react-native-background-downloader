@@ -8,6 +8,10 @@ import com.eko.RNBGDTaskConfig
 import com.eko.interfaces.ProgressCallback
 import java.util.concurrent.Callable
 
+/**
+ * Callable that monitors download progress and reports updates via callback.
+ * Polls DownloadManager at regular intervals until download completes or fails.
+ */
 class OnProgress(
     private val config: RNBGDTaskConfig,
     private val downloader: Downloader,
@@ -16,6 +20,15 @@ class OnProgress(
     private var bytesTotal: Long,
     private val callback: ProgressCallback
 ) : Callable<OnProgressState?> {
+
+    companion object {
+        /** Sleep duration when download is paused (milliseconds) */
+        private const val SLEEP_PAUSED_MS = 2000L
+        /** Sleep duration when download is pending (milliseconds) */
+        private const val SLEEP_PENDING_MS = 1000L
+        /** Sleep duration during active download (milliseconds) */
+        private const val SLEEP_ACTIVE_MS = 250L
+    }
 
     @Volatile
     private var isRunning = true
@@ -100,9 +113,9 @@ class OnProgress(
 
     private fun getSleepDuration(status: Int): Long {
         return when (status) {
-            DownloadManager.STATUS_PAUSED -> 2000
-            DownloadManager.STATUS_PENDING -> 1000
-            else -> 250
+            DownloadManager.STATUS_PAUSED -> SLEEP_PAUSED_MS
+            DownloadManager.STATUS_PENDING -> SLEEP_PENDING_MS
+            else -> SLEEP_ACTIVE_MS
         }
     }
 }

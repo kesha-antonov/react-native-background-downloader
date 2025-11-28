@@ -658,11 +658,9 @@ In case of error `java.lang.IllegalStateException: TypeToken must be created wit
 
 ## TODO
 
-- [ ] Add back progressMinBytes config option: removed here cd7d9f6d436928e63f3d8f79d6e77bb138aa5e77
 - [ ] Write better examples - current kinda old and shallow
 - [ ] Write better API for downloads - current kinda boilerplate
 - [ ] Add more tests
-- [ ] Add expo example
 
 ## Authors
 

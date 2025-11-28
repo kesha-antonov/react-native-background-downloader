@@ -158,6 +158,7 @@ export default class DownloadTask {
       id: this.id,
       metadata: JSON.stringify(this.metadata),
       progressInterval: config.progressInterval,
+      progressMinBytes: config.progressMinBytes,
       ...this.downloadParams,
     })
   }
