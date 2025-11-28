@@ -2,6 +2,8 @@
 
 ## v4.0.0-alpha.0
 
+> 📖 **Upgrading from v3.x?** See the [Migration Guide](./MIGRATION.md) for detailed instructions.
+
 ### ⚠️ Breaking Changes
 
 - **API Renamed:** `checkForExistingDownloads()` → `getExistingDownloadTasks()` - Now returns a Promise with better naming
