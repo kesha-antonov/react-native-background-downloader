@@ -1,6 +1,9 @@
 import type { TurboModule } from 'react-native'
 import { TurboModuleRegistry } from 'react-native'
 
+// UnsafeObject is used for dynamic key-value objects that codegen doesn't support
+type UnsafeObject = { [key: string]: string }
+
 export interface Spec extends TurboModule {
   // Constants exported to JavaScript
   getConstants(): {
@@ -18,7 +21,7 @@ export interface Spec extends TurboModule {
     id: string
     url: string
     destination: string
-    headers?: Record<string, string>
+    headers?: UnsafeObject
     metadata?: string
     progressInterval?: number
     progressMinBytes?: number

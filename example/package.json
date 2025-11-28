@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "prebuild": "expo prebuild",
-    "prebuild:clean": "expo prebuild --clean"
+    "start": "npx expo start --dev-client --clear",
+    "start:android": "npx expo start --android --dev-client --clear",
+    "start:ios": "npx expo start --ios --dev-client --clear",
+    "start:web": "npx expo start --web --clear",
+    "lint": "expo lint",
+    "fresh": "yarn start --reset-cache",
+    "installDevBuild:ios": "expo run:ios",
+    "installDevBuild:android": "expo run:android",
+    "rebuildNativeDeps": "yarn expo prebuild",
+    "rebuildNativeDeps:clean": "yarn expo prebuild --clean",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@kesha-antonov/react-native-background-downloader": "link:..",

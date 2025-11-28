@@ -22,7 +22,7 @@ static const float kProgressReportThreshold = 0.01f;         // Report progress 
 // DISABLES LOGS IN RELEASE MODE. NSLOG IS SLOW: https://stackoverflow.com/a/17738695/3452513
 // DLog accepts taskId as first parameter to help debugging
 #ifdef DEBUG
-#define DLog( taskId, s, ... ) NSLog( @"<%p %@:(%d)> %@ %@", self, [[NSString stringWithUTF8String:__FILE__] lastPathComponent], __LINE__, [NSString stringWithFormat:(s), ##__VA_ARGS__], (taskId ? [NSString stringWithFormat:@"taskId:%@", taskId] : @"taskId:NULL") )
+#define DLog( taskId, s, ... ) NSLog( @"<%p %@:(%d)> %@ %@", self, [[NSString stringWithUTF8String:__FILE__] lastPathComponent], __LINE__, [NSString stringWithFormat:(s), ##__VA_ARGS__], ((id)(taskId) ? [NSString stringWithFormat:@"taskId:%@", (id)(taskId)] : @"taskId:NULL") )
 #else
 #define DLog( taskId, s, ... )
 #endif
@@ -53,7 +53,12 @@ RCT_EXPORT_MODULE();
 #pragma mark - Helper methods
 
 - (BOOL)canSendEvents {
+#ifdef RCT_NEW_ARCH_ENABLED
+    // TurboModules: if this module instance exists and has listeners, events can be sent
+    return true;
+#else
     return self.bridge && isJavascriptLoaded;
+#endif
 }
 
 - (RNBGDTaskConfig *)configForTask:(NSURLSessionTask *)task {
@@ -88,6 +93,12 @@ RCT_EXPORT_MODULE();
         @"TaskCompleted": @(NSURLSessionTaskStateCompleted) // 3
     };
 }
+
+#ifdef RCT_NEW_ARCH_ENABLED
+- (NSDictionary *)getConstants {
+    return [self constantsToExport];
+}
+#endif
 
 - (id)init {
     DLog(nil, @"[RNBackgroundDownloader] - [init]");
@@ -242,6 +253,27 @@ RCT_EXPORT_MODULE();
 }
 
 #pragma mark - JS exported methods
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)download:(JS::NativeRNBackgroundDownloader::SpecDownloadOptions &)options {
+    NSString *identifier = options.id_();
+    DLog(identifier, @"[RNBackgroundDownloader] - [download]");
+    NSString *url = options.url();
+    NSString *destination = options.destination();
+    NSString *metadata = options.metadata() ? options.metadata() : @"";
+    NSDictionary *headers = options.headers() ? (NSDictionary *)options.headers() : nil;
+
+    if (options.progressInterval().has_value()) {
+        progressInterval = options.progressInterval().value() / 1000.0;
+        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+    }
+
+    if (options.progressMinBytes().has_value()) {
+        progressMinBytes = (int64_t)options.progressMinBytes().value();
+        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+    }
+
+    NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
+#else
 RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     NSString *identifier = options[@"id"];
     DLog(identifier, @"[RNBackgroundDownloader] - [download]");
@@ -263,6 +295,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
+#endif
 
     DLog(identifier, @"[RNBackgroundDownloader] - [download] url %@ destination %@ progressInterval %f", url, destination, progressInterval);
     if (identifier == nil || url == nil || destination == nil) {
@@ -312,7 +345,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 }
 
-RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
+- (void)pauseTask:(NSString *)identifier {
     DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
@@ -336,7 +369,13 @@ RCT_EXPORT_METHOD(pauseTask: (NSString *)identifier) {
     }
 }
 
-RCT_EXPORT_METHOD(resumeTask: (NSString *)identifier) {
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(pauseTask: (NSString *)id) {
+    [self pauseTask:id];
+}
+#endif
+
+- (void)resumeTask:(NSString *)identifier {
     DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask]");
     @synchronized (sharedLock) {
         [self lazyRegisterSession];
@@ -387,7 +426,13 @@ RCT_EXPORT_METHOD(resumeTask: (NSString *)identifier) {
     }
 }
 
-RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(resumeTask: (NSString *)id) {
+    [self resumeTask:id];
+}
+#endif
+
+- (void)stopTask:(NSString *)identifier {
     DLog(identifier, @"[RNBackgroundDownloader] - [stopTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
@@ -400,7 +445,13 @@ RCT_EXPORT_METHOD(stopTask: (NSString *)identifier) {
     }
 }
 
-RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(stopTask: (NSString *)id) {
+    [self stopTask:id];
+}
+#endif
+
+- (void)completeHandler:(NSString *)jobId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(nil, @"[RNBackgroundDownloader] - [completeHandlerIOS]");
     [[NSOperationQueue mainQueue] addOperationWithBlock:^{
         if (storedCompletionHandler) {
@@ -412,7 +463,13 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
     resolve(nil);
 }
 
-RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self completeHandler:jobId resolve:resolve reject:reject];
+}
+#endif
+
+- (void)getExistingDownloadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(nil, @"[RNBackgroundDownloader] - [getExistingDownloadTasks]");
     [self lazyRegisterSession];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
@@ -428,9 +485,10 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
                 RNBGDTaskConfig *taskConfig = [self findAndReconcileTaskConfig:task];
 
                 if (taskConfig) {
-                    [self restoreTaskIfNeeded:&task];
-                    [self updateTaskMappings:task config:taskConfig];
-                    [foundTasks addObject:[self createTaskInfo:task config:taskConfig]];
+                    NSURLSessionDownloadTask *mutableTask = task;
+                    [self restoreTaskIfNeeded:&mutableTask];
+                    [self updateTaskMappings:mutableTask config:taskConfig];
+                    [foundTasks addObject:[self createTaskInfo:mutableTask config:taskConfig]];
                     [processedIds addObject:taskConfig.id];
                 } else {
                     [task cancel];
@@ -443,6 +501,21 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             resolve(foundTasks);
         }
     }];
+}
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self getExistingDownloadTasks:resolve reject:reject];
+}
+#endif
+
+// Event emitter methods required by TurboModule spec
+- (void)addListener:(NSString *)eventName {
+    // No-op: Required for RCTEventEmitter / TurboModule spec conformance
+}
+
+- (void)removeListeners:(double)count {
+    // No-op: Required for RCTEventEmitter / TurboModule spec conformance
 }
 
 - (RNBGDTaskConfig *)findAndReconcileTaskConfig:(NSURLSessionDownloadTask *)task {

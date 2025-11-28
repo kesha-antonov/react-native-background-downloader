@@ -6,10 +6,12 @@ import {
   getExistingDownloadTasks,
   createDownloadTask,
   setConfig,
+  directories,
 } from '@kesha-antonov/react-native-background-downloader'
-import Slider from '@react-native-community/slider'
+// Progress bar is implemented with View components
 import { ExButton, ExWrapper } from '../../components/commons'
 import { toast, uuid } from '../../utils'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 type DownloadTask = ReturnType<typeof createDownloadTask>
 
@@ -19,39 +21,6 @@ setConfig({
   isLogsEnabled: true,
 })
 
-interface FooterProps {
-  onStart: () => void
-  onStop: () => void
-  onReset: () => void
-  onClear: () => void
-  onRead: () => void
-  isStarted: boolean
-}
-
-const Footer = React.memo(({
-  onStart,
-  onStop,
-  onReset,
-  onClear,
-  onRead,
-  isStarted,
-  ...props
-}: FooterProps) => {
-  return (
-    <View style={styles.headerWrapper} {...props}>
-      {isStarted ? (
-        <ExButton title={'Stop'} onPress={onStop} />
-      ) : (
-        <ExButton title={'Start'} onPress={onStart} />
-      )}
-
-      <ExButton title={'Reset'} onPress={onReset} />
-      <ExButton title={'Delete files'} onPress={onClear} />
-      <ExButton title={'List files'} onPress={onRead} />
-    </View>
-  )
-})
-
 interface UrlItem {
   id: string
   url: string
@@ -59,45 +28,119 @@ interface UrlItem {
   title?: string
 }
 
-interface TaskItemProps {
-  task: DownloadTask
-  onPause: (id: string) => void
-  onResume: (id: string) => void
-  onCancel: (id: string) => void
+interface DownloadItemData {
+  urlItem: UrlItem
+  task: DownloadTask | null
 }
 
-const ENDED_STATES = ['STOPPED', 'DONE', 'FAILED'] as const
+interface DownloadItemProps {
+  item: DownloadItemData
+  onStart: (urlItem: UrlItem) => void
+  onStop: (id: string) => void
+  onPause: (id: string) => void
+  onResume: (id: string) => void
+}
 
-const TaskItem = React.memo(({ task, onPause, onResume, onCancel }: TaskItemProps) => {
-  const isEnded = ENDED_STATES.includes(task.state as typeof ENDED_STATES[number])
-  const isDownloading = task.state === 'DOWNLOADING'
+const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: DownloadItemProps) => {
+  const { urlItem, task } = item
+  const state = task?.state ?? 'IDLE'
+  const isIdle = !task
+  const isPending = task?.state === 'PENDING'
+  const isDownloading = state === 'DOWNLOADING'
+  const isPaused = state === 'PAUSED'
+  const isDone = state === 'DONE'
+  const isFailed = state === 'FAILED'
+  const isStopped = state === 'STOPPED'
+  const isEnded = isDone || isFailed || isStopped
+
+  const bytesDownloaded = task?.bytesDownloaded ?? 0
+  const bytesTotal = task?.bytesTotal ?? 0
+  const progress = bytesTotal > 0 ? bytesDownloaded / bytesTotal : 0
+  const progressPercent = Math.round(progress * 100)
+
+  const getStateColor = () => {
+    switch (state) {
+      case 'DOWNLOADING': return '#4CAF50'
+      case 'PAUSED': return '#FF9800'
+      case 'DONE': return '#2196F3'
+      case 'FAILED': return '#F44336'
+      case 'STOPPED': return '#9E9E9E'
+      default: return '#666'
+    }
+  }
 
   return (
-    <View style={styles.item}>
-      <View style={styles.itemContent}>
-        <Text>{task.id}</Text>
-        <Text>{task.state}</Text>
-        <Slider
-          disabled
-          value={task.bytesDownloaded}
-          minimumValue={0}
-          maximumValue={task.bytesTotal}
-        />
-      </View>
-      <View>
-        {!isEnded &&
-          (isDownloading ? (
-            <ExButton title="Pause" onPress={() => onPause(task.id)} />
-          ) : (
-            <ExButton title="Resume" onPress={() => onResume(task.id)} />
-          ))}
-        <ExButton title="Cancel" onPress={() => onCancel(task.id)} />
+    <View style={styles.downloadItem}>
+      <Text style={styles.itemId}>{urlItem.id}</Text>
+      <Text style={styles.itemUrl} numberOfLines={2}>{urlItem.url}</Text>
+      {urlItem.title && (
+        <Text style={styles.itemTitle}>{urlItem.title}</Text>
+      )}
+
+      {/* Progress Section - always show when task exists */}
+      {task && (
+        <View style={styles.progressContainer}>
+          <View style={styles.progressHeader}>
+            <Text style={[styles.stateText, { color: getStateColor() }]}>{state}</Text>
+            <Text style={styles.progressPercent}>{progressPercent}%</Text>
+          </View>
+
+          {/* Progress Bar */}
+          <View style={styles.progressBarContainer}>
+            <View style={[styles.progressBarFill, { width: `${progressPercent}%`, backgroundColor: getStateColor() }]} />
+          </View>
+
+          <Text style={styles.progressText}>
+            {formatBytes(bytesDownloaded)} / {formatBytes(bytesTotal)}
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.buttonRow}>
+        {(!task || isEnded) && (
+          <ExButton title="Start" onPress={() => onStart(urlItem)} />
+        )}
+        {task && !isEnded && (
+          <>
+            <ExButton title="Stop" onPress={() => onStop(urlItem.id)} />
+            {isDownloading && (
+              <ExButton title="Pause" onPress={() => onPause(urlItem.id)} />
+            )}
+            {(isPaused || isPending) && (
+              <ExButton title="Resume" onPress={() => onResume(urlItem.id)} />
+            )}
+          </>
+        )}
       </View>
     </View>
   )
 })
 
+const formatBytes = (bytes: number): string => {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
+}
+
+interface HeaderProps {
+  onClear: () => void
+  onRead: () => void
+  onReset: () => void
+}
+
+const Header = React.memo(({ onClear, onRead, onReset }: HeaderProps) => (
+  <View style={styles.headerWrapper}>
+    <ExButton title="Reset All" onPress={onReset} />
+    <ExButton title="Delete Files" onPress={onClear} />
+    <ExButton title="List Files" onPress={onRead} />
+  </View>
+))
+
 const BasicExampleScreen = () => {
+  const insets = useSafeAreaInsets()
+
   const urlList = useMemo<UrlItem[]>(() => [
     {
       id: uuid(),
@@ -114,21 +157,15 @@ const BasicExampleScreen = () => {
     {
       id: uuid(),
       url: 'https://pdst.fm/e/chrt.fm/track/479722/arttrk.com/p/CRMDA/claritaspod.com/measure/pscrb.fm/rss/p/stitcher.simplecastaudio.com/9aa1e238-cbed-4305-9808-c9228fc6dd4f/episodes/b0c9a72a-1cb7-4ac9-80a0-36996fc6470f/audio/128/default.mp3?aid=rss_feed&awCollectionId=9aa1e238-cbed-4305-9808-c9228fc6dd4f&awEpisodeId=b0c9a72a-1cb7-4ac9-80a0-36996fc6470f&feed=dxZsm5kX',
-      // This is an example of a URL with many redirects that would cause ERROR_TOO_MANY_REDIRECTS
-      // We use maxRedirects to handle this case
       maxRedirects: 10,
       title: 'Podcast with redirects',
     },
   ], [])
 
-  const [isStarted, setIsStarted] = useState(false)
-
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
 
-  const getTask = useCallback((id: string) => downloadTasks.get(id), [downloadTasks])
-
   const updateTask = useCallback((task: DownloadTask) => {
-    setDownloadTasks(prev => new Map(prev).set(task.id, task))
+    setDownloadTasks(prev => new Map(prev).set(task.id, { ...task } as DownloadTask))
   }, [])
 
   const process = useCallback((task: DownloadTask) => {
@@ -153,14 +190,10 @@ const BasicExampleScreen = () => {
       })
   }, [updateTask])
 
-  /**
-   * It is used to resume your incomplete or unfinished downloads.
-   */
   const resumeExistingTasks = useCallback(async () => {
     try {
       const tasks = await getExistingDownloadTasks()
-
-      console.log(tasks)
+      console.log('Existing tasks:', tasks)
 
       if (tasks.length > 0) {
         tasks.forEach(task => process(task))
@@ -169,7 +202,6 @@ const BasicExampleScreen = () => {
           tasks.forEach(task => newMap.set(task.id, task))
           return newMap
         })
-        setIsStarted(true)
       }
     } catch (e) {
       console.warn('getExistingDownloadTasks e', e)
@@ -203,136 +235,89 @@ const BasicExampleScreen = () => {
   const reset = useCallback(() => {
     downloadTasks.forEach(task => task.stop())
     setDownloadTasks(new Map())
-    setIsStarted(false)
   }, [downloadTasks])
 
-  const start = useCallback(() => {
-    /**
-     * You need to provide the extension of the file in the destination section below.
-     * If you cannot provide this, you may experience problems while using your file.
-     * For example; Path + File Name + .png
-     */
-    const taskAttributes = urlList.map(item => {
-      const destination = defaultDir.uri + '/' + item.id
-      const taskAttribute: any = {
-        id: item.id,
-        url: item.url,
-        destination,
-      }
-
-      // Add maxRedirects if specified for this URL
-      if (item.maxRedirects) {
-        taskAttribute.maxRedirects = item.maxRedirects
-        console.log(`Setting maxRedirects=${item.maxRedirects} for URL: ${item.url}`)
-      }
-
-      return taskAttribute
-    })
-
-    // Create download tasks using the new API
-    setDownloadTasks(prev => {
-      const newMap = new Map(prev)
-      taskAttributes.forEach(taskAttribute => {
-        const task = createDownloadTask(taskAttribute)
-        process(task)
-        task.start() // Start the download
-        newMap.set(task.id, task)
-      })
-      return newMap
-    })
-    setIsStarted(true)
-  }, [urlList, process])
-
-  const stop = useCallback(() => {
-    downloadTasks.forEach(task => task.stop())
-    setIsStarted(false)
-  }, [downloadTasks])
-
-  const pause = useCallback((id: string) => {
-    const task = getTask(id)
-    if (task) {
-      task.pause()
-      updateTask(task)
+  const startDownload = useCallback((urlItem: UrlItem) => {
+    // Use library's documents directory - expo-file-system paths may not be compatible
+    const destination = directories.documents + '/' + urlItem.id
+    console.log('Starting download with destination:', destination)
+    const taskAttribute: any = {
+      id: urlItem.id,
+      url: urlItem.url,
+      destination,
     }
-  }, [getTask, updateTask])
 
-  const resume = useCallback((id: string) => {
-    const task = getTask(id)
-    if (task) {
-      task.resume()
-      updateTask(task)
+    if (urlItem.maxRedirects) {
+      taskAttribute.maxRedirects = urlItem.maxRedirects
+      console.log(`Setting maxRedirects=${urlItem.maxRedirects} for URL: ${urlItem.url}`)
     }
-  }, [getTask, updateTask])
 
-  const cancel = useCallback((id: string) => {
-    const task = getTask(id)
+    const task = createDownloadTask(taskAttribute)
+    process(task)
+    task.start()
+    setDownloadTasks(prev => new Map(prev).set(task.id, task))
+  }, [process])
+
+  const stopDownload = useCallback((id: string) => {
+    const task = downloadTasks.get(id)
     if (task) {
       task.stop()
       updateTask(task)
     }
-  }, [getTask, updateTask])
+  }, [downloadTasks, updateTask])
+
+  const pauseDownload = useCallback((id: string) => {
+    const task = downloadTasks.get(id)
+    if (task) {
+      task.pause()
+      updateTask(task)
+    }
+  }, [downloadTasks, updateTask])
+
+  const resumeDownload = useCallback((id: string) => {
+    const task = downloadTasks.get(id)
+    if (task) {
+      task.resume()
+      updateTask(task)
+    }
+  }, [downloadTasks, updateTask])
 
   useEffect(() => {
     resumeExistingTasks()
   }, [])
 
-  const urlKeyExtractor = useCallback((item: UrlItem) => item.id, [])
+  const downloadItems = useMemo<DownloadItemData[]>(() =>
+    urlList.map(urlItem => ({
+      urlItem,
+      task: downloadTasks.get(urlItem.id) || null,
+    }))
+  , [urlList, downloadTasks])
 
-  const renderUrlItem = useCallback(({ item }: ListRenderItemInfo<UrlItem>) => (
-    <View style={styles.item}>
-      <View style={styles.itemContent}>
-        <Text>Id: {item.id}</Text>
-        <Text>Url: {item.url}</Text>
-        {item.maxRedirects && (
-          <Text style={styles.redirectInfo}>
-            Max redirects: {item.maxRedirects}
-            {item.title && ` (${item.title})`}
-          </Text>
-        )}
-      </View>
-    </View>
-  ), [])
+  const keyExtractor = useCallback((item: DownloadItemData) => item.urlItem.id, [])
 
-  const renderFooter = useCallback(() => (
-    <Footer
-      isStarted={isStarted}
-      onStart={start}
-      onStop={stop}
-      onReset={reset}
-      onClear={clearStorage}
-      onRead={readStorage}
+  const renderItem = useCallback(({ item }: ListRenderItemInfo<DownloadItemData>) => (
+    <DownloadItem
+      item={item}
+      onStart={startDownload}
+      onStop={stopDownload}
+      onPause={pauseDownload}
+      onResume={resumeDownload}
     />
-  ), [isStarted, start, stop, reset, clearStorage, readStorage])
+  ), [startDownload, stopDownload, pauseDownload, resumeDownload])
 
-  const taskKeyExtractor = useCallback((item: DownloadTask) => item.id, [])
-
-  const downloadTasksArray = useMemo(() => Array.from(downloadTasks.values()), [downloadTasks])
-
-  const renderTaskItem = useCallback(
-    ({ item }: ListRenderItemInfo<DownloadTask>) => (
-      <TaskItem task={item} onPause={pause} onResume={resume} onCancel={cancel} />
-    ),
-    [pause, resume, cancel]
-  )
+  const renderHeader = useCallback(() => (
+    <Header onReset={reset} onClear={clearStorage} onRead={readStorage} />
+  ), [reset, clearStorage, readStorage])
 
   return (
-    <ExWrapper>
-      <Text style={styles.title}>Basic Example</Text>
-      <View>
-        <FlatList
-          data={urlList}
-          keyExtractor={urlKeyExtractor}
-          renderItem={renderUrlItem}
-          ListFooterComponent={renderFooter}
-        />
-      </View>
-      <FlatList
-        style={styles.taskList}
-        data={downloadTasksArray}
-        renderItem={renderTaskItem}
-        keyExtractor={taskKeyExtractor}
-      />
-    </ExWrapper>
+    <FlatList
+      style={styles.list}
+      data={downloadItems}
+      keyExtractor={keyExtractor}
+      renderItem={renderItem}
+      ListHeaderComponent={renderHeader}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+    />
   )
 }
 
@@ -340,37 +325,93 @@ export default BasicExampleScreen
 
 const styles = StyleSheet.create({
   headerWrapper: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-evenly',
-    padding: 6,
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
   title: {
     fontSize: 24,
     fontWeight: '500',
     textAlign: 'center',
     alignSelf: 'center',
-    marginTop: 16,
+    marginVertical: 16,
   },
-  item: {
-    padding: 8,
+  list: {
+    flex: 1,
+  },
+  downloadItem: {
+    padding: 16,
+    marginHorizontal: 12,
+    marginVertical: 6,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  itemId: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  itemUrl: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  itemTitle: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: '#888',
+    marginBottom: 8,
+  },
+  progressContainer: {
+    marginVertical: 12,
+  },
+  progressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 6,
   },
-  itemContent: {
-    flex: 1,
-    flexShrink: 1,
+  stateText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
-  redirectInfo: {
-    fontStyle: 'italic',
-    color: '#666',
-    fontSize: 12,
-    marginTop: 4,
+  progressPercent: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
   },
-  taskList: {
-    flex: 1,
-    flexGrow: 1,
+  progressBarContainer: {
+    height: 8,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 11,
+    color: '#888',
+    textAlign: 'right',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    gap: 8,
+    marginTop: 8,
   },
 })
