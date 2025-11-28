@@ -500,6 +500,7 @@ An object containing configuration properties
 | -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
 | `headers`     | Record<string, string \| null> | Optional headers to use in all future downloads. Headers with null values will be removed |
 | `progressInterval` | Number | Interval in milliseconds for download progress updates. Must be >= 250. Default is 1000 |
+| `progressMinBytes` | Number | Minimum number of bytes that must be downloaded before a progress event is emitted. When set to 0, only the percentage threshold (1% change) triggers progress updates. Default is 1048576 (1MB) |
 | `isLogsEnabled`   | Boolean | Enables/disables debug logs in library. Default is false |
 
 ### DownloadTask
