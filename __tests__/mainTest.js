@@ -1,9 +1,9 @@
 import RNBackgroundDownloader from '../src/index'
 import DownloadTask from '../src/DownloadTask'
-import { NativeModules, NativeEventEmitter } from 'react-native'
+import { NativeModules } from 'react-native'
 
 const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
-const nativeEmitter = new NativeEventEmitter(RNBackgroundDownloaderNative)
+const emitEvent = global.__RNBackgroundDownloaderEmitEvent
 
 let downloadTask
 
@@ -42,7 +42,7 @@ test('begin event', () => {
       resolve()
     })
     beginDT.start()
-    nativeEmitter.emit('downloadBegin', {
+    emitEvent('downloadBegin', {
       id: 'testBegin',
       expectedBytes: 9001,
       headers: mockedHeaders,
@@ -62,7 +62,7 @@ test('progress event', () => {
       resolve()
     })
     progressDT.start()
-    nativeEmitter.emit('downloadProgress', [{
+    emitEvent('downloadProgress', [{
       id: 'testProgress',
       bytesDownloaded: 100,
       bytesTotal: 200,
@@ -81,7 +81,7 @@ test('done event', () => {
       resolve()
     })
     doneDT.start()
-    nativeEmitter.emit('downloadComplete', {
+    emitEvent('downloadComplete', {
       id: 'testDone',
     })
   })
@@ -100,7 +100,7 @@ test('fail event', () => {
       resolve()
     })
     failDT.start()
-    nativeEmitter.emit('downloadFailed', {
+    emitEvent('downloadFailed', {
       id: 'testFail',
       error: new Error('test'),
       errorCode: -1,

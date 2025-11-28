@@ -5,10 +5,8 @@
  */
 
 import RNBackgroundDownloader from '../src/index'
-import { NativeModules, NativeEventEmitter } from 'react-native'
 
-const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
-const nativeEmitter = new NativeEventEmitter(RNBackgroundDownloaderNative)
+const emitEvent = global.__RNBackgroundDownloaderEmitEvent
 
 describe('Progress callback with unknown total bytes', () => {
   test('progress event should be called when bytesTotal is 0 (unknown)', () => {
@@ -25,7 +23,7 @@ describe('Progress callback with unknown total bytes', () => {
       progressDT.start()
 
       // Simulate native progress event with unknown total bytes
-      nativeEmitter.emit('downloadProgress', [{
+      emitEvent('downloadProgress', [{
         id: 'testProgressUnknownTotal',
         bytesDownloaded: 512,
         bytesTotal: 0,
@@ -47,7 +45,7 @@ describe('Progress callback with unknown total bytes', () => {
       progressDT.start()
 
       // Simulate native progress event with unknown total bytes (-1)
-      nativeEmitter.emit('downloadProgress', [{
+      emitEvent('downloadProgress', [{
         id: 'testProgressUnknownTotal2',
         bytesDownloaded: 1024,
         bytesTotal: -1,
@@ -79,14 +77,14 @@ describe('Progress callback with unknown total bytes', () => {
       multiProgressDT.start()
 
       // Simulate multiple progress events
-      nativeEmitter.emit('downloadProgress', [{
+      emitEvent('downloadProgress', [{
         id: 'testProgressMultipleUnknown',
         bytesDownloaded: 256,
         bytesTotal: 0,
       }])
 
       setTimeout(() => {
-        nativeEmitter.emit('downloadProgress', [{
+        emitEvent('downloadProgress', [{
           id: 'testProgressMultipleUnknown',
           bytesDownloaded: 768,
           bytesTotal: 0,
@@ -94,7 +92,7 @@ describe('Progress callback with unknown total bytes', () => {
       }, 10)
 
       setTimeout(() => {
-        nativeEmitter.emit('downloadProgress', [{
+        emitEvent('downloadProgress', [{
           id: 'testProgressMultipleUnknown',
           bytesDownloaded: 1536,
           bytesTotal: 0,
