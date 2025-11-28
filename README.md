@@ -2,15 +2,27 @@
 
 [![npm version](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg)](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader)
 
-## 🚧👷 Important notice
+## 🎉 Version 4.0.0-alpha.0 Released!
 
-There's currently WIP going on to make the library support New Architecture. If you have any issues, please report them. If you want to contribute, please do so.
+**v4.0.0-alpha.0** is now available with full **React Native New Architecture (TurboModules)** support!
 
-The most stable version is `3.2.6`. If you want to use the latest version, please be aware that it's a work in progress.
+> ⚠️ **Alpha Release:** This version is in alpha state. Please report any issues you encounter.
 
-Readme for that version: [3.2.6 readme](https://github.com/kesha-antonov/react-native-background-downloader/blob/8f4b8a844a2d7f00d1558f6ea65bac94c8dd6fc9/README.md)
+### What's New
+- ✅ Full TurboModules support for iOS and Android
+- ✅ Expo Config Plugin for automatic iOS setup
+- ✅ Android code converted to Kotlin
+- ✅ Full TypeScript support
+- ✅ New `progressMinBytes` option for hybrid progress reporting
+- ✅ `maxRedirects` option for Android
 
-I'm working on making the library compatible with the New Architecture while keeping backward compatibility with the old one. I plan to use Nitro Modules so apps on the old architecture can also benefit from the performance improvements.
+### Upgrading from v3.x?
+📖 See the [Migration Guide](./MIGRATION.md) for detailed upgrade instructions and breaking changes.
+
+📋 See the [Changelog](./CHANGELOG.md) for the full list of changes.
+
+### Looking for v3.2.6?
+If you need the previous stable version: [3.2.6 readme](https://github.com/kesha-antonov/react-native-background-downloader/blob/8f4b8a844a2d7f00d1558f6ea65bac94c8dd6fc9/README.md)
 
 # @kesha-antonov/react-native-background-downloader
 
@@ -50,15 +62,6 @@ Then:
 ```Terminal
 cd ios && pod install
 ```
-
-### New Architecture Support
-
-This library supports React Native's New Architecture (Fabric + TurboModules) starting from React Native 0.70+.
-
-#### Automatic Detection
-The library automatically detects whether the New Architecture is enabled in your app and uses the appropriate implementation:
-- **New Architecture**: Uses TurboModules for optimal performance
-- **Legacy Architecture**: Uses the traditional bridge implementation
 
 #### Manual Setup (Advanced)
 If you need to manually configure the package for New Architecture:
