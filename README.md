@@ -9,8 +9,6 @@
 
 **v4.0.0** is now available with full **React Native New Architecture (TurboModules)** support!
 
-> ⚠️ **Alpha Release:** This version is in alpha state. Please report any issues you encounter.
-
 ### What's New
 - ✅ Full TurboModules support for iOS and Android
 - ✅ Expo Config Plugin for automatic iOS setup

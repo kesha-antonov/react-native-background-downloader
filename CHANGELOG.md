@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.0.0-alpha.0
+## v4.0.0
 
 > 📖 **Upgrading from v3.x?** See the [Migration Guide](./MIGRATION.md) for detailed instructions.
 

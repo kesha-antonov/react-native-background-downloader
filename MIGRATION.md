@@ -1,10 +1,10 @@
-# Migration Guide: v3.2.6 → v4.0.0+
+# Migration Guide: v3.2.6 → v4.0.0
 
-This guide helps you upgrade from `@kesha-antonov/react-native-background-downloader` v3.2.6 to v4.0.0 and later versions.
+This guide helps you upgrade from `@kesha-antonov/react-native-background-downloader` v3.2.6 to v4.0.0.
 
 ## Table of Contents
 
-- [Migration Guide: v3.2.6 → v4.0.0+](#migration-guide-v326--v400)
+- [Migration Guide: v3.2.6 → v4.0.0](#migration-guide-v326--v400)
   - [Table of Contents](#table-of-contents)
   - [Breaking Changes Overview](#breaking-changes-overview)
   - [Step-by-Step Migration](#step-by-step-migration)
@@ -30,8 +30,8 @@ This guide helps you upgrade from `@kesha-antonov/react-native-background-downlo
 
 ## Breaking Changes Overview
 
-| v3.2.6 | v4.0.0+ | Notes |
-|--------|---------|-------|
+| v3.2.6 | v4.0.0 | Notes |
+|--------|--------|-------|
 | `checkForExistingDownloads()` | `getExistingDownloadTasks()` | Renamed for clarity |
 | `download(options)` | `createDownloadTask(options)` | Returns task in PENDING state |
 | Downloads start immediately | Must call `.start()` | Explicit control over when downloads begin |
@@ -67,7 +67,7 @@ import {
 const existingTasks = await RNBackgroundDownloader.checkForExistingDownloads()
 ```
 
-**After (v4.0.0+):**
+**After (v4.0.0):**
 ```javascript
 const existingTasks = await RNBackgroundDownloader.getExistingDownloadTasks()
 ```
@@ -100,7 +100,7 @@ const task = RNBackgroundDownloader.download({
   })
 ```
 
-**After (v4.0.0+):**
+**After (v4.0.0):**
 ```javascript
 // Create the task (in PENDING state)
 const task = RNBackgroundDownloader.createDownloadTask({
@@ -166,7 +166,7 @@ RNBackgroundDownloader.setConfig({
 })
 ```
 
-**After (v4.0.0+):**
+**After (v4.0.0):**
 ```javascript
 RNBackgroundDownloader.setConfig({
   headers: { 'Authorization': 'Bearer token' },
@@ -219,7 +219,7 @@ task.start()
 
 ### TypeScript Support
 
-v4.0.0+ includes full TypeScript definitions:
+v4.0.0 includes full TypeScript definitions:
 
 ```typescript
 import RNBackgroundDownloader, {
@@ -256,7 +256,7 @@ task.start()
 
 ## Expo Projects
 
-v4.0.0+ includes an Expo config plugin for automatic iOS setup.
+v4.0.0 includes an Expo config plugin for automatic iOS setup.
 
 ### Setup
 
@@ -289,7 +289,7 @@ npx expo run:android
 
 ## Quick Migration Checklist
 
-- [ ] Update package to v4.0.0+
+- [ ] Update package to v4.0.0
 - [ ] Replace `checkForExistingDownloads()` with `getExistingDownloadTasks()`
 - [ ] Replace `download()` with `createDownloadTask()`
 - [ ] Add `.start()` call after setting up task handlers
