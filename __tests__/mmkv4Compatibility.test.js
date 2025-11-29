@@ -57,7 +57,6 @@ describe('MMKV 4+ Compatibility', () => {
     // Ensure all core API functions are still available
     expect(typeof RNBackgroundDownloader.createDownloadTask).toBe('function')
     expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
-    expect(typeof RNBackgroundDownloader.ensureDownloadsAreRunning).toBe('function')
     expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
     expect(typeof RNBackgroundDownloader.setConfig).toBe('function')
 

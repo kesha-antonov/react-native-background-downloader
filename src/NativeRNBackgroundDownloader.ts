@@ -58,9 +58,9 @@ export interface Spec extends TurboModule {
     maxRedirects?: number
   }): void
 
-  pauseTask(id: string): void
-  resumeTask(id: string): void
-  stopTask(id: string): void
+  pauseTask(id: string): Promise<void>
+  resumeTask(id: string): Promise<void>
+  stopTask(id: string): Promise<void>
 
   completeHandler(jobId: string): Promise<void>
 

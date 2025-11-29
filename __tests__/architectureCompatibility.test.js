@@ -48,7 +48,6 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
     // Test that all main API functions are available and functional
     expect(typeof RNBackgroundDownloader.createDownloadTask).toBe('function')
     expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
-    expect(typeof RNBackgroundDownloader.ensureDownloadsAreRunning).toBe('function')
     expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
     expect(typeof RNBackgroundDownloader.setConfig).toBe('function')
 

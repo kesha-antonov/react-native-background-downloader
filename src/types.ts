@@ -94,15 +94,14 @@ export interface DownloadTask {
 
   setDownloadParams: (params: DownloadParams) => void
   start: () => void
-  pause: () => void
-  resume: () => void
-  stop: () => void
+  pause: () => Promise<void>
+  resume: () => Promise<void>
+  stop: () => Promise<void>
 
   tryParseJson: (metadata?: string | Metadata) => Metadata | null
 }
 
 export type getExistingDownloadTasks = () => Promise<DownloadTask[]>
-export type EnsureDownloadsAreRunning = () => Promise<void>
 
 export interface DownloadOption {
   id: string

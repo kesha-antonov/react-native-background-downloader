@@ -373,7 +373,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 }
 
-- (void)pauseTaskInternal:(NSString *)identifier {
+- (void)pauseTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
@@ -392,22 +392,25 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
                     }
                     // Keep the identifier in idsToPauseSet until resume or stop is called
                 }
+                resolve(nil);
             }];
+        } else {
+            resolve(nil);
         }
     }
 }
 
-#ifdef RCT_NEW_ARCH_ENABLED
-- (void)pauseTask:(NSString *)identifier {
-    [self pauseTaskInternal:identifier];
+- (void)pauseTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    [self pauseTaskInternal:identifier resolve:resolve reject:reject];
 }
-#else
-RCT_EXPORT_METHOD(pauseTask: (NSString *)id) {
-    [self pauseTaskInternal:id];
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self pauseTaskInternal:id resolve:resolve reject:reject];
 }
 #endif
 
-- (void)resumeTaskInternal:(NSString *)identifier {
+- (void)resumeTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask]");
     @synchronized (sharedLock) {
         [self lazyRegisterSession];
@@ -456,19 +459,20 @@ RCT_EXPORT_METHOD(pauseTask: (NSString *)id) {
             DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] no task or resume data found for %@", identifier);
         }
     }
+    resolve(nil);
 }
 
-#ifdef RCT_NEW_ARCH_ENABLED
-- (void)resumeTask:(NSString *)identifier {
-    [self resumeTaskInternal:identifier];
+- (void)resumeTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    [self resumeTaskInternal:identifier resolve:resolve reject:reject];
 }
-#else
-RCT_EXPORT_METHOD(resumeTask: (NSString *)id) {
-    [self resumeTaskInternal:id];
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self resumeTaskInternal:id resolve:resolve reject:reject];
 }
 #endif
 
-- (void)stopTaskInternal:(NSString *)identifier {
+- (void)stopTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(identifier, @"[RNBackgroundDownloader] - [stopTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
@@ -479,15 +483,16 @@ RCT_EXPORT_METHOD(resumeTask: (NSString *)id) {
         [self->idToResumeDataMap removeObjectForKey:identifier];
         [idsToPauseSet removeObject:identifier];
     }
+    resolve(nil);
 }
 
-#ifdef RCT_NEW_ARCH_ENABLED
-- (void)stopTask:(NSString *)identifier {
-    [self stopTaskInternal:identifier];
+- (void)stopTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    [self stopTaskInternal:identifier resolve:resolve reject:reject];
 }
-#else
-RCT_EXPORT_METHOD(stopTask: (NSString *)id) {
-    [self stopTaskInternal:id];
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(stopTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self stopTaskInternal:id resolve:resolve reject:reject];
 }
 #endif
 

@@ -33,18 +33,21 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun pauseTask(id: String) {
+    fun pauseTask(id: String, promise: Promise) {
         impl.pauseTask(id)
+        promise.resolve(null)
     }
 
     @ReactMethod
-    fun resumeTask(id: String) {
+    fun resumeTask(id: String, promise: Promise) {
         impl.resumeTask(id)
+        promise.resolve(null)
     }
 
     @ReactMethod
-    fun stopTask(id: String) {
+    fun stopTask(id: String, promise: Promise) {
         impl.stopTask(id)
+        promise.resolve(null)
     }
 
     @ReactMethod

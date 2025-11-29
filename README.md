@@ -250,16 +250,18 @@ let task = createDownloadTask({
 // starts download
 task.start()
 
+// ...later
+
 // Pause the task (iOS only)
 // Note: On Android, pause/resume is not supported by DownloadManager
-task.pause()
+await task.pause()
 
 // Resume after pause (iOS only)
 // Note: On Android, pause/resume is not supported by DownloadManager
-task.resume()
+await task.resume()
 
 // Cancel the task
-task.stop()
+await task.stop()
 ```
 
 ### Platform-Aware Pause/Resume
@@ -286,18 +288,18 @@ const task = createDownloadTask({
 task.start()
 
 // Platform-aware pause/resume handling
-function pauseDownloadTask() {
+async function pauseDownloadTask() {
   if (Platform.OS === 'ios') {
-    task.pause()
+    await task.pause()
     console.log('Download paused')
   } else {
     console.log('Pause not supported on Android. Consider using stop() instead.')
   }
 }
 
-function resumeDownloadTask() {
+async function resumeDownloadTask() {
   if (Platform.OS === 'ios') {
-    task.resume()
+    await task.resume()
     console.log('Download resumed')
   } else {
     console.log('Resume not supported on Android. You may need to restart the download.')
@@ -432,7 +434,6 @@ import {
   setConfig,
   createDownloadTask,
   getExistingDownloadTasks,
-  ensureDownloadsAreRunning,
   completeHandler,
   directories
 } from '@kesha-antonov/react-native-background-downloader'
@@ -447,7 +448,6 @@ import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downl
 RNBackgroundDownloader.setConfig
 RNBackgroundDownloader.createDownloadTask
 RNBackgroundDownloader.getExistingDownloadTasks
-RNBackgroundDownloader.ensureDownloadsAreRunning
 RNBackgroundDownloader.completeHandler
 RNBackgroundDownloader.directories
 ```
@@ -526,62 +526,6 @@ After finishing download in background you have some time to process your JS log
 
 **Note:** This should be called after processing your download in the `done` callback to properly signal completion to the OS.
 
-### `ensureDownloadsAreRunning()` (iOS only)
-
-Pauses and resumes all downloads - this is fix for stuck downloads. Use it when your app loaded and is ready for handling downloads (all your logic loaded and ready to handle download callbacks).
-
-**returns**
-
-`Promise<void>` - A promise that resolves when all downloads have been paused and resumed
-
-Here's example of how you can use it:
-
-1. When your app just loaded
-
-Either stop all tasks:
-
-```javascript
-import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
-
-const tasks = await getExistingDownloadTasks()
-for (const task of tasks)
-  task.stop()
-```
-
-Or re-attach them:
-
-```javascript
-import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
-
-const tasks = await getExistingDownloadTasks()
-for (const task of tasks) {
-  task.pause()
-  //
-  // YOUR LOGIC OF RE-ATTACHING DOWLOADS TO YOUR STUFF
-  // ...
-  //
-}
-```
-
-2. Prepare your app to handle downloads... (load your state etc.)
-
-3. Add listener to handle when your app goes foreground (be sure to do it only after you stopped all tasks or re-attached them!)
-
-```javascript
-import { ensureDownloadsAreRunning } from '@kesha-antonov/react-native-background-downloader'
-
-function handleAppStateChange (appState) {
-  if (appState !== 'active')
-    return
-
-  ensureDownloadsAreRunning()
-}
-
-const appStateChangeListener = AppState.addEventListener('change', handleAppStateChange)
-```
-
-4. Call `ensureDownloadsAreRunning()` after all was setup.
-
 ### `Callback Methods`
 Use these methods to stay updated on what's happening with the task.
 
@@ -594,18 +538,18 @@ All callback methods return the current instance of the `DownloadTask` for chain
 | `done`     | `{ bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set |
 | `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error |
 
-### `pause()`  (iOS only)
-Pauses the download
+### `pause(): Promise<void>`  (iOS only)
+Pauses the download. Returns a promise that resolves when the pause operation is complete.
 
 **Note:** This functionality is not supported on Android due to limitations in the DownloadManager API. On Android, calling this method will log a warning but will not crash the application.
 
-### `resume()`  (iOS only)
-Resumes a paused download
+### `resume(): Promise<void>`  (iOS only)
+Resumes a paused download. Returns a promise that resolves when the resume operation is complete.
 
 **Note:** This functionality is not supported on Android due to limitations in the DownloadManager API. On Android, calling this method will log a warning but will not crash the application.
 
-### `stop()`
-Stops the download for good and removes the file that was written so far
+### `stop(): Promise<void>`
+Stops the download for good and removes the file that was written so far. Returns a promise that resolves when the stop operation is complete.
 
 ## Constants
 

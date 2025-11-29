@@ -129,17 +129,17 @@ export default class DownloadTask {
     this.downloadParams = downloadParams
   }
 
-  pause () {
+  async pause (): Promise<void> {
     log('DownloadTask: pause', this.id)
     this.state = 'PAUSED'
-    RNBackgroundDownloader.pauseTask(this.id)
+    await RNBackgroundDownloader.pauseTask(this.id)
   }
 
-  resume () {
+  async resume (): Promise<void> {
     log('DownloadTask: resume', this.id)
     this.state = 'DOWNLOADING'
     this.errorCode = 0
-    RNBackgroundDownloader.resumeTask(this.id)
+    await RNBackgroundDownloader.resumeTask(this.id)
   }
 
   start () {
@@ -163,11 +163,11 @@ export default class DownloadTask {
     })
   }
 
-  stop () {
+  async stop (): Promise<void> {
     log('DownloadTask: stop', this.id)
 
     this.state = 'STOPPED'
-    RNBackgroundDownloader.stopTask(this.id)
+    await RNBackgroundDownloader.stopTask(this.id)
   }
 
   tryParseJson (metadata?: string | Metadata): Metadata | null {

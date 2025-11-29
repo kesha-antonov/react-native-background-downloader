@@ -29,16 +29,19 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
         impl.download(options)
     }
 
-    override fun pauseTask(id: String) {
+    override fun pauseTask(id: String, promise: com.facebook.react.bridge.Promise) {
         impl.pauseTask(id)
+        promise.resolve(null)
     }
 
-    override fun resumeTask(id: String) {
+    override fun resumeTask(id: String, promise: com.facebook.react.bridge.Promise) {
         impl.resumeTask(id)
+        promise.resolve(null)
     }
 
-    override fun stopTask(id: String) {
+    override fun stopTask(id: String, promise: com.facebook.react.bridge.Promise) {
         impl.stopTask(id)
+        promise.resolve(null)
     }
 
     override fun completeHandler(jobId: String, promise: com.facebook.react.bridge.Promise) {

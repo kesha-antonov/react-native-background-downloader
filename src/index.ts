@@ -255,16 +255,6 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
   return downloadTasks
 }
 
-export const ensureDownloadsAreRunning = async (): Promise<void> => {
-  const tasks: DownloadTask[] = await getExistingDownloadTasks()
-  const tasksDownloading = tasks.filter(task => task.state === 'DOWNLOADING')
-
-  for (const task of tasksDownloading) {
-    task.pause()
-    task.resume()
-  }
-}
-
 export const completeHandler = (jobId: string) => {
   if (jobId == null) {
     log('completeHandler: jobId is empty')
@@ -319,7 +309,6 @@ export default {
   setConfig,
   createDownloadTask,
   getExistingDownloadTasks,
-  ensureDownloadsAreRunning,
   completeHandler,
 
   directories,
