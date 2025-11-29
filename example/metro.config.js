@@ -20,4 +20,11 @@ config.resolver.extraNodeModules = {
   '@kesha-antonov/react-native-background-downloader': libraryRoot,
 }
 
+// Exclude react-native from the library root to avoid duplicate module issues
+const escapedLibraryRoot = libraryRoot.replace(/[/\\]/g, '[/\\\\]')
+config.resolver.blockList = [
+  ...config.resolver.blockList,
+  new RegExp(`${escapedLibraryRoot}/node_modules/react-native/.*`),
+]
+
 module.exports = config

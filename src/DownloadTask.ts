@@ -15,7 +15,7 @@ import {
   DownloadTaskState,
   Metadata,
 } from './types'
-import { config, log } from '.'
+import { config, log } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 // Try to get the native module using TurboModuleRegistry first (new architecture),

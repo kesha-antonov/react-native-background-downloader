@@ -1,6 +1,7 @@
-import { NativeModules, Platform, TurboModuleRegistry, DeviceEventEmitter } from 'react-native'
+import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter } from 'react-native'
 import DownloadTask from './DownloadTask'
 import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative } from './types'
+import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 type NativeModule = Spec & {
@@ -11,61 +12,61 @@ type NativeModule = Spec & {
   documents: string
 }
 
-// Try to get the native module using TurboModuleRegistry first (new architecture),
-// then fall back to NativeModules (old architecture)
-let RNBackgroundDownloader: NativeModule
+// Lazy initialization state
+let RNBackgroundDownloader: NativeModule | null = null
+let turboModule: Spec | null = null
+let isNewArchitecture = false
+let isInitialized = false
 
-// Try TurboModules first
-const turboModule = TurboModuleRegistry.get<Spec>('RNBackgroundDownloader')
-const isNewArchitecture = turboModule != null
+/**
+ * Lazily initialize the native module.
+ * This is called on first actual use of the module, not at import time.
+ * This prevents issues with module loading before React Native's bridge is ready.
+ */
+function ensureNativeModuleInitialized (): NativeModule {
+  if (isInitialized && RNBackgroundDownloader)
+    return RNBackgroundDownloader
 
-if (turboModule) {
-  // TurboModules use getConstants() method
-  const constants = turboModule.getConstants()
-  RNBackgroundDownloader = Object.assign(turboModule, constants) as NativeModule
-} else {
-  // Fall back to old architecture
-  RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
+  // Try TurboModules first
+  turboModule = TurboModuleRegistry.get<Spec>('RNBackgroundDownloader')
+  // Check if the new architecture event emitters are available
+  // TurboModuleRegistry.get() can return a module even with old arch, but event emitters won't exist
+  isNewArchitecture = turboModule != null && typeof turboModule.onDownloadBegin === 'function'
 
-  // For old architecture, constants may need to be fetched via getConstants() as well
-  if (RNBackgroundDownloader && !RNBackgroundDownloader.documents && typeof RNBackgroundDownloader.getConstants === 'function') {
-    const constants = RNBackgroundDownloader.getConstants()
-    if (constants)
-      Object.assign(RNBackgroundDownloader, constants)
+  if (isNewArchitecture && turboModule) {
+    // New architecture: TurboModules use getConstants() method
+    const constants = turboModule.getConstants()
+    RNBackgroundDownloader = Object.assign(turboModule, constants) as NativeModule
+  } else {
+    // Fall back to old architecture - must use NativeModules for proper event emission
+    RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
+
+    // For old architecture, constants may need to be fetched via getConstants() as well
+    if (RNBackgroundDownloader && !RNBackgroundDownloader.documents && typeof RNBackgroundDownloader.getConstants === 'function') {
+      const constants = RNBackgroundDownloader.getConstants()
+      if (constants)
+        Object.assign(RNBackgroundDownloader, constants)
+    }
   }
-}
 
-if (!RNBackgroundDownloader)
-  throw new Error(
-    'The package \'@kesha-antonov/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
-    Platform.select({ ios: '- You have run \'pod install\'\n', default: '' }) +
-    '- You rebuilt the app after installing the package\n' +
-    '- You are not using Expo Go\n'
-  )
+  if (!RNBackgroundDownloader)
+    throw new Error(
+      'The package \'@kesha-antonov/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
+      Platform.select({ ios: '- You have run \'pod install\'\n', default: '' }) +
+      '- You rebuilt the app after installing the package\n' +
+      '- You are not using Expo Go\n'
+    )
+
+  isInitialized = true
+
+  // Initialize event listeners after native module is ready
+  initializeEventListeners()
+
+  return RNBackgroundDownloader
+}
 
 const MIN_PROGRESS_INTERVAL = 250
-const DEFAULT_PROGRESS_INTERVAL = 1000
-const DEFAULT_PROGRESS_MIN_BYTES = 1024 * 1024 // 1MB
 const tasksMap = new Map<string, DownloadTask>()
-
-interface ConfigState {
-  headers: Headers
-  progressInterval: number
-  progressMinBytes: number
-  isLogsEnabled: boolean
-}
-
-export const config: ConfigState = {
-  headers: {},
-  progressInterval: DEFAULT_PROGRESS_INTERVAL,
-  progressMinBytes: DEFAULT_PROGRESS_MIN_BYTES,
-  isLogsEnabled: false,
-}
-
-export const log = (...args: unknown[]): void => {
-  if (config.isLogsEnabled)
-    console.log('[RNBackgroundDownloader]', ...args)
-}
 
 interface DownloadBeginEvent {
   id: string
@@ -92,73 +93,88 @@ interface DownloadFailedEvent {
 }
 
 // Set up event listeners based on architecture
-if (isNewArchitecture && turboModule) {
-  // New architecture: use EventEmitter from TurboModule spec
-  turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
-    const { id, ...rest } = data
-    log('downloadBegin', id, rest)
-    const task = tasksMap.get(id)
-    task?.onBegin(rest)
-  })
+// For old architecture, we need to defer NativeEventEmitter creation
+// to avoid issues during module initialization
+let eventListenersInitialized = false
 
-  turboModule.onDownloadProgress((events: DownloadProgressEvent[]) => {
-    log('downloadProgress', events)
-    for (const event of events) {
-      const { id, ...rest } = event
+function initializeEventListeners () {
+  if (eventListenersInitialized) return
+  eventListenersInitialized = true
+
+  if (isNewArchitecture && turboModule) {
+    // New architecture: use EventEmitter from TurboModule spec
+    turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
+      const { id, ...rest } = data
+      log('downloadBegin', id, rest)
       const task = tasksMap.get(id)
-      task?.onProgress(rest)
-    }
-  })
+      task?.onBegin(rest)
+    })
 
-  turboModule.onDownloadComplete((data: DownloadCompleteEvent) => {
-    const { id, ...rest } = data
-    log('downloadComplete', id, rest)
-    const task = tasksMap.get(id)
-    task?.onDone(rest)
-    tasksMap.delete(id)
-  })
+    turboModule.onDownloadProgress((events: DownloadProgressEvent[]) => {
+      log('downloadProgress', events)
+      for (const event of events) {
+        const { id, ...rest } = event
+        const task = tasksMap.get(id)
+        task?.onProgress(rest)
+      }
+    })
 
-  turboModule.onDownloadFailed((data: DownloadFailedEvent) => {
-    const { id, ...rest } = data
-    log('downloadFailed', id, rest)
-    const task = tasksMap.get(id)
-    task?.onError(rest)
-    tasksMap.delete(id)
-  })
-} else {
-  // Old architecture: use DeviceEventEmitter
-  DeviceEventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
-    const { id, ...rest } = data
-    log('downloadBegin', id, rest)
-    const task = tasksMap.get(id)
-    task?.onBegin(rest)
-  })
-
-  DeviceEventEmitter.addListener('downloadProgress', (events: DownloadProgressEvent[]) => {
-    log('downloadProgress', events)
-    for (const event of events) {
-      const { id, ...rest } = event
+    turboModule.onDownloadComplete((data: DownloadCompleteEvent) => {
+      const { id, ...rest } = data
+      log('downloadComplete', id, rest)
       const task = tasksMap.get(id)
-      task?.onProgress(rest)
-    }
-  })
+      task?.onDone(rest)
+      tasksMap.delete(id)
+    })
 
-  DeviceEventEmitter.addListener('downloadComplete', (data: DownloadCompleteEvent) => {
-    const { id, ...rest } = data
-    log('downloadComplete', id, rest)
-    const task = tasksMap.get(id)
-    task?.onDone(rest)
-    tasksMap.delete(id)
-  })
+    turboModule.onDownloadFailed((data: DownloadFailedEvent) => {
+      const { id, ...rest } = data
+      log('downloadFailed', id, rest)
+      const task = tasksMap.get(id)
+      task?.onError(rest)
+      tasksMap.delete(id)
+    })
+  } else {
+    // Old architecture: use NativeEventEmitter with the native module
+    // RCTEventEmitter on native side requires NativeEventEmitter on JS side
+    const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader as any)
 
-  DeviceEventEmitter.addListener('downloadFailed', (data: DownloadFailedEvent) => {
-    const { id, ...rest } = data
-    log('downloadFailed', id, rest)
-    const task = tasksMap.get(id)
-    task?.onError(rest)
-    tasksMap.delete(id)
-  })
+    eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
+      const { id, ...rest } = data
+      log('downloadBegin', id, rest)
+      const task = tasksMap.get(id)
+      task?.onBegin(rest)
+    })
+
+    eventEmitter.addListener('downloadProgress', (events: DownloadProgressEvent[]) => {
+      log('downloadProgress', events)
+      for (const event of events) {
+        const { id, ...rest } = event
+        const task = tasksMap.get(id)
+        task?.onProgress(rest)
+      }
+    })
+
+    eventEmitter.addListener('downloadComplete', (data: DownloadCompleteEvent) => {
+      const { id, ...rest } = data
+      log('downloadComplete', id, rest)
+      const task = tasksMap.get(id)
+      task?.onDone(rest)
+      tasksMap.delete(id)
+    })
+
+    eventEmitter.addListener('downloadFailed', (data: DownloadFailedEvent) => {
+      const { id, ...rest } = data
+      log('downloadFailed', id, rest)
+      const task = tasksMap.get(id)
+      task?.onError(rest)
+      tasksMap.delete(id)
+    })
+  }
 }
+
+// Event listeners are now initialized lazily when ensureNativeModuleInitialized() is called
+// This ensures the bridge is ready before any native module access
 
 export function setConfig ({
   headers = {},
@@ -182,7 +198,8 @@ export function setConfig ({
 }
 
 export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
-  const downloads = await RNBackgroundDownloader.getExistingDownloadTasks()
+  const nativeModule = ensureNativeModuleInitialized()
+  const downloads = await nativeModule.getExistingDownloadTasks()
   const downloadTasks: DownloadTask[] = downloads.map(downloadInfo => {
     // Parse metadata from JSON string to object
     let metadata = {}
@@ -202,15 +219,15 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
     const task = new DownloadTask(taskInfo, tasksMap.get(taskInfo.id))
 
     switch (taskInfo.state) {
-      case RNBackgroundDownloader.TaskRunning: {
+      case nativeModule.TaskRunning: {
         task.state = 'DOWNLOADING'
         break
       }
-      case RNBackgroundDownloader.TaskSuspended: {
+      case nativeModule.TaskSuspended: {
         task.state = 'PAUSED'
         break
       }
-      case RNBackgroundDownloader.TaskCanceling: {
+      case nativeModule.TaskCanceling: {
         // On iOS, paused tasks (via cancelByProducingResumeData) are in Canceling state with errorCode -999
         if (taskInfo.errorCode === -999) {
           task.state = 'PAUSED'
@@ -220,7 +237,7 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
         }
         break
       }
-      case RNBackgroundDownloader.TaskCompleted: {
+      case nativeModule.TaskCompleted: {
         if (taskInfo.bytesDownloaded === taskInfo.bytesTotal)
           task.state = 'DONE'
         else
@@ -254,7 +271,8 @@ export const completeHandler = (jobId: string) => {
     return
   }
 
-  return RNBackgroundDownloader.completeHandler(jobId)
+  const nativeModule = ensureNativeModuleInitialized()
+  return nativeModule.completeHandler(jobId)
 }
 
 export function createDownloadTask ({
@@ -287,8 +305,11 @@ export function createDownloadTask ({
   return task
 }
 
+// Use getter to lazily initialize native module when directories are accessed
 export const directories = {
-  documents: RNBackgroundDownloader.documents,
+  get documents () {
+    return ensureNativeModuleInitialized().documents
+  },
 }
 
 export default {

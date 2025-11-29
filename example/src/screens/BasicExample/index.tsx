@@ -8,8 +8,7 @@ import {
   setConfig,
   directories,
 } from '@kesha-antonov/react-native-background-downloader'
-// Progress bar is implemented with View components
-import { ExButton, ExWrapper } from '../../components/commons'
+import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -19,6 +18,7 @@ const defaultDir = new Directory(Paths.document)
 
 setConfig({
   isLogsEnabled: true,
+  progressMinBytes: 1024 * 100, // 100 KB
 })
 
 interface UrlItem {
@@ -46,8 +46,6 @@ interface DownloadItemProps {
 const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onDelete }: DownloadItemProps) => {
   const { urlItem, task, destination } = item
   const state = task?.state ?? 'IDLE'
-  const isIdle = !task
-  const isPending = task?.state === 'PENDING'
   const isDownloading = state === 'DOWNLOADING'
   const isPaused = state === 'PAUSED'
   const isDone = state === 'DONE'

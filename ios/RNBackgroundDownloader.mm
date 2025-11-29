@@ -58,16 +58,16 @@ RCT_EXPORT_MODULE();
 // Enable interop layer so NativeModules.RNBackgroundDownloader is available
 // This is required for NativeEventEmitter to work with TurboModules
 + (BOOL)requiresMainQueueSetup {
-    return YES;
+    return NO;
 }
 
 #pragma mark - Helper methods
 
 - (BOOL)canSendEvents {
-    // Always return YES - let RCTEventEmitter handle listener management
-    // The warning "Sending X with no listeners registered" is harmless
-    // and events will be properly received once JS listeners are set up
-    return YES;
+    // Only send events if JavaScript has fully loaded
+    // This prevents "Invariant Violation: Failed to call into JavaScript module method"
+    // errors that occur when native code tries to send events before the JS bridge is ready
+    return isJavascriptLoaded;
 }
 
 - (RNBGDTaskConfig *)configForTask:(NSURLSessionTask *)task {
@@ -126,6 +126,11 @@ RCT_EXPORT_MODULE();
     self = [super initWithDisabledObservation];
 #endif
     if (self) {
+#ifdef RCT_NEW_ARCH_ENABLED
+        // TurboModules are lazily initialized when JS first accesses them,
+        // so JavaScript is ready when init is called
+        isJavascriptLoaded = YES;
+#endif
         [MMKV initializeMMKV:nil];
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
@@ -368,7 +373,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 }
 
-- (void)pauseTask:(NSString *)identifier {
+- (void)pauseTaskInternal:(NSString *)identifier {
     DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
@@ -392,13 +397,17 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 }
 
-#ifndef RCT_NEW_ARCH_ENABLED
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)pauseTask:(NSString *)identifier {
+    [self pauseTaskInternal:identifier];
+}
+#else
 RCT_EXPORT_METHOD(pauseTask: (NSString *)id) {
-    [self pauseTask:id];
+    [self pauseTaskInternal:id];
 }
 #endif
 
-- (void)resumeTask:(NSString *)identifier {
+- (void)resumeTaskInternal:(NSString *)identifier {
     DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask]");
     @synchronized (sharedLock) {
         [self lazyRegisterSession];
@@ -449,13 +458,17 @@ RCT_EXPORT_METHOD(pauseTask: (NSString *)id) {
     }
 }
 
-#ifndef RCT_NEW_ARCH_ENABLED
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)resumeTask:(NSString *)identifier {
+    [self resumeTaskInternal:identifier];
+}
+#else
 RCT_EXPORT_METHOD(resumeTask: (NSString *)id) {
-    [self resumeTask:id];
+    [self resumeTaskInternal:id];
 }
 #endif
 
-- (void)stopTask:(NSString *)identifier {
+- (void)stopTaskInternal:(NSString *)identifier {
     DLog(identifier, @"[RNBackgroundDownloader] - [stopTask]");
     @synchronized (sharedLock) {
         NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
@@ -468,9 +481,13 @@ RCT_EXPORT_METHOD(resumeTask: (NSString *)id) {
     }
 }
 
-#ifndef RCT_NEW_ARCH_ENABLED
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)stopTask:(NSString *)identifier {
+    [self stopTaskInternal:identifier];
+}
+#else
 RCT_EXPORT_METHOD(stopTask: (NSString *)id) {
-    [self stopTask:id];
+    [self stopTaskInternal:id];
 }
 #endif
 
