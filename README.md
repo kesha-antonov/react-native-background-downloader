@@ -5,9 +5,9 @@
 
 [![npm version](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg)](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader)
 
-## 🎉 Version 4.0.0-alpha.1 Released!
+## 🎉 Version 4.0.0 Released!
 
-**v4.0.0-alpha.1** is now available with full **React Native New Architecture (TurboModules)** support!
+**v4.0.0** is now available with full **React Native New Architecture (TurboModules)** support!
 
 > ⚠️ **Alpha Release:** This version is in alpha state. Please report any issues you encounter.
 
