@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, SectionList, SectionListData } from 'react-native'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, SectionList, SectionListData, Animated } from 'react-native'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
   completeHandler,
@@ -62,7 +62,23 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onD
   const progress = isTotalUnknown ? 0 : bytesDownloaded / bytesTotal
   const progressPercent = isTotalUnknown ? 0 : Math.round(progress * 100)
 
-  const getStateColor = () => {
+  // Animated progress bar
+  const progressAnim = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: progress,
+      duration: 300,
+      useNativeDriver: false,
+    }).start()
+  }, [progress, progressAnim])
+
+  const animatedWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  })
+
+  const stateColor = useMemo(() => {
     switch (state) {
       case 'DOWNLOADING': return '#4CAF50'
       case 'PAUSED': return '#FF9800'
@@ -71,7 +87,7 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onD
       case 'STOPPED': return '#9E9E9E'
       default: return '#666'
     }
-  }
+  }, [state])
 
   return (
     <View style={styles.downloadItem}>
@@ -88,13 +104,13 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onD
       {task && (
         <View style={styles.progressContainer}>
           <View style={styles.progressHeader}>
-            <Text style={[styles.stateText, { color: getStateColor() }]}>{state}</Text>
+            <Text style={[styles.stateText, { color: stateColor }]}>{state}</Text>
             <Text style={styles.progressPercent}>{isTotalUnknown ? '—' : `${progressPercent}%`}</Text>
           </View>
 
           {/* Progress Bar */}
           <View style={styles.progressBarContainer}>
-            <View style={[styles.progressBarFill, { width: isTotalUnknown ? '100%' : `${progressPercent}%`, backgroundColor: getStateColor(), opacity: isTotalUnknown ? 0.3 : 1 }]} />
+            <Animated.View style={[styles.progressBarFill, { width: isTotalUnknown ? '100%' : animatedWidth, backgroundColor: stateColor, opacity: isTotalUnknown ? 0.3 : 1 }]} />
           </View>
 
           <Text style={styles.progressText}>
@@ -107,7 +123,7 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onD
         {(!task || isFailed || isStopped) && (
           <ExButton title="Start" onPress={() => onStart(urlItem)} />
         )}
-        {isDone && (
+        {(isDone || isStopped || isFailed) && bytesDownloaded > 0 && (
           <ExButton title="Delete File" onPress={() => onDelete(urlItem.id)} />
         )}
         {task && !isEnded && (
@@ -116,7 +132,7 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onD
             {isDownloading && (
               <ExButton title="Pause" onPress={() => onPause(urlItem.id)} />
             )}
-            {(isPaused || isPending) && (
+            {isPaused && (
               <ExButton title="Resume" onPress={() => onResume(urlItem.id)} />
             )}
           </>
@@ -195,15 +211,18 @@ const BasicExampleScreen = () => {
   const urlList = useMemo<UrlItem[]>(() => [
     {
       id: uuid(),
-      url: 'https://sabnzbd.org/tests/internetspeed/20MB.bin',
+      url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+      title: 'MP3 Audio · 6MB',
     },
     {
       id: uuid(),
-      url: 'https://sabnzbd.org/tests/internetspeed/50MB.bin',
+      url: 'https://filesamples.com/samples/image/jpeg/sample_5184%C3%973456.jpeg',
+      title: 'JPEG · 4K · 5.30 MB',
     },
     {
       id: uuid(),
       url: 'https://proof.ovh.net/files/100Mb.dat',
+      title: 'Binary file · 100MB',
     },
     {
       id: uuid(),
@@ -211,6 +230,16 @@ const BasicExampleScreen = () => {
       maxRedirects: 10,
       title: 'Podcast with redirects',
     },
+    {
+      id: uuid(),
+      url: 'https://filesamples.com/samples/video/mp4/sample_3840x2160.mp4',
+      title: '4K Video · 126MB',
+    },
+    {
+      id: uuid(),
+      url: 'https://testfile.org/1.3GBiconpng',
+      title: 'Large File · 1GB',
+    }
   ], [])
 
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
@@ -489,7 +518,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   progressContainer: {
-    marginVertical: 12,
+    marginVertical: 8,
   },
   progressHeader: {
     flexDirection: 'row',

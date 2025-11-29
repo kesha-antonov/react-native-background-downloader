@@ -43,6 +43,8 @@ static CompletionHandler storedCompletionHandler;
     NSMutableDictionary<NSString *, NSDictionary *> *progressReports;
     NSMutableDictionary<NSString *, NSNumber *> *idToLastBytesMap;
     NSMutableSet<NSString *> *idsToPauseSet;
+    // Tracks tasks that have already been retried once after a decode error (-1015)
+    NSMutableSet<NSString *> *decodeErrorRetriedIds;
     float progressInterval;
     int64_t progressMinBytes;
     NSDate *lastProgressReportedAt;
@@ -160,6 +162,7 @@ RCT_EXPORT_MODULE();
         int64_t progressMinBytesScope = [mmkv getInt64ForKey:PROGRESS_MIN_BYTES_KEY];
         progressMinBytes = progressMinBytesScope > 0 ? progressMinBytesScope : 0;
         lastProgressReportedAt = [[NSDate alloc] init];
+        decodeErrorRetriedIds = [[NSMutableSet alloc] init];
 
         [self registerBridgeListener];
     }
@@ -816,6 +819,46 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             taskConfig.errorCode = error.code;
             DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] task was paused, ignoring error for %@", taskConfig.id);
             return;
+        }
+
+        // Fallback: certain servers return -1015 (NSURLErrorCannotDecodeRawData) on resumed tasks.
+        // Instead of failing permanently, attempt ONE fresh retry without resume data.
+        if (error.code == NSURLErrorCannotDecodeRawData && ![decodeErrorRetriedIds containsObject:taskConfig.id]) {
+            [decodeErrorRetriedIds addObject:taskConfig.id];
+            DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] attempting fresh retry after decode error");
+
+            // Build a fresh request replicating original headers
+            NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
+            // Reapply original request headers if available (including our internal identifier header)
+            NSDictionary *originalHeaders = task.originalRequest.allHTTPHeaderFields;
+            if (originalHeaders != nil) {
+                for (NSString *headerKey in originalHeaders) {
+                    [request setValue:[originalHeaders valueForKey:headerKey] forHTTPHeaderField:headerKey];
+                }
+            }
+            [request setValue:taskConfig.id forHTTPHeaderField:@"configId"]; // ensure config id header
+
+            // Remove old mapping keyed by previous task identifier
+            [taskToConfigMap removeObjectForKey:@(task.taskIdentifier)];
+
+            NSURLSessionDownloadTask *newTask = [urlSession downloadTaskWithRequest:request];
+            if (newTask != nil) {
+                // Reset task state for fresh attempt
+                taskConfig.state = NSURLSessionTaskStateRunning;
+                taskConfig.errorCode = 0;
+                taskConfig.bytesDownloaded = 0;
+                taskConfig.bytesTotal = 0;
+                taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
+                [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                idToTaskMap[taskConfig.id] = newTask;
+                idToPercentMap[taskConfig.id] = @0.0;
+                idToLastBytesMap[taskConfig.id] = @0;
+                [newTask resume];
+                DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] fresh retry started");
+                return; // Do not emit failure yet
+            } else {
+                DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] fresh retry creation failed");
+            }
         }
 
         // Handle failure
