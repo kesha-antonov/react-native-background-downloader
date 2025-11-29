@@ -1,10 +1,10 @@
-import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter } from 'react-native'
+import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
 import DownloadTask from './DownloadTask'
 import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative } from './types'
 import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
-type NativeModule = Spec & {
+type RNBackgroundDownloaderModule = Spec & {
   TaskRunning: number
   TaskSuspended: number
   TaskCanceling: number
@@ -13,7 +13,7 @@ type NativeModule = Spec & {
 }
 
 // Lazy initialization state
-let RNBackgroundDownloader: NativeModule | null = null
+let RNBackgroundDownloader: RNBackgroundDownloaderModule & NativeModule
 let turboModule: Spec | null = null
 let isNewArchitecture = false
 let isInitialized = false
@@ -23,7 +23,7 @@ let isInitialized = false
  * This is called on first actual use of the module, not at import time.
  * This prevents issues with module loading before React Native's bridge is ready.
  */
-function ensureNativeModuleInitialized (): NativeModule {
+function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & NativeModule {
   if (isInitialized && RNBackgroundDownloader)
     return RNBackgroundDownloader
 
@@ -36,7 +36,7 @@ function ensureNativeModuleInitialized (): NativeModule {
   if (isNewArchitecture && turboModule) {
     // New architecture: TurboModules use getConstants() method
     const constants = turboModule.getConstants()
-    RNBackgroundDownloader = Object.assign(turboModule, constants) as NativeModule
+    RNBackgroundDownloader = Object.assign(turboModule, constants) as RNBackgroundDownloaderModule & NativeModule
   } else {
     // Fall back to old architecture - must use NativeModules for proper event emission
     RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
@@ -137,7 +137,7 @@ function initializeEventListeners () {
   } else {
     // Old architecture: use NativeEventEmitter with the native module
     // RCTEventEmitter on native side requires NativeEventEmitter on JS side
-    const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader as any)
+    const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader)
 
     eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
       const { id, ...rest } = data
