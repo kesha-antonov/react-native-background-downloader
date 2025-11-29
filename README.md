@@ -49,6 +49,8 @@ The real challenge of using this method is making sure the app's UI is always up
 
 ## Getting started
 
+### Installation
+
 ```Terminal
 yarn add @kesha-antonov/react-native-background-downloader
 ```
@@ -64,7 +66,9 @@ Then:
 cd ios && pod install
 ```
 
-#### Manual Setup (Advanced)
+<details>
+<summary>Manual Setup (Advanced)</summary>
+
 If you need to manually configure the package for New Architecture:
 
 **iOS**: The library automatically detects New Architecture via compile-time flags.
@@ -82,16 +86,7 @@ protected List<ReactPackage> getPackages() {
   );
 }
 ```
-
-#### Known Issues with New Architecture
-When using larger files with the New Architecture, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager, not specific to this library or the New Architecture. The error includes enhanced messaging to help diagnose the issue.
-
-**Workaround:** If you encounter this error frequently with large files, consider:
-1. Breaking large downloads into smaller chunks
-2. Implementing retry logic in your app
-3. Using alternative download strategies for very large files
-
-The library now provides enhanced error handling for this specific case with detailed logging and cleanup.
+</details>
 
 ### Mostly automatic installation
 Any React Native version **`>= 0.60`** supports autolinking so nothing should be done.
@@ -661,11 +656,19 @@ In case of error `java.lang.IllegalStateException: TypeToken must be created wit
 -keepattributes AnnotationDefault,RuntimeVisibleAnnotations
 ```
 
+## Known Issues with New Architecture
+When using larger files with the New Architecture, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager, not specific to this library or the New Architecture. The error includes enhanced messaging to help diagnose the issue.
+
+**Workaround:** If you encounter this error frequently with large files, consider:
+1. Breaking large downloads into smaller chunks
+2. Implementing retry logic in your app
+3. Using alternative download strategies for very large files
+
+The library now provides enhanced error handling for this specific case with detailed logging and cleanup.
+
 ## TODO
 
-- [ ] Write better examples - current kinda old and shallow
 - [ ] Write better API for downloads - current kinda boilerplate
-- [ ] Add more tests
 
 ## Authors
 
