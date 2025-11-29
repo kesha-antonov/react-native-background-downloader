@@ -281,6 +281,9 @@ export function createDownloadTask ({
   isNotificationVisible = false,
   ...rest
 }: TaskInfo & DownloadParams) {
+  // Ensure native module and event listeners are initialized before creating tasks
+  ensureNativeModuleInitialized()
+
   if (!rest.id || !rest.url || !rest.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')
 
