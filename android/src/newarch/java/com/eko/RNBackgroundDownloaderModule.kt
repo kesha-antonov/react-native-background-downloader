@@ -12,7 +12,7 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     override fun getName(): String = RNBackgroundDownloaderModuleImpl.NAME
 
     override fun getTypedExportedConstants(): Map<String, Any>? {
-        return impl.constants
+        return impl.getConstants()
     }
 
     override fun initialize() {
@@ -53,11 +53,13 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
         impl.getExistingDownloadTasks(promise)
     }
 
-    override fun addListener(eventName: String) {
+    @com.facebook.react.bridge.ReactMethod
+    fun addListener(eventName: String) {
         impl.addListener(eventName)
     }
 
-    override fun removeListeners(count: Double) {
+    @com.facebook.react.bridge.ReactMethod
+    fun removeListeners(count: Double) {
         impl.removeListeners(count.toInt())
     }
 }
