@@ -307,12 +307,12 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     DLog(identifier, @"[RNBackgroundDownloader] - [download]");
     NSString *url = options[@"url"];
     NSString *destination = options[@"destination"];
-    NSString *metadata = options[@"metadata"];
+    NSString *metadata = options[@"metadata"] ?: @"";
     NSDictionary *headers = options[@"headers"];
 
     NSNumber *progressIntervalScope = options[@"progressInterval"];
     if (progressIntervalScope) {
-        progressInterval = [progressIntervalScope intValue] / 1000;
+        progressInterval = [progressIntervalScope intValue] / 1000.0;
         [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
 
@@ -850,11 +850,17 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] error: %@", error);
 
         // NSURLErrorCancelled (-999) is used for paused or cancelled tasks
-        NSData *resumeData = task.error.userInfo[NSURLSessionDownloadTaskResumeData];
+        // Extract resume data first before checking isPausedTask
+        NSData *resumeData = error.userInfo[NSURLSessionDownloadTaskResumeData];
         BOOL isPausedTask = (error.code == NSURLErrorCancelled && resumeData != nil);
 
         if (isPausedTask) {
             taskConfig.errorCode = error.code;
+
+            // Store resume data so we can resume the download later
+            if (taskConfig.id && resumeData) {
+                idToResumeDataMap[taskConfig.id] = resumeData;
+            }
             DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] task was paused, ignoring error for %@", taskConfig.id);
             return;
         }
@@ -934,6 +940,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 }
 
 - (NSError *)getServerError:(NSURLSessionDownloadTask *)downloadTask {
+    // Safely check if response is an HTTP response
+    if (![downloadTask.response isKindOfClass:[NSHTTPURLResponse class]]) {
+        return nil; // No HTTP response, can't determine server error
+    }
+
     NSInteger statusCode = ((NSHTTPURLResponse *)downloadTask.response).statusCode;
 
     // 200: OK, 206: Partial Content (for resumed downloads)
@@ -954,6 +965,17 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     // Relative paths are used to recreate the Absolute path.
     NSString *rootPath = [self getRootPathFromPath:taskConfig.destination];
     NSString *fileRelativePath = [self getRelativeFilePathFromPath:taskConfig.destination];
+
+    // Check for nil paths to prevent crash
+    if (rootPath == nil || fileRelativePath == nil) {
+        if (saveError) {
+            *saveError = [NSError errorWithDomain:NSURLErrorDomain
+                                             code:NSURLErrorFileDoesNotExist
+                                         userInfo:@{NSLocalizedDescriptionKey: @"Invalid destination path"}];
+        }
+        return NO;
+    }
+
     NSString *fileAbsolutePath = [rootPath stringByAppendingPathComponent:fileRelativePath];
     NSURL *destinationURL = [NSURL fileURLWithPath:fileAbsolutePath];
 
