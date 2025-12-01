@@ -170,6 +170,9 @@ RCT_EXPORT_MODULE();
         decodeErrorRetriedIds = [[NSMutableSet alloc] init];
 
         [self registerBridgeListener];
+
+        // Initialize session early to receive background events on app relaunch
+        [self lazyRegisterSession];
     }
 
     return self;
