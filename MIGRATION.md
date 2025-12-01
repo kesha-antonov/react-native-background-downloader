@@ -2,6 +2,36 @@
 
 This guide helps you upgrade between major versions of `@kesha-antonov/react-native-background-downloader`.
 
+## Table of Contents
+
+- [Migration Guide](#migration-guide)
+  - [Table of Contents](#table-of-contents)
+- [Migration Guide: v4.0.x → v4.1.0](#migration-guide-v40x--v410)
+  - [MMKV Dependency Change](#mmkv-dependency-change)
+    - [If you're using `react-native-mmkv`](#if-youre-using-react-native-mmkv)
+    - [If you're NOT using `react-native-mmkv`](#if-youre-not-using-react-native-mmkv)
+    - [Why This Change?](#why-this-change)
+- [Migration Guide: v3.2.6 → v4.0.0](#migration-guide-v326--v400)
+  - [Breaking Changes Overview](#breaking-changes-overview)
+  - [Step-by-Step Migration](#step-by-step-migration)
+    - [1. Update Import Path](#1-update-import-path)
+    - [2. Rename API Methods](#2-rename-api-methods)
+      - [`checkForExistingDownloads()` → `getExistingDownloadTasks()`](#checkforexistingdownloads--getexistingdownloadtasks)
+    - [3. Update Download Creation](#3-update-download-creation)
+      - [`download()` → `createDownloadTask()` + `.start()`](#download--createdownloadtask--start)
+      - [Why This Change?](#why-this-change-1)
+    - [4. Update Configuration](#4-update-configuration)
+      - [New `progressMinBytes` Option](#new-progressminbytes-option)
+  - [New Features](#new-features)
+    - [`maxRedirects` Option (Android)](#maxredirects-option-android)
+    - [Task States](#task-states)
+    - [TypeScript Support](#typescript-support)
+  - [Expo Projects](#expo-projects)
+    - [Setup](#setup)
+    - [Rebuild Required](#rebuild-required)
+  - [Quick Migration Checklist](#quick-migration-checklist)
+  - [Need Help?](#need-help)
+
 ---
 
 # Migration Guide: v4.0.x → v4.1.0
@@ -40,38 +70,6 @@ Previously, both this library and `react-native-mmkv` would each bundle their ow
 # Migration Guide: v3.2.6 → v4.0.0
 
 This section helps you upgrade from v3.2.6 to v4.0.0.
-
-## Table of Contents
-
-- [Migration Guide](#migration-guide)
-- [Migration Guide: v4.0.x → v4.1.0](#migration-guide-v40x--v410)
-  - [MMKV Dependency Change](#mmkv-dependency-change)
-    - [If you're using `react-native-mmkv`](#if-youre-using-react-native-mmkv)
-    - [If you're NOT using `react-native-mmkv`](#if-youre-not-using-react-native-mmkv)
-    - [Why This Change?](#why-this-change)
-- [Migration Guide: v3.2.6 → v4.0.0](#migration-guide-v326--v400)
-  - [Table of Contents](#table-of-contents)
-  - [Breaking Changes Overview](#breaking-changes-overview)
-  - [Step-by-Step Migration](#step-by-step-migration)
-    - [1. Update Import Path](#1-update-import-path)
-    - [2. Rename API Methods](#2-rename-api-methods)
-      - [`checkForExistingDownloads()` → `getExistingDownloadTasks()`](#checkforexistingdownloads--getexistingdownloadtasks)
-    - [3. Update Download Creation](#3-update-download-creation)
-      - [`download()` → `createDownloadTask()` + `.start()`](#download--createdownloadtask--start)
-      - [Why This Change?](#why-this-change-1)
-    - [4. Update Configuration](#4-update-configuration)
-      - [New `progressMinBytes` Option](#new-progressminbytes-option)
-  - [New Features](#new-features)
-    - [`maxRedirects` Option (Android)](#maxredirects-option-android)
-    - [Task States](#task-states)
-    - [TypeScript Support](#typescript-support)
-  - [Expo Projects](#expo-projects)
-    - [Setup](#setup)
-    - [Rebuild Required](#rebuild-required)
-  - [Quick Migration Checklist](#quick-migration-checklist)
-  - [Need Help?](#need-help)
-
----
 
 ## Breaking Changes Overview
 
