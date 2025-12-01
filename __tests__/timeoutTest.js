@@ -1,7 +1,7 @@
 import {
   createDownloadTask,
 } from '../src/index'
-import DownloadTask from '../src/DownloadTask'
+import { DownloadTask } from '../src/DownloadTask'
 
 // Test for timeout configuration to prevent downloads from staying
 // in PENDING state when URLs are slow to respond

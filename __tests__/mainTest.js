@@ -3,7 +3,7 @@ import {
   getExistingDownloadTasks,
   setConfig,
 } from '../src/index'
-import DownloadTask from '../src/DownloadTask'
+import { DownloadTask } from '../src/DownloadTask'
 import { NativeModules } from 'react-native'
 
 const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
