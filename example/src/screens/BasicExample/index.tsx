@@ -8,11 +8,10 @@ import {
   setConfig,
   directories,
 } from '@kesha-antonov/react-native-background-downloader'
+import type { DownloadTask } from '@kesha-antonov/react-native-background-downloader'
 import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-
-type DownloadTask = ReturnType<typeof createDownloadTask>
 
 const defaultDir = new Directory(Paths.document)
 

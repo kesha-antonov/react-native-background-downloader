@@ -2,7 +2,9 @@
  * Tests for redirect handling functionality
  */
 
-import RNBackgroundDownloader from '../src/index'
+import {
+  createDownloadTask,
+} from '../src/index'
 import DownloadTask from '../src/DownloadTask'
 import { NativeModules } from 'react-native'
 
@@ -14,7 +16,7 @@ describe('Redirects Tests', () => {
   })
 
   test('createDownloadTask without maxRedirects should work as before', () => {
-    const task = RNBackgroundDownloader.createDownloadTask({
+    const task = createDownloadTask({
       id: 'testNoRedirects',
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',
@@ -36,7 +38,7 @@ describe('Redirects Tests', () => {
   })
 
   test('createDownloadTask with maxRedirects should pass parameter to native module', () => {
-    const task = RNBackgroundDownloader.createDownloadTask({
+    const task = createDownloadTask({
       id: 'testWithRedirects',
       url: 'https://pdst.fm/e/example.mp3',
       destination: '/tmp/file.mp3',
@@ -57,7 +59,7 @@ describe('Redirects Tests', () => {
   })
 
   test('createDownloadTask with maxRedirects = 0 should work (no redirect resolution)', () => {
-    const task = RNBackgroundDownloader.createDownloadTask({
+    const task = createDownloadTask({
       id: 'testZeroRedirects',
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',
@@ -78,7 +80,7 @@ describe('Redirects Tests', () => {
   })
 
   test('createDownloadTask with headers and maxRedirects should pass both', () => {
-    const task = RNBackgroundDownloader.createDownloadTask({
+    const task = createDownloadTask({
       id: 'testRedirectsWithHeaders',
       url: 'https://pdst.fm/e/example.mp3',
       destination: '/tmp/file.mp3',
@@ -109,7 +111,7 @@ describe('Redirects Tests', () => {
   test('maxRedirects parameter should be optional', () => {
     // Test various ways to call createDownloadTask without maxRedirects
     expect(() => {
-      RNBackgroundDownloader.createDownloadTask({
+      createDownloadTask({
         id: 'testOptional1',
         url: 'https://example.com/file1.zip',
         destination: '/tmp/file1.zip',
@@ -117,7 +119,7 @@ describe('Redirects Tests', () => {
     }).not.toThrow()
 
     expect(() => {
-      RNBackgroundDownloader.createDownloadTask({
+      createDownloadTask({
         id: 'testOptional2',
         url: 'https://example.com/file2.zip',
         destination: '/tmp/file2.zip',
@@ -126,7 +128,7 @@ describe('Redirects Tests', () => {
     }).not.toThrow()
 
     expect(() => {
-      RNBackgroundDownloader.createDownloadTask({
+      createDownloadTask({
         id: 'testOptional3',
         url: 'https://example.com/file3.zip',
         destination: '/tmp/file3.zip',

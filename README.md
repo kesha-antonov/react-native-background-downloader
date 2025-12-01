@@ -439,19 +439,6 @@ import {
 } from '@kesha-antonov/react-native-background-downloader'
 ```
 
-**Default Export:**
-
-```typescript
-import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader'
-
-// Contains all the above as properties:
-RNBackgroundDownloader.setConfig
-RNBackgroundDownloader.createDownloadTask
-RNBackgroundDownloader.getExistingDownloadTasks
-RNBackgroundDownloader.completeHandler
-RNBackgroundDownloader.directories
-```
-
 ### `createDownloadTask(options)`
 
 Download a file to destination

@@ -1,5 +1,5 @@
 import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
-import DownloadTask from './DownloadTask'
+import { DownloadTask } from './DownloadTask'
 import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative } from './types'
 import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
@@ -305,11 +305,4 @@ export const directories = {
   },
 }
 
-export default {
-  setConfig,
-  createDownloadTask,
-  getExistingDownloadTasks,
-  completeHandler,
-
-  directories,
-}
+export type * from './types'

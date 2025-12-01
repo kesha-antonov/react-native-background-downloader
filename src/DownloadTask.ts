@@ -29,7 +29,7 @@ if (isTurboModuleEnabled)
 else
   RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
 
-export default class DownloadTask {
+export class DownloadTask {
   id: string = ''
   metadata: Metadata = {}
 

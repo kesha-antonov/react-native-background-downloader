@@ -4,7 +4,7 @@
  * even though the functionality is not supported.
  */
 
-import RNBackgroundDownloader from '../src/index'
+import { createDownloadTask } from '../src/index'
 import { NativeModules } from 'react-native'
 
 const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
@@ -13,7 +13,7 @@ describe('Android pause/resume limitations', () => {
   let task
 
   beforeEach(() => {
-    task = RNBackgroundDownloader.createDownloadTask({
+    task = createDownloadTask({
       id: 'test-android-limitations',
       url: 'https://example.com/file.zip',
       destination: '/tmp/file.zip',

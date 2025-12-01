@@ -1,10 +1,12 @@
-import RNBackgroundDownloader from '../src/index'
+import {
+  createDownloadTask,
+} from '../src/index'
 import DownloadTask from '../src/DownloadTask'
 
 // Test for timeout configuration to prevent downloads from staying
 // in PENDING state when URLs are slow to respond
 test('createDownloadTask with slow URL should handle timeout gracefully', () => {
-  const downloadTask = RNBackgroundDownloader.createDownloadTask({
+  const downloadTask = createDownloadTask({
     id: 'timeout-test',
     url: 'https://httpstat.us/200?sleep=10000', // Simulate slow response
     destination: '/tmp/timeout-test.file',
@@ -24,7 +26,7 @@ test('createDownloadTask configuration should include timeouts', () => {
   // - connectTimeout: 30000ms (30 seconds)
   // - readTimeout: 60000ms (60 seconds)
 
-  const downloadTask = RNBackgroundDownloader.createDownloadTask({
+  const downloadTask = createDownloadTask({
     id: 'config-test',
     url: 'https://example.com/test.file',
     destination: '/tmp/config-test.file',

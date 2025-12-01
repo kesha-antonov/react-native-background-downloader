@@ -1,4 +1,8 @@
-import RNBackgroundDownloader from '../src/index'
+import {
+  createDownloadTask,
+  getExistingDownloadTasks,
+  setConfig,
+} from '../src/index'
 import DownloadTask from '../src/DownloadTask'
 import { NativeModules } from 'react-native'
 
@@ -8,7 +12,7 @@ const emitEvent = global.__RNBackgroundDownloaderEmitEvent
 let downloadTask
 
 test('createDownloadTask function', () => {
-  downloadTask = RNBackgroundDownloader.createDownloadTask({
+  downloadTask = createDownloadTask({
     id: 'test',
     url: 'test',
     destination: 'test',
@@ -19,7 +23,7 @@ test('createDownloadTask function', () => {
 })
 
 test('start download', () => {
-  const startDT = RNBackgroundDownloader.createDownloadTask({
+  const startDT = createDownloadTask({
     id: 'testStart',
     url: 'test',
     destination: 'test',
@@ -31,7 +35,7 @@ test('start download', () => {
 test('begin event', () => {
   const mockedHeaders = { Etag: '123' }
   return new Promise(resolve => {
-    const beginDT = RNBackgroundDownloader.createDownloadTask({
+    const beginDT = createDownloadTask({
       id: 'testBegin',
       url: 'test',
       destination: 'test',
@@ -52,7 +56,7 @@ test('begin event', () => {
 
 test('progress event', () => {
   return new Promise(resolve => {
-    const progressDT = RNBackgroundDownloader.createDownloadTask({
+    const progressDT = createDownloadTask({
       id: 'testProgress',
       url: 'test',
       destination: 'test',
@@ -72,7 +76,7 @@ test('progress event', () => {
 
 test('done event', () => {
   return new Promise(resolve => {
-    const doneDT = RNBackgroundDownloader.createDownloadTask({
+    const doneDT = createDownloadTask({
       id: 'testDone',
       url: 'test',
       destination: 'test',
@@ -89,7 +93,7 @@ test('done event', () => {
 
 test('fail event', () => {
   return new Promise(resolve => {
-    const failDT = RNBackgroundDownloader.createDownloadTask({
+    const failDT = createDownloadTask({
       id: 'testFail',
       url: 'test',
       destination: 'test',
@@ -109,7 +113,7 @@ test('fail event', () => {
 })
 
 test('pause', () => {
-  const pauseDT = RNBackgroundDownloader.createDownloadTask({
+  const pauseDT = createDownloadTask({
     id: 'testPause',
     url: 'test',
     destination: 'test',
@@ -122,7 +126,7 @@ test('pause', () => {
 })
 
 test('resume', () => {
-  const resumeDT = RNBackgroundDownloader.createDownloadTask({
+  const resumeDT = createDownloadTask({
     id: 'testResume',
     url: 'test',
     destination: 'test',
@@ -135,7 +139,7 @@ test('resume', () => {
 })
 
 test('stop', () => {
-  const stopDT = RNBackgroundDownloader.createDownloadTask({
+  const stopDT = createDownloadTask({
     id: 'testStop',
     url: 'test',
     destination: 'test',
@@ -148,7 +152,7 @@ test('stop', () => {
 })
 
 test('getExistingDownloadTasks', () => {
-  return RNBackgroundDownloader.getExistingDownloadTasks()
+  return getExistingDownloadTasks()
     .then(foundDownloads => {
       expect(RNBackgroundDownloaderNative.getExistingDownloadTasks).toHaveBeenCalled()
       expect(foundDownloads.length).toBe(4)
@@ -161,14 +165,14 @@ test('getExistingDownloadTasks', () => {
 })
 
 test('setConfig with progressMinBytes', () => {
-  RNBackgroundDownloader.setConfig({
+  setConfig({
     progressMinBytes: 500000,
     progressInterval: 2000,
     isLogsEnabled: true,
   })
 
   // Test that download passes progressMinBytes to native
-  const configDownloadTask = RNBackgroundDownloader.createDownloadTask({
+  const configDownloadTask = createDownloadTask({
     id: 'testConfig',
     url: 'https://example.com/file.zip',
     destination: '/tmp/file.zip',
@@ -187,7 +191,7 @@ test('setConfig with progressMinBytes', () => {
 })
 
 test('wrong handler type', () => {
-  const dt = RNBackgroundDownloader.createDownloadTask({
+  const dt = createDownloadTask({
     id: 'test22222',
     url: 'test',
     destination: 'test',
@@ -211,7 +215,7 @@ test('wrong handler type', () => {
 })
 
 test('download with timeout improvements for slow URLs', () => {
-  const timeoutDT = RNBackgroundDownloader.createDownloadTask({
+  const timeoutDT = createDownloadTask({
     id: 'testSlowUrl',
     url: 'https://example.com/slow-response',
     destination: '/path/to/file.zip',

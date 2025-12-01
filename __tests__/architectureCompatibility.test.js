@@ -1,7 +1,13 @@
 // Test for x86/ARMv7 architecture compatibility with MMKV fallback
 // This test validates that the module works correctly when MMKV is not available
 
-import * as RNBackgroundDownloader from '../src/index'
+import {
+  createDownloadTask,
+  getExistingDownloadTasks,
+  completeHandler,
+  setConfig,
+  directories,
+} from '../src/index'
 
 // Mock console.log to avoid cluttering test output
 global.console.log = jest.fn()
@@ -17,7 +23,7 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
 
     expect(() => {
       // Test basic functionality still works when MMKV might not be available
-      RNBackgroundDownloader.createDownloadTask({
+      createDownloadTask({
         id: 'test-architecture-compatibility',
         url: 'https://example.com/file.zip',
         destination: '/tmp/test-file.zip',
@@ -28,7 +34,7 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
   it('should provide fallback storage for configuration persistence', async () => {
     // Test that configuration can still be set even if MMKV is not available
     expect(() => {
-      RNBackgroundDownloader.setConfig({
+      setConfig({
         headers: { 'User-Agent': 'Architecture Test Agent' },
         progressInterval: 2000,
         progressMinBytes: 2048,
@@ -40,20 +46,20 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
   it('should handle existing downloads check without MMKV', async () => {
     // When MMKV is not available, there should be no existing downloads to restore
     // but the function should not crash
-    const existingDownloads = await RNBackgroundDownloader.getExistingDownloadTasks()
+    const existingDownloads = await getExistingDownloadTasks()
     expect(Array.isArray(existingDownloads)).toBe(true)
   })
 
   it('should maintain all API functions despite storage limitations', () => {
     // Test that all main API functions are available and functional
-    expect(typeof RNBackgroundDownloader.createDownloadTask).toBe('function')
-    expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
-    expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
-    expect(typeof RNBackgroundDownloader.setConfig).toBe('function')
+    expect(typeof createDownloadTask).toBe('function')
+    expect(typeof getExistingDownloadTasks).toBe('function')
+    expect(typeof completeHandler).toBe('function')
+    expect(typeof setConfig).toBe('function')
 
     // Test that constants are still available
-    expect(RNBackgroundDownloader.directories).toBeDefined()
-    expect(RNBackgroundDownloader.directories.documents).toBeDefined()
+    expect(directories).toBeDefined()
+    expect(directories.documents).toBeDefined()
   })
 
   it('should handle download tasks without persistence gracefully', () => {
@@ -68,7 +74,7 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
     }
 
     expect(() => {
-      const task = RNBackgroundDownloader.createDownloadTask(downloadOptions)
+      const task = createDownloadTask(downloadOptions)
       expect(task).toBeDefined()
       expect(task.id).toBe(downloadOptions.id)
 
@@ -93,7 +99,7 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
       ]
 
       downloads.forEach(options => {
-        const task = RNBackgroundDownloader.createDownloadTask(options)
+        const task = createDownloadTask(options)
         expect(task.id).toBe(options.id)
       })
     }).not.toThrow()

@@ -103,7 +103,7 @@ const task = RNBackgroundDownloader.download({
 **After (v4.0.0):**
 ```javascript
 // Create the task (in PENDING state)
-const task = RNBackgroundDownloader.createDownloadTask({
+const task = createDownloadTask({
   id: 'my-download',
   url: 'https://example.com/file.zip',
   destination: `${RNBackgroundDownloader.directories.documents}/file.zip`,
@@ -132,7 +132,7 @@ The explicit `.start()` pattern gives you more control:
 ```javascript
 // Set up multiple downloads first
 const tasks = urls.map((url, index) =>
-  RNBackgroundDownloader.createDownloadTask({
+  createDownloadTask({
     id: `download-${index}`,
     url,
     destination: `${directories.documents}/file-${index}`,
@@ -191,7 +191,7 @@ Set `progressMinBytes: 0` to disable byte-based throttling and use time-only (li
 Configure maximum HTTP redirects for Android downloads:
 
 ```javascript
-const task = RNBackgroundDownloader.createDownloadTask({
+const task = createDownloadTask({
   id: 'my-download',
   url: 'https://example.com/file.zip',
   destination: `${directories.documents}/file.zip`,
@@ -204,7 +204,7 @@ const task = RNBackgroundDownloader.createDownloadTask({
 Tasks now have a clearer state machine:
 
 ```javascript
-const task = RNBackgroundDownloader.createDownloadTask({ ... })
+const task = createDownloadTask({ ... })
 
 console.log(task.state) // 'PENDING' - before start()
 
@@ -231,7 +231,7 @@ import RNBackgroundDownloader, {
   ErrorHandlerParams,
 } from '@kesha-antonov/react-native-background-downloader'
 
-const task: DownloadTask = RNBackgroundDownloader.createDownloadTask({
+const task: DownloadTask = createDownloadTask({
   id: 'typed-download',
   url: 'https://example.com/file.zip',
   destination: '/path/to/file.zip',

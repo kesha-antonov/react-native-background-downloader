@@ -1,7 +1,13 @@
 // Test for Android 12 MMKV error handling
 // This test validates that the module can handle MMKV initialization failures gracefully
 
-import * as RNBackgroundDownloader from '../src/index'
+import {
+  createDownloadTask,
+  getExistingDownloadTasks,
+  setConfig,
+  completeHandler,
+  directories,
+} from '../src/index'
 
 // Mock console.log to avoid cluttering test output
 global.console.log = jest.fn()
@@ -17,7 +23,7 @@ describe('MMKV Error Handling for Android 12', () => {
 
     expect(() => {
       // Test basic functionality still works when MMKV might not be available
-      RNBackgroundDownloader.createDownloadTask({
+      createDownloadTask({
         id: 'test-mmkv-error',
         url: 'https://example.com/file.zip',
         destination: '/tmp/test-file.zip',
@@ -34,7 +40,7 @@ describe('MMKV Error Handling for Android 12', () => {
     }
 
     expect(() => {
-      const task = RNBackgroundDownloader.createDownloadTask(downloadOptions)
+      const task = createDownloadTask(downloadOptions)
       expect(task).toBeDefined()
       expect(task.id).toBe(downloadOptions.id)
     }).not.toThrow()
@@ -44,20 +50,20 @@ describe('MMKV Error Handling for Android 12', () => {
     // When MMKV is not available, there should be no existing downloads to restore
     // but the function should not crash
 
-    const existingDownloads = await RNBackgroundDownloader.getExistingDownloadTasks()
+    const existingDownloads = await getExistingDownloadTasks()
     expect(Array.isArray(existingDownloads)).toBe(true)
   })
 
   it('should maintain core API functionality despite MMKV issues', () => {
     // Test that all main API functions are available and don't throw
-    expect(typeof RNBackgroundDownloader.createDownloadTask).toBe('function')
-    expect(typeof RNBackgroundDownloader.getExistingDownloadTasks).toBe('function')
-    expect(typeof RNBackgroundDownloader.completeHandler).toBe('function')
-    expect(typeof RNBackgroundDownloader.setConfig).toBe('function')
+    expect(typeof createDownloadTask).toBe('function')
+    expect(typeof getExistingDownloadTasks).toBe('function')
+    expect(typeof completeHandler).toBe('function')
+    expect(typeof setConfig).toBe('function')
 
     // Test that constants are still available
-    expect(RNBackgroundDownloader.directories).toBeDefined()
-    expect(RNBackgroundDownloader.directories.documents).toBeDefined()
+    expect(directories).toBeDefined()
+    expect(directories.documents).toBeDefined()
   })
 
   it('should log appropriate warnings when MMKV is unavailable', () => {
@@ -66,7 +72,7 @@ describe('MMKV Error Handling for Android 12', () => {
     // that the JavaScript layer handles it gracefully
 
     expect(() => {
-      RNBackgroundDownloader.setConfig({
+      setConfig({
         headers: { 'User-Agent': 'Test Agent' },
         progressInterval: 1000,
         progressMinBytes: 1024,

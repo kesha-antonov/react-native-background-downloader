@@ -4,14 +4,16 @@
  * or files without known content size
  */
 
-import RNBackgroundDownloader from '../src/index'
+import {
+  createDownloadTask,
+} from '../src/index'
 
 const emitEvent = global.__RNBackgroundDownloaderEmitEvent
 
 describe('Progress callback with unknown total bytes', () => {
   test('progress event should be called when bytesTotal is 0 (unknown)', () => {
     return new Promise(resolve => {
-      const progressDT = RNBackgroundDownloader.createDownloadTask({
+      const progressDT = createDownloadTask({
         id: 'testProgressUnknownTotal',
         url: 'https://example.com/stream',
         destination: '/tmp/stream.dat',
@@ -33,7 +35,7 @@ describe('Progress callback with unknown total bytes', () => {
 
   test('progress event should be called when bytesTotal is -1 (unknown)', () => {
     return new Promise(resolve => {
-      const progressDT = RNBackgroundDownloader.createDownloadTask({
+      const progressDT = createDownloadTask({
         id: 'testProgressUnknownTotal2',
         url: 'https://example.com/stream2',
         destination: '/tmp/stream2.dat',
@@ -57,7 +59,7 @@ describe('Progress callback with unknown total bytes', () => {
     let progressCount = 0
 
     return new Promise(resolve => {
-      const multiProgressDT = RNBackgroundDownloader.createDownloadTask({
+      const multiProgressDT = createDownloadTask({
         id: 'testProgressMultipleUnknown',
         url: 'https://example.com/stream3',
         destination: '/tmp/stream3.dat',

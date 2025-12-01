@@ -1,10 +1,12 @@
-import RNBackgroundDownloader from '../src/index'
+import {
+  createDownloadTask,
+} from '../src/index'
 
 const emitEvent = global.__RNBackgroundDownloaderEmitEvent
 
 test('ERROR_CANNOT_RESUME handling', () => {
   return new Promise(resolve => {
-    const errorDT = RNBackgroundDownloader.createDownloadTask({
+    const errorDT = createDownloadTask({
       id: 'testCannotResume',
       url: 'test',
       destination: 'test',
