@@ -1,9 +1,54 @@
+# Migration Guide
+
+This guide helps you upgrade between major versions of `@kesha-antonov/react-native-background-downloader`.
+
+---
+
+# Migration Guide: v4.0.x → v4.1.0
+
+## MMKV Dependency Change
+
+In v4.1.0, the MMKV dependency was changed from `implementation` to `compileOnly` to prevent duplicate class errors when apps also use `react-native-mmkv`.
+
+### If you're using `react-native-mmkv`
+
+**No action required!** The `react-native-mmkv` package already provides the MMKV dependency, so everything will work automatically.
+
+### If you're NOT using `react-native-mmkv`
+
+You must explicitly add the MMKV dependency to your app's `android/app/build.gradle`:
+
+```gradle
+dependencies {
+    // ... other dependencies
+    implementation 'com.tencent:mmkv-shared:2.2.4'  // or newer
+}
+```
+
+**Note:** MMKV 2.0.0+ is required for Android 15+ support (16KB memory page sizes).
+
+### Why This Change?
+
+Previously, both this library and `react-native-mmkv` would each bundle their own copy of MMKV, causing Gradle to fail with "duplicate class" errors during build. By using `compileOnly`, this library now relies on the app to provide the MMKV dependency, which:
+
+1. Eliminates duplicate class conflicts
+2. Allows the app to control the MMKV version
+3. Reduces APK size when `react-native-mmkv` is already included
+
+---
+
 # Migration Guide: v3.2.6 → v4.0.0
 
-This guide helps you upgrade from `@kesha-antonov/react-native-background-downloader` v3.2.6 to v4.0.0.
+This section helps you upgrade from v3.2.6 to v4.0.0.
 
 ## Table of Contents
 
+- [Migration Guide](#migration-guide)
+- [Migration Guide: v4.0.x → v4.1.0](#migration-guide-v40x--v410)
+  - [MMKV Dependency Change](#mmkv-dependency-change)
+    - [If you're using `react-native-mmkv`](#if-youre-using-react-native-mmkv)
+    - [If you're NOT using `react-native-mmkv`](#if-youre-not-using-react-native-mmkv)
+    - [Why This Change?](#why-this-change)
 - [Migration Guide: v3.2.6 → v4.0.0](#migration-guide-v326--v400)
   - [Table of Contents](#table-of-contents)
   - [Breaking Changes Overview](#breaking-changes-overview)
@@ -13,7 +58,7 @@ This guide helps you upgrade from `@kesha-antonov/react-native-background-downlo
       - [`checkForExistingDownloads()` → `getExistingDownloadTasks()`](#checkforexistingdownloads--getexistingdownloadtasks)
     - [3. Update Download Creation](#3-update-download-creation)
       - [`download()` → `createDownloadTask()` + `.start()`](#download--createdownloadtask--start)
-      - [Why This Change?](#why-this-change)
+      - [Why This Change?](#why-this-change-1)
     - [4. Update Configuration](#4-update-configuration)
       - [New `progressMinBytes` Option](#new-progressminbytes-option)
   - [New Features](#new-features)

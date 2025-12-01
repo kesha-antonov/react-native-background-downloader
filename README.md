@@ -126,7 +126,7 @@ For anything **`< 0.60`** run the following link command
 
 #### Option 1: Using Expo Config Plugin (Recommended for Expo/EAS users)
 
-If you're using Expo or EAS Build, you can use the included Expo config plugin to automatically configure the iOS native code:
+If you're using Expo or EAS Build, you can use the included Expo config plugin to automatically configure the native code:
 
 **In your `app.json`:**
 ```json
@@ -152,10 +152,37 @@ export default {
 }
 ```
 
+**Plugin Options:**
+
+You can customize the plugin behavior with options:
+
+```js
+// app.config.js
+export default {
+  expo: {
+    name: "Your App",
+    plugins: [
+      ["@kesha-antonov/react-native-background-downloader", {
+        // Set to false if you're already using react-native-mmkv
+        addMmkvDependency: true,
+        // Customize the MMKV version (default: '2.2.4')
+        mmkvVersion: "2.2.4"
+      }]
+    ]
+  }
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `addMmkvDependency` | boolean | `true` | Whether to automatically add MMKV dependency on Android. Set to `false` if you're using `react-native-mmkv`. |
+| `mmkvVersion` | string | `'2.2.4'` | The version of MMKV to use on Android. |
+
 The plugin will automatically:
-- Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)
-- Add the `handleEventsForBackgroundURLSession` method to your AppDelegate
-- Handle both React Native < 0.77 (Objective-C) and >= 0.77 (Swift) projects
+- **iOS:** Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)
+- **iOS:** Add the `handleEventsForBackgroundURLSession` method to your AppDelegate
+- **iOS:** Handle both React Native < 0.77 (Objective-C) and >= 0.77 (Swift) projects
+- **Android:** Add the required MMKV dependency (unless `addMmkvDependency: false`)
 
 After adding the plugin, run:
 ```bash
@@ -559,7 +586,7 @@ This library uses MMKV for persistent storage of download state on Android. The 
 ```gradle
 dependencies {
     // ... other dependencies
-    implementation 'com.tencent:mmkv-shared:2.0.0'  // or newer
+    implementation 'com.tencent:mmkv-shared:2.2.4'  // or newer
 }
 ```
 

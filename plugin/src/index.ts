@@ -1,9 +1,25 @@
-import { ConfigPlugin, withAppDelegate, IOSConfig } from '@expo/config-plugins'
+import { ConfigPlugin, withAppDelegate, withAppBuildGradle, IOSConfig } from '@expo/config-plugins'
 import * as fs from 'fs'
 import * as path from 'path'
 
-const withRNBackgroundDownloader: ConfigPlugin = (config) => {
-  // Handle AppDelegate modifications
+interface PluginOptions {
+  /**
+   * Whether to automatically add the MMKV dependency to the Android app.
+   * Set to false if you're already using react-native-mmkv or want to manage the dependency yourself.
+   * @default true
+   */
+  addMmkvDependency?: boolean
+  /**
+   * The version of MMKV to use. Only used if addMmkvDependency is true.
+   * @default '2.2.4'
+   */
+  mmkvVersion?: string
+}
+
+const withRNBackgroundDownloader: ConfigPlugin<PluginOptions | void> = (config, options) => {
+  const { addMmkvDependency = true, mmkvVersion = '2.2.4' } = options || {}
+
+  // Handle iOS AppDelegate modifications
   config = withAppDelegate(config, (config) => {
     if (config.modResults.language === 'objc') {
       // For Objective-C AppDelegate.m (React Native < 0.77)
@@ -20,7 +36,35 @@ const withRNBackgroundDownloader: ConfigPlugin = (config) => {
     return config
   })
 
+  // Handle Android MMKV dependency
+  if (addMmkvDependency)
+    config = withAppBuildGradle(config, (config) => {
+      config.modResults.contents = addMmkvDependencyAndroid(config.modResults.contents, mmkvVersion)
+      return config
+    })
+
   return config
+}
+
+function addMmkvDependencyAndroid (buildGradleContents: string, mmkvVersion: string): string {
+  // Check if MMKV dependency is already present
+  if (buildGradleContents.includes('com.tencent:mmkv'))
+    return buildGradleContents
+
+  // Find the dependencies block and add MMKV
+  const dependenciesRegex = /dependencies\s*\{/
+  const match = buildGradleContents.match(dependenciesRegex)
+
+  if (match) {
+    const insertPosition = buildGradleContents.indexOf(match[0]) + match[0].length
+    const mmkvDependency = `\n    // MMKV is required by @kesha-antonov/react-native-background-downloader\n    // If you're using react-native-mmkv, you can disable this in the plugin options\n    implementation 'com.tencent:mmkv-shared:${mmkvVersion}'`
+
+    buildGradleContents = buildGradleContents.slice(0, insertPosition) +
+      mmkvDependency +
+      buildGradleContents.slice(insertPosition)
+  }
+
+  return buildGradleContents
 }
 
 function addObjCSupport (appDelegateContents: string): string {

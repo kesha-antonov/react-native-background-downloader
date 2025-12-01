@@ -1,5 +1,29 @@
 # Changelog
 
+## v4.1.0
+
+> 📖 **Upgrading from v4.0.x?** See the [Migration Guide](./MIGRATION.md) for the MMKV dependency change.
+
+### ⚠️ Breaking Changes
+
+- **MMKV Dependency Changed to `compileOnly`:** The MMKV dependency is now `compileOnly` instead of `implementation` to avoid duplicate class errors when the app also uses `react-native-mmkv`. Apps not using `react-native-mmkv` must now explicitly add the MMKV dependency.
+
+### ✨ New Features
+
+- **Expo Plugin Android Support:** The Expo config plugin now automatically adds the MMKV dependency on Android. Use `addMmkvDependency: false` option if you're already using `react-native-mmkv`.
+
+### 🐛 Bug Fixes
+
+- **Duplicate Class Errors:** Fixed potential duplicate class errors when app uses both this library and `react-native-mmkv` by changing MMKV to `compileOnly` dependency
+
+### 📚 Documentation
+
+- Added documentation for MMKV dependency requirements in README
+- Updated Platform-Specific Limitations section with MMKV setup instructions
+- Added Expo plugin options documentation
+
+---
+
 ## v4.0.0
 
 > 📖 **Upgrading from v3.x?** See the [Migration Guide](./MIGRATION.md) for detailed instructions.

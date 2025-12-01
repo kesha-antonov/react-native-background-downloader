@@ -71,7 +71,7 @@ dependencies {
     // Uses compileOnly to avoid duplicate class errors when app also uses react-native-mmkv
     // The app must provide MMKV dependency (either directly or via react-native-mmkv)
     // MMKV 2.0.0+ is required for 16KB memory page size support (Android 15+)
-    compileOnly 'com.tencent:mmkv-shared:2.0.0'
+    compileOnly 'com.tencent:mmkv-shared:2.2.4'
 
     implementation 'com.google.code.gson:gson:2.12.1'
 }
