@@ -713,7 +713,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         synchronized(sharedLock) {
             try {
                 val gson = Gson()
-                val str = gson.toJson(downloadIdToConfig)
+                // Create a defensive copy to prevent ConcurrentModificationException
+                // when Gson iterates over the map while another thread modifies it
+                val mapCopy = HashMap(downloadIdToConfig)
+                val str = gson.toJson(mapCopy)
 
                 if (isMMKVAvailable && mmkv != null) {
                     mmkv!!.encode("${NAME}_downloadIdToConfig", str)
