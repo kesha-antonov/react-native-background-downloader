@@ -19,7 +19,7 @@ Pod::Spec.new do |s|
   # React Native Core dependency
   install_modules_dependencies(s)
 
-  s.dependency 'MMKV', '>= 2.1.0'
+  s.dependency 'MMKV', '>= 1.0.0'
 
   # Enable codegen for new architecture
   if ENV['RCT_NEW_ARCH_ENABLED'] == '1'
