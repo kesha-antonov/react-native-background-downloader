@@ -548,6 +548,23 @@ An absolute path to the app's documents directory. It is recommended that you us
 
 ## Platform-Specific Limitations
 
+### Android MMKV Dependency
+
+This library uses MMKV for persistent storage of download state on Android. The MMKV dependency is declared as `compileOnly`, meaning your app must provide it.
+
+**If you're using `react-native-mmkv`:** No additional setup needed - `react-native-mmkv` already provides the required MMKV dependency.
+
+**If you're NOT using `react-native-mmkv`:** Add the MMKV dependency to your app's `android/app/build.gradle`:
+
+```gradle
+dependencies {
+    // ... other dependencies
+    implementation 'com.tencent:mmkv-shared:2.0.0'  // or newer
+}
+```
+
+**Note:** MMKV 2.0.0+ is required for Android 15+ support (16KB memory page sizes).
+
 ### Android DownloadManager Limitations
 
 The Android implementation uses the system's `DownloadManager` service, which has some limitations compared to iOS:

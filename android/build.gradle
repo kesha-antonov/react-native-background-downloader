@@ -5,6 +5,10 @@ def isNewArchitectureEnabled() {
     return rootProject.hasProperty("newArchEnabled") && rootProject.getProperty("newArchEnabled") == "true"
 }
 
+if (isNewArchitectureEnabled()) {
+    apply plugin: 'com.facebook.react'
+}
+
 def safeExtGet(prop, fallback) {
     rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
@@ -63,10 +67,11 @@ dependencies {
     //noinspection GradleDynamicVersion
     implementation 'com.facebook.react:react-native:+'
 
-    // MMKV dependency updated for 16KB page size support
-    // MMKV 2.2.0+ includes support for 16KB memory page sizes required by Android 15+
-    // Uses mmkv-shared to maintain compatibility with react-native-mmkv 4+
-    implementation 'com.tencent:mmkv-shared:2.2.0'
+    // MMKV dependency for persistent download state storage
+    // Uses compileOnly to avoid duplicate class errors when app also uses react-native-mmkv
+    // The app must provide MMKV dependency (either directly or via react-native-mmkv)
+    // MMKV 2.0.0+ is required for 16KB memory page size support (Android 15+)
+    compileOnly 'com.tencent:mmkv-shared:2.0.0'
 
     implementation 'com.google.code.gson:gson:2.12.1'
 }
