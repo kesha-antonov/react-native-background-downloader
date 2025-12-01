@@ -49,7 +49,6 @@ static CompletionHandler storedCompletionHandler;
     int64_t progressMinBytes;
     NSDate *lastProgressReportedAt;
     BOOL isBridgeListenerInited;
-    BOOL isJavascriptLoaded;
     BOOL hasListeners;
 }
 
@@ -62,13 +61,6 @@ RCT_EXPORT_MODULE();
 }
 
 #pragma mark - Helper methods
-
-- (BOOL)canSendEvents {
-    // Only send events if JavaScript has fully loaded
-    // This prevents "Invariant Violation: Failed to call into JavaScript module method"
-    // errors that occur when native code tries to send events before the JS bridge is ready
-    return isJavascriptLoaded;
-}
 
 - (RNBGDTaskConfig *)configForTask:(NSURLSessionTask *)task {
     return taskToConfigMap[@(task.taskIdentifier)];
@@ -126,11 +118,6 @@ RCT_EXPORT_MODULE();
     self = [super initWithDisabledObservation];
 #endif
     if (self) {
-#ifdef RCT_NEW_ARCH_ENABLED
-        // TurboModules are lazily initialized when JS first accesses them,
-        // so JavaScript is ready when init is called
-        isJavascriptLoaded = YES;
-#endif
         [MMKV initializeMMKV:nil];
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
@@ -221,11 +208,6 @@ RCT_EXPORT_MODULE();
                                                   selector:@selector(handleBridgeHotReload:)
                                                   name:RCTJavaScriptWillStartLoadingNotification
                                                   object:nil];
-
-            [[NSNotificationCenter defaultCenter] addObserver:self
-                                                  selector:@selector(handleBridgeJavascriptLoad:)
-                                                  name:RCTJavaScriptDidLoadNotification
-                                                  object:nil];
         }
     }
 }
@@ -236,11 +218,6 @@ RCT_EXPORT_MODULE();
         [[NSNotificationCenter defaultCenter] removeObserver:self];
         isBridgeListenerInited = NO;
     }
-}
-
-- (void)handleBridgeJavascriptLoad:(NSNotification *) note {
-    DLog(nil, @"[RNBackgroundDownloader] - [handleBridgeJavascriptLoad]");
-    isJavascriptLoaded = YES;
 }
 
 - (void)handleBridgeAppEnterForeground:(NSNotification *) note {
@@ -687,9 +664,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             [self saveFile:taskConfig downloadURL:location error:&error];
         }
 
-        if ([self canSendEvents]) {
-            [self sendDownloadCompletionEvent:taskConfig task:downloadTask error:error];
-        }
+        [self sendDownloadCompletionEvent:taskConfig task:downloadTask error:error];
 
         [self removeTaskFromMap:downloadTask];
     }
@@ -772,30 +747,28 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         return;
     }
 
-    if ([self canSendEvents]) {
-        // Safely extract response headers - may be nil if response is not an HTTP response
-        NSDictionary *responseHeaders = nil;
-        if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
-            responseHeaders = ((NSHTTPURLResponse *)task.response).allHeaderFields;
-        }
-        // Use empty dictionary if headers are nil to prevent NSDictionary nil insertion crash
-        if (responseHeaders == nil) {
-            responseHeaders = @{};
-        }
-#ifdef RCT_NEW_ARCH_ENABLED
-        [self emitOnDownloadBegin:@{
-            @"id": taskConfig.id,
-            @"expectedBytes": @(expectedBytes),
-            @"headers": responseHeaders
-        }];
-#else
-        [self sendEventWithName:@"downloadBegin" body:@{
-            @"id": taskConfig.id,
-            @"expectedBytes": @(expectedBytes),
-            @"headers": responseHeaders
-        }];
-#endif
+    // Safely extract response headers - may be nil if response is not an HTTP response
+    NSDictionary *responseHeaders = nil;
+    if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
+        responseHeaders = ((NSHTTPURLResponse *)task.response).allHeaderFields;
     }
+    // Use empty dictionary if headers are nil to prevent NSDictionary nil insertion crash
+    if (responseHeaders == nil) {
+        responseHeaders = @{};
+    }
+#ifdef RCT_NEW_ARCH_ENABLED
+    [self emitOnDownloadBegin:@{
+        @"id": taskConfig.id,
+        @"expectedBytes": @(expectedBytes),
+        @"headers": responseHeaders
+    }];
+#else
+    [self sendEventWithName:@"downloadBegin" body:@{
+        @"id": taskConfig.id,
+        @"expectedBytes": @(expectedBytes),
+        @"headers": responseHeaders
+    }];
+#endif
     taskConfig.reportedBegin = YES;
 }
 
@@ -830,13 +803,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
     NSDate *now = [NSDate date];
     if ([now timeIntervalSinceDate:lastProgressReportedAt] > progressInterval) {
-        if ([self canSendEvents]) {
 #ifdef RCT_NEW_ARCH_ENABLED
-            [self emitOnDownloadProgress:[progressReports allValues]];
+        [self emitOnDownloadProgress:[progressReports allValues]];
 #else
-            [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
+        [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
 #endif
-        }
         lastProgressReportedAt = now;
         [progressReports removeAllObjects];
     }
@@ -909,21 +880,19 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         }
 
         // Handle failure
-        if ([self canSendEvents]) {
 #ifdef RCT_NEW_ARCH_ENABLED
-            [self emitOnDownloadFailed:@{
-                @"id": taskConfig.id,
-                @"error": [error localizedDescription],
-                @"errorCode": @(error.code)
-            }];
+        [self emitOnDownloadFailed:@{
+            @"id": taskConfig.id,
+            @"error": [error localizedDescription],
+            @"errorCode": @(error.code)
+        }];
 #else
-            [self sendEventWithName:@"downloadFailed" body:@{
-                @"id": taskConfig.id,
-                @"error": [error localizedDescription],
-                @"errorCode": @(error.code)
-            }];
+        [self sendEventWithName:@"downloadFailed" body:@{
+            @"id": taskConfig.id,
+            @"error": [error localizedDescription],
+            @"errorCode": @(error.code)
+        }];
 #endif
-        }
         [self removeTaskFromMap:task];
     }
 }
