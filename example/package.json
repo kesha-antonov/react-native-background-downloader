@@ -12,9 +12,7 @@
     "installDevBuild:ios": "expo run:ios",
     "installDevBuild:android": "expo run:android",
     "rebuildNativeDeps": "yarn expo prebuild",
-    "rebuildNativeDeps:clean": "yarn expo prebuild --clean",
-    "android": "expo run:android",
-    "ios": "expo run:ios"
+    "rebuildNativeDeps:clean": "yarn expo prebuild --clean"
   },
   "dependencies": {
     "@kesha-antonov/react-native-background-downloader": "link:..",

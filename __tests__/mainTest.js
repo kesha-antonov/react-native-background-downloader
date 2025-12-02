@@ -138,6 +138,201 @@ test('resume', () => {
   expect(RNBackgroundDownloaderNative.resumeTask).toHaveBeenCalled()
 })
 
+test('pause and resume cycle', () => {
+  return new Promise(resolve => {
+    const cycleDT = createDownloadTask({
+      id: 'testPauseResumeCycle',
+      url: 'https://example.com/largefile.zip',
+      destination: '/tmp/largefile.zip',
+    })
+
+    // Start the download
+    cycleDT.begin(() => {
+      expect(cycleDT.state).toBe('DOWNLOADING')
+
+      // Pause the download
+      cycleDT.pause()
+      expect(cycleDT.state).toBe('PAUSED')
+      expect(RNBackgroundDownloaderNative.pauseTask).toHaveBeenCalledWith('testPauseResumeCycle')
+
+      // Resume the download
+      cycleDT.resume()
+      expect(cycleDT.state).toBe('DOWNLOADING')
+      expect(RNBackgroundDownloaderNative.resumeTask).toHaveBeenCalledWith('testPauseResumeCycle')
+
+      resolve()
+    })
+
+    cycleDT.start()
+
+    // Emit begin event to trigger the test
+    emitEvent('downloadBegin', {
+      id: 'testPauseResumeCycle',
+      expectedBytes: 1000000,
+      headers: {},
+    })
+  })
+})
+
+test('pause during progress and resume continues', () => {
+  return new Promise(resolve => {
+    let progressCount = 0
+
+    const progressDT = createDownloadTask({
+      id: 'testPauseDuringProgress',
+      url: 'https://example.com/file.zip',
+      destination: '/tmp/file.zip',
+    })
+
+    progressDT
+      .begin(() => {
+        expect(progressDT.state).toBe('DOWNLOADING')
+      })
+      .progress(({ bytesDownloaded, bytesTotal }) => {
+        progressCount++
+
+        if (progressCount === 1) {
+          // First progress - pause the download
+          expect(bytesDownloaded).toBe(250000)
+          progressDT.pause()
+          expect(progressDT.state).toBe('PAUSED')
+
+          // Resume after a small delay
+          setTimeout(() => {
+            progressDT.resume()
+            expect(progressDT.state).toBe('DOWNLOADING')
+
+            // Emit more progress after resume
+            emitEvent('downloadProgress', [{
+              id: 'testPauseDuringProgress',
+              bytesDownloaded: 500000,
+              bytesTotal: 1000000,
+            }])
+          }, 10)
+        } else if (progressCount === 2) {
+          // Second progress after resume
+          expect(bytesDownloaded).toBe(500000)
+          resolve()
+        }
+      })
+
+    progressDT.start()
+
+    // Start the download flow
+    emitEvent('downloadBegin', {
+      id: 'testPauseDuringProgress',
+      expectedBytes: 1000000,
+      headers: {},
+    })
+
+    // Emit first progress
+    emitEvent('downloadProgress', [{
+      id: 'testPauseDuringProgress',
+      bytesDownloaded: 250000,
+      bytesTotal: 1000000,
+    }])
+  })
+})
+
+test('multiple pause/resume cycles', () => {
+  const multiCycleDT = createDownloadTask({
+    id: 'testMultiplePauseResume',
+    url: 'https://example.com/file.zip',
+    destination: '/tmp/file.zip',
+  })
+
+  multiCycleDT.start()
+
+  // First cycle
+  multiCycleDT.pause()
+  expect(multiCycleDT.state).toBe('PAUSED')
+
+  multiCycleDT.resume()
+  expect(multiCycleDT.state).toBe('DOWNLOADING')
+
+  // Second cycle
+  multiCycleDT.pause()
+  expect(multiCycleDT.state).toBe('PAUSED')
+
+  multiCycleDT.resume()
+  expect(multiCycleDT.state).toBe('DOWNLOADING')
+
+  // Third cycle
+  multiCycleDT.pause()
+  expect(multiCycleDT.state).toBe('PAUSED')
+
+  multiCycleDT.resume()
+  expect(multiCycleDT.state).toBe('DOWNLOADING')
+
+  // Verify native methods were called for this specific task
+  const pauseCalls = RNBackgroundDownloaderNative.pauseTask.mock.calls.filter(
+    call => call[0] === 'testMultiplePauseResume'
+  )
+  const resumeCalls = RNBackgroundDownloaderNative.resumeTask.mock.calls.filter(
+    call => call[0] === 'testMultiplePauseResume'
+  )
+
+  expect(pauseCalls.length).toBe(3)
+  expect(resumeCalls.length).toBe(3)
+})
+
+test('pause then stop', () => {
+  const pauseStopDT = createDownloadTask({
+    id: 'testPauseThenStop',
+    url: 'https://example.com/file.zip',
+    destination: '/tmp/file.zip',
+  })
+
+  pauseStopDT.start()
+
+  // Pause first
+  pauseStopDT.pause()
+  expect(pauseStopDT.state).toBe('PAUSED')
+
+  // Then stop
+  pauseStopDT.stop()
+  expect(pauseStopDT.state).toBe('STOPPED')
+  expect(RNBackgroundDownloaderNative.stopTask).toHaveBeenCalledWith('testPauseThenStop')
+})
+
+test('resume completes download successfully', () => {
+  return new Promise(resolve => {
+    const resumeCompleteDT = createDownloadTask({
+      id: 'testResumeComplete',
+      url: 'https://example.com/file.zip',
+      destination: '/tmp/file.zip',
+    })
+
+    resumeCompleteDT
+      .begin(() => {
+        // Pause and resume
+        resumeCompleteDT.pause()
+        resumeCompleteDT.resume()
+      })
+      .done(() => {
+        expect(resumeCompleteDT.state).toBe('DONE')
+        resolve()
+      })
+
+    resumeCompleteDT.start()
+
+    // Start download flow
+    emitEvent('downloadBegin', {
+      id: 'testResumeComplete',
+      expectedBytes: 1000,
+      headers: {},
+    })
+
+    // Complete the download
+    setTimeout(() => {
+      emitEvent('downloadComplete', {
+        id: 'testResumeComplete',
+        location: '/tmp/file.zip',
+      })
+    }, 20)
+  })
+})
+
 test('stop', () => {
   const stopDT = createDownloadTask({
     id: 'testStop',

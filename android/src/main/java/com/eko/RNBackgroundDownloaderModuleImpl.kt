@@ -93,11 +93,62 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   private val configIdToPercent = mutableMapOf<String, Double>()
   private val configIdToLastBytes = mutableMapOf<String, Long>()
   private val configIdToProgressFuture = mutableMapOf<String, Future<OnProgressState?>>()
+  private val configIdToHeaders = mutableMapOf<String, Map<String, String>>()
   private val progressReports = mutableMapOf<String, WritableMap>()
   private var progressInterval = 0
   private var progressMinBytes: Long = 0
   private var lastProgressReportedAt = Date()
   private lateinit var ee: DeviceEventManagerModule.RCTDeviceEventEmitter
+
+  // Listener for resumable downloads
+  private val resumableDownloadListener = object : ResumableDownloader.DownloadListener {
+    override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
+      val headersMap = Arguments.createMap()
+      for ((key, value) in headers) {
+        headersMap.putString(key, value)
+      }
+      onBeginDownload(id, headersMap, expectedBytes)
+    }
+
+    override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
+      onProgressDownload(id, bytesDownloaded, bytesTotal)
+    }
+
+    override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
+      val params = Arguments.createMap()
+      params.putString("id", id)
+      params.putString("location", location)
+      params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
+      params.putDouble("bytesTotal", bytesTotal.toDouble())
+      ee.emit("downloadComplete", params)
+
+      // Clean up
+      synchronized(sharedLock) {
+        configIdToDownloadId.remove(id)
+        configIdToPercent.remove(id)
+        configIdToLastBytes.remove(id)
+        configIdToHeaders.remove(id)
+        downloader.removePausedState(id)
+      }
+    }
+
+    override fun onError(id: String, error: String, errorCode: Int) {
+      val params = Arguments.createMap()
+      params.putString("id", id)
+      params.putInt("errorCode", errorCode)
+      params.putString("error", error)
+      ee.emit("downloadFailed", params)
+
+      // Clean up
+      synchronized(sharedLock) {
+        configIdToDownloadId.remove(id)
+        configIdToPercent.remove(id)
+        configIdToLastBytes.remove(id)
+        configIdToHeaders.remove(id)
+        downloader.removePausedState(id)
+      }
+    }
+  }
 
   init {
     // Initialize SharedPreferences as fallback
@@ -170,6 +221,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     downloadReceiver = object : BroadcastReceiver() {
       override fun onReceive(context: Context, intent: Intent) {
         val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+
+        // Ignore broadcasts for downloads being intentionally paused
+        if (downloader.isBeingPaused(downloadId)) {
+          downloader.clearPausingState(downloadId)
+          Log.d(NAME, "Ignoring broadcast for paused download: $downloadId")
+          return
+        }
+
         val config = downloadIdToConfig[downloadId]
 
         if (config != null) {
@@ -472,59 +531,107 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     val downloadId = downloader.download(request)
     val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)
 
+    // Save headers for potential pause/resume functionality
+    val headersMap = mutableMapOf<String, String>()
+    headers?.let {
+      val iterator = it.keySetIterator()
+      while (iterator.hasNextKey()) {
+        val headerKey = iterator.nextKey()
+        headersMap[headerKey] = it.getString(headerKey) ?: ""
+      }
+    }
+
     synchronized(sharedLock) {
       configIdToDownloadId[id] = downloadId
       configIdToPercent[id] = 0.0
+      configIdToHeaders[id] = headersMap
       downloadIdToConfig[downloadId] = config
       saveDownloadIdToConfigMap()
       resumeTasks(downloadId, config)
     }
   }
 
-  // Pause functionality is not supported by Android DownloadManager.
-  // This method will throw an UnsupportedOperationException to clearly indicate
-  // that pause is not available on Android platform.
+  // Pause a download. If it's a DownloadManager download, this cancels it and saves state.
+  // If it's already using ResumableDownloader, it pauses the HTTP connection.
   fun pauseTask(configId: String) {
     synchronized(sharedLock) {
+      // First check if it's an active resumable download
+      if (downloader.isResumableDownload(configId)) {
+        downloader.pauseResumable(configId)
+        Log.d(NAME, "Paused resumable download: $configId")
+        return
+      }
+
+      // Otherwise, it's a DownloadManager download - pause by canceling and saving state
       val downloadId = configIdToDownloadId[configId]
       if (downloadId != null) {
-        try {
-          downloader.pause(downloadId)
-        } catch (e: UnsupportedOperationException) {
-          Log.w("RNBackgroundDownloader", "pauseTask: ${e.message}")
-          // Note: We don't rethrow the exception to avoid crashing the JS thread.
-          // The limitation is already documented and expected.
+        val config = downloadIdToConfig[downloadId]
+        if (config != null) {
+          val headers = configIdToHeaders[configId] ?: emptyMap()
+
+          // Stop progress tracking
+          stopTaskProgress(configId)
+
+          // Pause the download (this cancels DownloadManager and saves state)
+          val paused = downloader.pause(downloadId, configId, config.url, config.destination, headers)
+
+          if (paused) {
+            // Remove from DownloadManager tracking
+            downloadIdToConfig.remove(downloadId)
+            configIdToDownloadId.remove(configId)
+            saveDownloadIdToConfigMap()
+            Log.d(NAME, "Paused DownloadManager download: $configId")
+          }
         }
+      } else {
+        Log.w(NAME, "pauseTask: No download found for configId: $configId")
       }
     }
   }
 
-  // Resume functionality is not supported by Android DownloadManager.
-  // This method will throw an UnsupportedOperationException to clearly indicate
-  // that resume is not available on Android platform.
+  // Resume a paused download using HTTP Range headers via ResumableDownloader.
   fun resumeTask(configId: String) {
     synchronized(sharedLock) {
-      val downloadId = configIdToDownloadId[configId]
-      if (downloadId != null) {
-        try {
-          downloader.resume(downloadId)
-        } catch (e: UnsupportedOperationException) {
-          Log.w("RNBackgroundDownloader", "resumeTask: ${e.message}")
-          // Note: We don't rethrow the exception to avoid crashing the JS thread.
-          // The limitation is already documented and expected.
-        }
+      // First check if it's a paused resumable download
+      if (downloader.resumableDownloader.isPaused(configId)) {
+        downloader.resumeResumable(configId, resumableDownloadListener)
+        Log.d(NAME, "Resumed paused resumable download: $configId")
+        return
       }
+
+      // Check if we have saved paused state from a DownloadManager download
+      if (downloader.isPaused(configId)) {
+        val resumed = downloader.resume(configId, resumableDownloadListener)
+        if (resumed) {
+          Log.d(NAME, "Resumed download via ResumableDownloader: $configId")
+        } else {
+          Log.w(NAME, "Failed to resume download: $configId")
+        }
+        return
+      }
+
+      Log.w(NAME, "resumeTask: No paused download found for configId: $configId")
     }
   }
 
   fun stopTask(configId: String) {
     synchronized(sharedLock) {
+      // Stop progress tracking
+      stopTaskProgress(configId)
+
+      // Cancel resumable download if active
+      downloader.cancelResumable(configId)
+
+      // Cancel DownloadManager download if active
       val downloadId = configIdToDownloadId[configId]
       if (downloadId != null) {
-        stopTaskProgress(configId)
         removeTaskFromMap(downloadId)
         downloader.cancel(downloadId)
       }
+
+      // Clean up any paused state
+      downloader.removePausedState(configId)
+      configIdToHeaders.remove(configId)
     }
   }
 

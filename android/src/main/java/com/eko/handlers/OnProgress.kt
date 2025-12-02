@@ -45,6 +45,12 @@ class OnProgress(
             try {
                 downloader.downloadManager.query(query)?.use { cursor ->
                     if (!cursor.moveToFirst()) {
+                        // Check if download was intentionally paused
+                        if (downloader.isBeingPaused(downloadId)) {
+                            downloader.clearPausingState(downloadId)
+                            stopLoopWithSuccess() // Not a failure, just paused
+                            return@use
+                        }
                         stopLoopWithFail()
                         return@use
                     }
