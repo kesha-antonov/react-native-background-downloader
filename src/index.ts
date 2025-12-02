@@ -269,6 +269,7 @@ export function createDownloadTask ({
   isAllowedOverRoaming = true,
   isAllowedOverMetered = true,
   isNotificationVisible = false,
+  metadata,
   ...rest
 }: TaskInfo & DownloadParams) {
   // Ensure native module and event listeners are initialized before creating tasks
@@ -283,7 +284,7 @@ export function createDownloadTask ({
 
   const task = new DownloadTask({
     id: rest.id,
-    metadata: rest.metadata,
+    metadata,
   })
 
   task.setDownloadParams({
