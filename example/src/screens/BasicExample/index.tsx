@@ -13,6 +13,7 @@ import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+const DOWNLOADS_SUBDIR = 'downloads'
 const defaultDir = new Directory(Paths.document)
 
 setConfig({
@@ -289,9 +290,37 @@ const BasicExampleScreen = () => {
     }
   }, [process])
 
+  const getDownloadsDir = useCallback(() => {
+    // Use Paths.document from expo-file-system which has proper permissions
+    return new Directory(Paths.document, DOWNLOADS_SUBDIR)
+  }, [])
+
+  const getDownloadsDirPath = useCallback(() => {
+    // For the download library, we need path without file:// prefix
+    // Use directories.documents from our library if available, otherwise extract from expo Paths
+    if (directories.documents) {
+      return directories.documents + '/' + DOWNLOADS_SUBDIR
+    }
+    // Paths.document.uri is a URI string, remove file:// prefix
+    return Paths.document.uri.replace('file://', '') + '/' + DOWNLOADS_SUBDIR
+  }, [])
+
+  const ensureDownloadsDirExists = useCallback(() => {
+    const downloadsDir = getDownloadsDir()
+    if (!downloadsDir.exists) {
+      downloadsDir.create()
+    }
+    return downloadsDir
+  }, [getDownloadsDir])
+
   const readStorage = useCallback(() => {
     try {
-      const contents = defaultDir.list()
+      const downloadsDir = getDownloadsDir()
+      if (!downloadsDir.exists) {
+        setDownloadedFiles([])
+        return
+      }
+      const contents = downloadsDir.list()
       const fileNames = contents.map(item => item.name)
       setDownloadedFiles(fileNames)
       console.log('Downloaded files:', fileNames)
@@ -299,11 +328,16 @@ const BasicExampleScreen = () => {
       console.warn('readStorage error:', error)
       toast('Error reading files')
     }
-  }, [])
+  }, [getDownloadsDir])
 
   const clearStorage = useCallback(() => {
     try {
-      const contents = defaultDir.list()
+      const downloadsDir = getDownloadsDir()
+      if (!downloadsDir.exists) {
+        setDownloadedFiles([])
+        return
+      }
+      const contents = downloadsDir.list()
       contents.forEach(item => item.delete())
       setDownloadedFiles([])
       toast('All files deleted')
@@ -312,7 +346,7 @@ const BasicExampleScreen = () => {
       console.warn('clearStorage error:', error)
       toast('Error clearing files')
     }
-  }, [])
+  }, [getDownloadsDir])
 
   const reset = useCallback(() => {
     downloadTasks.forEach(task => task.stop())
@@ -320,10 +354,10 @@ const BasicExampleScreen = () => {
   }, [downloadTasks])
 
   const startDownload = useCallback((urlItem: UrlItem) => {
-    // Use library's documents directory, fall back to expo path if undefined
-    const documentsDir = directories.documents ?? defaultDir.uri?.replace('file://', '')
-    const destination = documentsDir + '/' + urlItem.id
-    console.log('Starting download with destination:', destination, 'directories.documents:', directories.documents)
+    // Ensure downloads directory exists
+    ensureDownloadsDirExists()
+    const destination = getDownloadsDirPath() + '/' + urlItem.id
+    console.log('Starting download with destination:', destination)
     const taskAttribute: any = {
       id: urlItem.id,
       url: urlItem.url,
@@ -336,11 +370,11 @@ const BasicExampleScreen = () => {
     }
 
     let task = createDownloadTask(taskAttribute)
-    task = process(task)
+    process(task)
     task.start()
     setDownloadTasks(prev => new Map(prev).set(task.id, task))
     setDestinations(prev => new Map(prev).set(urlItem.id, destination))
-  }, [process])
+  }, [process, ensureDownloadsDirExists, getDownloadsDirPath])
 
   const stopDownload = useCallback((id: string) => {
     const task = downloadTasks.get(id)
@@ -368,9 +402,8 @@ const BasicExampleScreen = () => {
 
   const deleteFile = useCallback((id: string) => {
     try {
-      const documentsDir = directories.documents ?? defaultDir.uri?.replace('file://', '')
-      const filePath = documentsDir + '/' + id
-      const file = new File(filePath)
+      const downloadsDir = getDownloadsDir()
+      const file = new File(downloadsDir, id)
       if (file.exists) {
         file.delete()
         toast('File deleted')
@@ -390,13 +423,12 @@ const BasicExampleScreen = () => {
       console.warn('deleteFile error:', error)
       toast('Error deleting file')
     }
-  }, [])
+  }, [getDownloadsDir])
 
   const deleteSingleFile = useCallback((fileName: string) => {
     try {
-      const documentsDir = directories.documents ?? defaultDir.uri?.replace('file://', '')
-      const filePath = documentsDir + '/' + fileName
-      const file = new File(filePath)
+      const downloadsDir = getDownloadsDir()
+      const file = new File(downloadsDir, fileName)
       if (file.exists) {
         file.delete()
         toast('File deleted')
@@ -406,7 +438,7 @@ const BasicExampleScreen = () => {
       console.warn('deleteSingleFile error:', error)
       toast('Error deleting file')
     }
-  }, [])
+  }, [getDownloadsDir])
 
   useEffect(() => {
     resumeExistingTasks()

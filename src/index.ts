@@ -15,7 +15,7 @@ type RNBackgroundDownloaderModule = Spec & {
 // Lazy initialization state
 let RNBackgroundDownloader: RNBackgroundDownloaderModule & NativeModule
 let turboModule: Spec | null = null
-let isNewArchitecture = false
+let isIOSNewArchitecture = false
 let isInitialized = false
 
 /**
@@ -29,11 +29,11 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
 
   // Try TurboModules first
   turboModule = TurboModuleRegistry.get<Spec>('RNBackgroundDownloader')
-  // Check if the new architecture event emitters are available
-  // TurboModuleRegistry.get() can return a module even with old arch, but event emitters won't exist
-  isNewArchitecture = turboModule != null && typeof turboModule.onDownloadBegin === 'function'
+  // Check if iOS new architecture event emitters are available
+  // On Android, we always use NativeEventEmitter because Android uses RCTDeviceEventEmitter
+  isIOSNewArchitecture = Platform.OS === 'ios' && turboModule != null && typeof turboModule.onDownloadBegin === 'function'
 
-  if (isNewArchitecture && turboModule) {
+  if (isIOSNewArchitecture && turboModule) {
     // New architecture: TurboModules use getConstants() method
     const constants = turboModule.getConstants()
     RNBackgroundDownloader = Object.assign(turboModule, constants) as RNBackgroundDownloaderModule & NativeModule
@@ -101,8 +101,8 @@ function initializeEventListeners () {
   if (eventListenersInitialized) return
   eventListenersInitialized = true
 
-  if (isNewArchitecture && turboModule) {
-    // New architecture: use EventEmitter from TurboModule spec
+  if (isIOSNewArchitecture && turboModule) {
+    // iOS new architecture: use EventEmitter from TurboModule spec
     turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
       const { id, ...rest } = data
       log('downloadBegin', id, rest)
