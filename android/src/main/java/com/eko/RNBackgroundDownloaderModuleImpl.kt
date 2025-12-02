@@ -44,7 +44,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     const val NAME = "RNBackgroundDownloader"
 
     // Library version
-    private const val VERSION = "4.1.3"
+    private const val VERSION = "4.2.0"
     private const val USER_AGENT = "ReactNative-BackgroundDownloader/$VERSION"
 
     // Task state constants
