@@ -206,6 +206,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
     registerDownloadReceiver()
 
+    // Set the listener for resumable downloads (used by the background service)
+    downloader.setResumableDownloadListener(resumableDownloadListener)
+
     for ((downloadId, config) in downloadIdToConfig) {
       resumeTasks(downloadId, config)
     }
@@ -213,6 +216,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
   fun invalidate() {
     unregisterDownloadReceiver()
+    downloader.unbindService()
   }
 
   private fun registerDownloadReceiver() {

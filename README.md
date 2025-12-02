@@ -279,59 +279,14 @@ task.start()
 
 // ...later
 
-// Pause the task (iOS only)
-// Note: On Android, pause/resume is not supported by DownloadManager
+// Pause the task
 await task.pause()
 
-// Resume after pause (iOS only)
-// Note: On Android, pause/resume is not supported by DownloadManager
+// Resume after pause
 await task.resume()
 
 // Cancel the task
 await task.stop()
-```
-
-### Platform-Aware Pause/Resume
-
-```javascript
-import { Platform } from 'react-native'
-import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
-
-const task = createDownloadTask({
-  id: 'file123',
-  url: 'https://link-to-very.large/file.zip',
-  destination: `${directories.documents}/file.zip`,
-  metadata: {}
-}).begin(({ expectedBytes, headers }) => {
-  console.log(`Going to download ${expectedBytes} bytes!`)
-}).progress(({ bytesDownloaded, bytesTotal }) => {
-  console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-}).done(({ bytesDownloaded, bytesTotal }) => {
-  console.log('Download is done!', { bytesDownloaded, bytesTotal })
-}).error(({ error, errorCode }) => {
-  console.log('Download canceled due to error: ', { error, errorCode });
-})
-
-task.start()
-
-// Platform-aware pause/resume handling
-async function pauseDownloadTask() {
-  if (Platform.OS === 'ios') {
-    await task.pause()
-    console.log('Download paused')
-  } else {
-    console.log('Pause not supported on Android. Consider using stop() instead.')
-  }
-}
-
-async function resumeDownloadTask() {
-  if (Platform.OS === 'ios') {
-    await task.resume()
-    console.log('Download resumed')
-  } else {
-    console.log('Resume not supported on Android. You may need to restart the download.')
-  }
-}
 ```
 
 ### Re-Attaching to background downloads
@@ -527,7 +482,7 @@ A class representing a download task created by `createDownloadTask()`. Note: Yo
 | `metadata`     | Record<string, unknown> | The metadata you gave the task when calling `createDownloadTask`                        |
 | `state`        | 'PENDING' \| 'DOWNLOADING' \| 'PAUSED' \| 'DONE' \| 'FAILED' \| 'STOPPED' | Current state of the download task |
 | `bytesDownloaded` | Number | The number of bytes currently written by the task                                                    |
-| `bytesTotal`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded |
+| `bytesTotal`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded. **Note:** This value will be `-1` if the server does not provide a `Content-Length` header |
 | `downloadParams` | DownloadParams | The download parameters set for this task |
 
 ### `completeHandler(jobId: string)`
@@ -548,19 +503,19 @@ All callback methods return the current instance of the `DownloadTask` for chain
 | Function   | Callback Arguments                | Info|
 | ---------- | --------------------------------- | ---- |
 | `begin`    | `{ expectedBytes: number, headers: Record<string, string \| null> }` | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
-| `progress` | `{ bytesDownloaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly |
-| `done`     | `{ bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set |
+| `progress` | `{ bytesDownloaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly. **Note:** `bytesTotal` will be `-1` if the server does not provide a `Content-Length` header |
+| `done`     | `{ bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set. **Note:** `bytesTotal` will be `-1` if the server did not provide a `Content-Length` header |
 | `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error |
 
-### `pause(): Promise<void>`  (iOS only)
+### `pause(): Promise<void>`
 Pauses the download. Returns a promise that resolves when the pause operation is complete.
 
-**Note:** This functionality is not supported on Android due to limitations in the DownloadManager API. On Android, calling this method will log a warning but will not crash the application.
+**Note:** On Android, pause/resume is implemented using HTTP Range headers, which requires server support. The download progress is saved and resumed from where it left off.
 
-### `resume(): Promise<void>`  (iOS only)
+### `resume(): Promise<void>`
 Resumes a paused download. Returns a promise that resolves when the resume operation is complete.
 
-**Note:** This functionality is not supported on Android due to limitations in the DownloadManager API. On Android, calling this method will log a warning but will not crash the application.
+**Note:** On Android, this uses HTTP Range headers to resume from the last downloaded byte position. If the server doesn't support range requests, the download will restart from the beginning.
 
 ### `stop(): Promise<void>`
 Stops the download for good and removes the file that was written so far. Returns a promise that resolves when the stop operation is complete.
@@ -594,19 +549,13 @@ dependencies {
 
 ### Android DownloadManager Limitations
 
-The Android implementation uses the system's `DownloadManager` service, which has some limitations compared to iOS:
+The Android implementation uses the system's `DownloadManager` service for downloads, with custom pause/resume support:
 
-#### Pause/Resume Not Supported
-- **Issue**: Android's DownloadManager does not provide a public API for pausing and resuming downloads
-- **Impact**: Calling `task.pause()` or `task.resume()` on Android will log a warning but not perform any action
-- **Workaround**: If you need to stop a download, use `task.stop()` and restart it later with a new download request
-- **Technical Details**: The private APIs needed for pause/resume functionality are not accessible to third-party applications
-
-#### Alternative Approaches for Android
-If pause/resume functionality is critical for your application, consider:
-1. Using `task.stop()` and tracking progress to restart downloads from where they left off (if the server supports range requests)
-2. Implementing a custom download solution for Android that doesn't use DownloadManager
-3. Designing your app flow to minimize the need for pause/resume functionality
+#### Pause/Resume Support
+- **Implementation**: Pause/resume on Android is implemented using HTTP Range headers
+- **How it works**: When you pause a download, the current progress is saved. When resumed, a new download starts from where it left off using the `Range` header
+- **Server requirement**: The server must support HTTP Range requests for resume to work correctly. If the server doesn't support range requests, the download will restart from the beginning
+- **Temp files**: During pause/resume, progress is stored in a `.tmp` file which is renamed to the final destination upon completion
 
 ## Rules for proguard-rules.pro
 

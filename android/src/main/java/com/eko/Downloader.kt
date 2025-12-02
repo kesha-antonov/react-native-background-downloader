@@ -1,9 +1,13 @@
 package com.eko
 
 import android.app.DownloadManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.database.Cursor
+import android.os.Build
+import android.os.IBinder
 import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
@@ -14,8 +18,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Wrapper around Android's DownloadManager for managing file downloads.
  * Provides methods for downloading, canceling, and querying download status.
  *
- * For pause/resume functionality, this class integrates with ResumableDownloader
- * which uses HTTP Range headers to support true pause/resume.
+ * For pause/resume functionality, this class integrates with ResumableDownloadService
+ * which uses HTTP Range headers to support true pause/resume, even in the background.
  */
 class Downloader(private val context: Context) {
 
@@ -24,13 +28,43 @@ class Downloader(private val context: Context) {
   }
 
   val downloadManager: DownloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-  val resumableDownloader = ResumableDownloader()
+
+  // Service for background resumable downloads
+  private var downloadService: ResumableDownloadService? = null
+  private var serviceBound = false
+  private var pendingServiceOperations = mutableListOf<() -> Unit>()
 
   // Track which config IDs are using resumable downloads (paused state)
   private val pausedDownloads = ConcurrentHashMap<String, PausedDownloadInfo>()
 
   // Track download IDs that are being intentionally paused (to ignore broadcast events)
   private val pausingDownloadIds = ConcurrentHashMap.newKeySet<Long>()
+
+  // Service connection
+  private val serviceConnection = object : ServiceConnection {
+    override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+      val binder = service as ResumableDownloadService.LocalBinder
+      downloadService = binder.getService()
+      serviceBound = true
+      Log.d(TAG, "ResumableDownloadService connected")
+
+      // Execute any pending operations
+      synchronized(pendingServiceOperations) {
+        pendingServiceOperations.forEach { it.invoke() }
+        pendingServiceOperations.clear()
+      }
+    }
+
+    override fun onServiceDisconnected(name: ComponentName?) {
+      downloadService = null
+      serviceBound = false
+      Log.d(TAG, "ResumableDownloadService disconnected")
+    }
+  }
+
+  // Expose resumableDownloader for compatibility (delegates to service)
+  val resumableDownloader: ResumableDownloader
+    get() = downloadService?.resumableDownloader ?: ResumableDownloader()
 
   data class PausedDownloadInfo(
     val configId: String,
@@ -40,6 +74,43 @@ class Downloader(private val context: Context) {
     val bytesDownloaded: Long,
     val bytesTotal: Long
   )
+
+  init {
+    bindToService()
+  }
+
+  private fun bindToService() {
+    val intent = Intent(context, ResumableDownloadService::class.java)
+    context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+  }
+
+  fun unbindService() {
+    if (serviceBound) {
+      context.unbindService(serviceConnection)
+      serviceBound = false
+    }
+  }
+
+  /**
+   * Set the download listener for resumable downloads.
+   */
+  fun setResumableDownloadListener(listener: ResumableDownloader.DownloadListener) {
+    executeWhenServiceReady {
+      downloadService?.setDownloadListener(listener)
+    }
+  }
+
+  private fun executeWhenServiceReady(operation: () -> Unit) {
+    if (serviceBound && downloadService != null) {
+      operation()
+    } else {
+      synchronized(pendingServiceOperations) {
+        pendingServiceOperations.add(operation)
+      }
+      // Ensure service is started
+      bindToService()
+    }
+  }
 
   fun download(request: DownloadManager.Request): Long {
     return downloadManager.enqueue(request)
@@ -94,7 +165,7 @@ class Downloader(private val context: Context) {
   }
 
   /**
-   * Resume a paused download using HTTP Range headers via ResumableDownloader.
+   * Resume a paused download using the background service with HTTP Range headers.
    */
   fun resume(configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
     val pausedInfo = pausedDownloads[configId]
@@ -103,33 +174,71 @@ class Downloader(private val context: Context) {
       return false
     }
 
-    // Start resumable download from where we left off
-    resumableDownloader.startDownload(
-      id = configId,
-      url = pausedInfo.url,
-      destination = pausedInfo.destination,
-      headers = pausedInfo.headers,
-      startByte = pausedInfo.bytesDownloaded,
-      totalBytes = pausedInfo.bytesTotal,
-      listener = listener
+    // Start the foreground service for background download
+    startDownloadService(
+      configId,
+      pausedInfo.url,
+      pausedInfo.destination,
+      pausedInfo.headers,
+      pausedInfo.bytesDownloaded,
+      pausedInfo.bytesTotal,
+      listener
     )
 
-    Log.d(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes")
+    Log.d(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes via service")
     return true
+  }
+
+  /**
+   * Start a download via the foreground service for background support.
+   */
+  private fun startDownloadService(
+    configId: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    startByte: Long,
+    totalBytes: Long,
+    listener: ResumableDownloader.DownloadListener
+  ) {
+    executeWhenServiceReady {
+      downloadService?.setDownloadListener(listener)
+      downloadService?.startDownload(configId, url, destination, headers, startByte, totalBytes)
+    }
+
+    // Also start the service explicitly to ensure it runs in foreground
+    val intent = Intent(context, ResumableDownloadService::class.java).apply {
+      action = ResumableDownloadService.ACTION_START_DOWNLOAD
+      putExtra(ResumableDownloadService.EXTRA_DOWNLOAD_ID, configId)
+      putExtra(ResumableDownloadService.EXTRA_URL, url)
+      putExtra(ResumableDownloadService.EXTRA_DESTINATION, destination)
+      putExtra(ResumableDownloadService.EXTRA_HEADERS, HashMap(headers))
+      putExtra(ResumableDownloadService.EXTRA_START_BYTE, startByte)
+      putExtra(ResumableDownloadService.EXTRA_TOTAL_BYTES, totalBytes)
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      context.startForegroundService(intent)
+    } else {
+      context.startService(intent)
+    }
   }
 
   /**
    * Pause a resumable download that's currently in progress.
    */
   fun pauseResumable(configId: String): Boolean {
-    return resumableDownloader.pause(configId)
+    return downloadService?.pauseDownload(configId) ?: false
   }
 
   /**
    * Resume a paused resumable download.
    */
   fun resumeResumable(configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
-    return resumableDownloader.resume(configId, listener)
+    executeWhenServiceReady {
+      downloadService?.setDownloadListener(listener)
+    }
+    return downloadService?.resumeDownload(configId) ?: false
   }
 
   /**
@@ -151,14 +260,14 @@ class Downloader(private val context: Context) {
       }
     }
 
-    return resumableDownloader.cancel(configId)
+    return downloadService?.cancelDownload(configId) ?: false
   }
 
   /**
    * Check if a download is paused.
    */
   fun isPaused(configId: String): Boolean {
-    return pausedDownloads.containsKey(configId) || resumableDownloader.isPaused(configId)
+    return pausedDownloads.containsKey(configId) || (downloadService?.isPaused(configId) ?: false)
   }
 
   /**
@@ -170,7 +279,7 @@ class Downloader(private val context: Context) {
    * Check if download is using resumable downloader.
    */
   fun isResumableDownload(configId: String): Boolean {
-    return resumableDownloader.getState(configId) != null
+    return downloadService?.getState(configId) != null
   }
 
   /**

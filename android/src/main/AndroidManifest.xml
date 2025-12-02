@@ -2,5 +2,16 @@
           package="com.eko">
 
   <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+  <application>
+    <service
+      android:name=".ResumableDownloadService"
+      android:enabled="true"
+      android:exported="false"
+      android:foregroundServiceType="dataSync" />
+  </application>
 
 </manifest>

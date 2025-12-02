@@ -1,0 +1,348 @@
+package com.eko
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.os.Binder
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+
+/**
+ * A foreground service that manages resumable downloads in the background.
+ * This ensures downloads continue even when the app is in the background or the screen is off.
+ */
+class ResumableDownloadService : Service() {
+
+  companion object {
+    private const val TAG = "ResumableDownloadSvc"
+    private const val CHANNEL_ID = "resumable_download_channel"
+    private const val NOTIFICATION_ID = 9999
+    private const val WAKELOCK_TAG = "ResumableDownloadService::WakeLock"
+
+    // Action constants for Intent
+    const val ACTION_START_DOWNLOAD = "com.eko.action.START_DOWNLOAD"
+    const val ACTION_PAUSE_DOWNLOAD = "com.eko.action.PAUSE_DOWNLOAD"
+    const val ACTION_RESUME_DOWNLOAD = "com.eko.action.RESUME_DOWNLOAD"
+    const val ACTION_CANCEL_DOWNLOAD = "com.eko.action.CANCEL_DOWNLOAD"
+    const val ACTION_STOP_SERVICE = "com.eko.action.STOP_SERVICE"
+
+    // Extra keys
+    const val EXTRA_DOWNLOAD_ID = "download_id"
+    const val EXTRA_URL = "url"
+    const val EXTRA_DESTINATION = "destination"
+    const val EXTRA_HEADERS = "headers"
+    const val EXTRA_START_BYTE = "start_byte"
+    const val EXTRA_TOTAL_BYTES = "total_bytes"
+  }
+
+  private val binder = LocalBinder()
+  private val executorService: ExecutorService = Executors.newFixedThreadPool(3)
+  private val activeDownloads = ConcurrentHashMap<String, DownloadJob>()
+  private var wakeLock: PowerManager.WakeLock? = null
+  private var listener: ResumableDownloader.DownloadListener? = null
+
+  // Shared ResumableDownloader instance
+  val resumableDownloader = ResumableDownloader()
+
+  inner class LocalBinder : Binder() {
+    fun getService(): ResumableDownloadService = this@ResumableDownloadService
+  }
+
+  data class DownloadJob(
+    val id: String,
+    val url: String,
+    val destination: String,
+    val headers: Map<String, String>,
+    val startByte: Long,
+    val totalBytes: Long
+  )
+
+  override fun onCreate() {
+    super.onCreate()
+    Log.d(TAG, "Service created")
+    createNotificationChannel()
+  }
+
+  override fun onBind(intent: Intent?): IBinder {
+    return binder
+  }
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    Log.d(TAG, "onStartCommand: action=${intent?.action}")
+
+    when (intent?.action) {
+      ACTION_START_DOWNLOAD -> {
+        val id = intent.getStringExtra(EXTRA_DOWNLOAD_ID)
+        val url = intent.getStringExtra(EXTRA_URL)
+        val destination = intent.getStringExtra(EXTRA_DESTINATION)
+        @Suppress("UNCHECKED_CAST")
+        val headers = intent.getSerializableExtra(EXTRA_HEADERS) as? HashMap<String, String> ?: HashMap()
+        val startByte = intent.getLongExtra(EXTRA_START_BYTE, 0)
+        val totalBytes = intent.getLongExtra(EXTRA_TOTAL_BYTES, -1)
+
+        if (id != null && url != null && destination != null) {
+          startDownloadInternal(id, url, destination, headers, startByte, totalBytes)
+        }
+      }
+      ACTION_PAUSE_DOWNLOAD -> {
+        val id = intent.getStringExtra(EXTRA_DOWNLOAD_ID)
+        if (id != null) {
+          pauseDownload(id)
+        }
+      }
+      ACTION_RESUME_DOWNLOAD -> {
+        val id = intent.getStringExtra(EXTRA_DOWNLOAD_ID)
+        if (id != null) {
+          resumeDownload(id)
+        }
+      }
+      ACTION_CANCEL_DOWNLOAD -> {
+        val id = intent.getStringExtra(EXTRA_DOWNLOAD_ID)
+        if (id != null) {
+          cancelDownload(id)
+        }
+      }
+      ACTION_STOP_SERVICE -> {
+        stopServiceIfIdle()
+      }
+    }
+
+    return START_STICKY
+  }
+
+  override fun onDestroy() {
+    Log.d(TAG, "Service destroyed")
+    releaseWakeLock()
+    executorService.shutdownNow()
+    super.onDestroy()
+  }
+
+  fun setDownloadListener(listener: ResumableDownloader.DownloadListener?) {
+    this.listener = listener
+  }
+
+  fun startDownload(
+    id: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    startByte: Long = 0,
+    totalBytes: Long = -1
+  ) {
+    startDownloadInternal(id, url, destination, headers, startByte, totalBytes)
+  }
+
+  private fun startDownloadInternal(
+    id: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    startByte: Long,
+    totalBytes: Long
+  ) {
+    Log.d(TAG, "Starting download: $id from byte $startByte")
+
+    // Start foreground service if not already
+    startForegroundWithNotification()
+    acquireWakeLock()
+
+    val job = DownloadJob(id, url, destination, headers, startByte, totalBytes)
+    activeDownloads[id] = job
+
+    // Create a wrapper listener that handles service lifecycle
+    val serviceListener = object : ResumableDownloader.DownloadListener {
+      override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
+        listener?.onBegin(id, expectedBytes, headers)
+        updateNotification()
+      }
+
+      override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
+        listener?.onProgress(id, bytesDownloaded, bytesTotal)
+      }
+
+      override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
+        listener?.onComplete(id, location, bytesDownloaded, bytesTotal)
+        activeDownloads.remove(id)
+        stopServiceIfIdle()
+      }
+
+      override fun onError(id: String, error: String, errorCode: Int) {
+        listener?.onError(id, error, errorCode)
+        activeDownloads.remove(id)
+        stopServiceIfIdle()
+      }
+    }
+
+    // Start the download using ResumableDownloader
+    resumableDownloader.startDownload(
+      id = id,
+      url = url,
+      destination = destination,
+      headers = headers,
+      listener = serviceListener,
+      startByte = startByte,
+      totalBytes = totalBytes
+    )
+  }
+
+  fun pauseDownload(id: String): Boolean {
+    Log.d(TAG, "Pausing download: $id")
+    val result = resumableDownloader.pause(id)
+    if (result) {
+      updateNotification()
+      // Don't stop service - keep it alive for potential resume
+    }
+    return result
+  }
+
+  fun resumeDownload(id: String): Boolean {
+    Log.d(TAG, "Resuming download: $id")
+
+    val listener = this.listener ?: return false
+
+    // Create wrapper listener
+    val serviceListener = object : ResumableDownloader.DownloadListener {
+      override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
+        listener.onBegin(id, expectedBytes, headers)
+        updateNotification()
+      }
+
+      override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
+        listener.onProgress(id, bytesDownloaded, bytesTotal)
+      }
+
+      override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
+        listener.onComplete(id, location, bytesDownloaded, bytesTotal)
+        activeDownloads.remove(id)
+        stopServiceIfIdle()
+      }
+
+      override fun onError(id: String, error: String, errorCode: Int) {
+        listener.onError(id, error, errorCode)
+        activeDownloads.remove(id)
+        stopServiceIfIdle()
+      }
+    }
+
+    // Make sure service is in foreground
+    startForegroundWithNotification()
+    acquireWakeLock()
+
+    return resumableDownloader.resume(id, serviceListener)
+  }
+
+  fun cancelDownload(id: String): Boolean {
+    Log.d(TAG, "Cancelling download: $id")
+    activeDownloads.remove(id)
+    val result = resumableDownloader.cancel(id)
+    stopServiceIfIdle()
+    return result
+  }
+
+  fun isPaused(id: String): Boolean = resumableDownloader.isPaused(id)
+
+  fun getState(id: String) = resumableDownloader.getState(id)
+
+  private fun startForegroundWithNotification() {
+    val notification = createNotification()
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+      } else {
+        startForeground(NOTIFICATION_ID, notification)
+      }
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to start foreground service: ${e.message}")
+    }
+  }
+
+  private fun createNotificationChannel() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val name = "Background Downloads"
+      val descriptionText = "Shows download progress for background downloads"
+      val importance = NotificationManager.IMPORTANCE_LOW
+      val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
+        description = descriptionText
+        setShowBadge(false)
+      }
+
+      val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      notificationManager.createNotificationChannel(channel)
+    }
+  }
+
+  private fun createNotification(): Notification {
+    val activeCount = activeDownloads.size
+    val pausedCount = activeDownloads.keys.count { resumableDownloader.isPaused(it) }
+    val runningCount = activeCount - pausedCount
+
+    val contentText = when {
+      runningCount > 0 && pausedCount > 0 -> "$runningCount downloading, $pausedCount paused"
+      runningCount > 0 -> "$runningCount download${if (runningCount > 1) "s" else ""} in progress"
+      pausedCount > 0 -> "$pausedCount download${if (pausedCount > 1) "s" else ""} paused"
+      else -> "Download service running"
+    }
+
+    return NotificationCompat.Builder(this, CHANNEL_ID)
+      .setContentTitle("Background Download")
+      .setContentText(contentText)
+      .setSmallIcon(android.R.drawable.stat_sys_download)
+      .setPriority(NotificationCompat.PRIORITY_LOW)
+      .setOngoing(true)
+      .build()
+  }
+
+  private fun updateNotification() {
+    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    notificationManager.notify(NOTIFICATION_ID, createNotification())
+  }
+
+  private fun acquireWakeLock() {
+    if (wakeLock == null) {
+      val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+      wakeLock = powerManager.newWakeLock(
+        PowerManager.PARTIAL_WAKE_LOCK,
+        WAKELOCK_TAG
+      ).apply {
+        setReferenceCounted(false)
+        acquire(60 * 60 * 1000L) // 1 hour max
+      }
+      Log.d(TAG, "WakeLock acquired")
+    }
+  }
+
+  private fun releaseWakeLock() {
+    wakeLock?.let {
+      if (it.isHeld) {
+        it.release()
+        Log.d(TAG, "WakeLock released")
+      }
+    }
+    wakeLock = null
+  }
+
+  private fun stopServiceIfIdle() {
+    // Check if there are any active or paused downloads
+    val hasActiveDownloads = activeDownloads.isNotEmpty()
+    val hasPausedInResumable = activeDownloads.keys.any { resumableDownloader.getState(it) != null }
+
+    if (!hasActiveDownloads && !hasPausedInResumable) {
+      Log.d(TAG, "No active downloads, stopping service")
+      releaseWakeLock()
+      stopForeground(STOP_FOREGROUND_REMOVE)
+      stopSelf()
+    } else {
+      Log.d(TAG, "Service has active downloads, keeping alive")
+      updateNotification()
+    }
+  }
+}
