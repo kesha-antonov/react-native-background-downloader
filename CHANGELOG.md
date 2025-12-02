@@ -1,5 +1,36 @@
 # Changelog
 
+## v4.2.0
+
+> 📖 **Upgrading from v4.1.x?** See the [Migration Guide](./MIGRATION.md) for details on the new Android pause/resume functionality.
+
+### ✨ New Features
+
+- **Android Pause/Resume Support:** Android now fully supports `task.pause()` and `task.resume()` methods using HTTP Range headers. Downloads can be paused and resumed just like on iOS.
+- **Background Download Service:** Added `ResumableDownloadService` - a foreground service that ensures downloads continue even when the app is in the background or the screen is off.
+- **WakeLock Support:** Downloads maintain a partial wake lock to prevent the device from sleeping during active downloads.
+- **`bytesTotal` Unknown Size Handling:** When the server doesn't provide a `Content-Length` header, `bytesTotal` now returns `-1` instead of `0` to distinguish "unknown size" from "zero bytes".
+
+### 🐛 Bug Fixes
+
+- **Android Pause Error:** Fixed `COULD_NOT_FIND` error when pausing downloads on Android by properly tracking pausing state
+- **Temp File Cleanup:** Fixed temp files (`.tmp`) not being deleted when stopping or deleting paused downloads
+- **Content-Length Handling:** Fixed progress percentage calculation when server doesn't provide Content-Length header
+
+### 📦 Dependencies & Infrastructure
+
+- **New Android Permissions:** Added `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`, and `WAKE_LOCK` permissions for background download support
+- **New Service:** Added `ResumableDownloadService` with `dataSync` foreground service type
+
+### 📚 Documentation
+
+- Updated README to reflect Android pause/resume support
+- Removed "iOS only" notes from pause/resume documentation
+- Added documentation about `bytesTotal` returning `-1` for unknown sizes
+- Updated Android DownloadManager Limitations section with new pause/resume implementation details
+
+---
+
 ## v4.1.0
 
 > 📖 **Upgrading from v4.0.x?** See the [Migration Guide](./MIGRATION.md) for the MMKV dependency change.

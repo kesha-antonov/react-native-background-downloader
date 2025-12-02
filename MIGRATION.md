@@ -6,6 +6,9 @@ This guide helps you upgrade between major versions of `@kesha-antonov/react-nat
 
 - [Migration Guide](#migration-guide)
   - [Table of Contents](#table-of-contents)
+- [Migration Guide: v4.1.x → v4.2.0](#migration-guide-v41x--v420)
+  - [Android Pause/Resume Now Supported](#android-pauseresume-now-supported)
+  - [bytesTotal Returns -1 for Unknown Sizes](#bytestotal-returns--1-for-unknown-sizes)
 - [Migration Guide: v4.0.x → v4.1.0](#migration-guide-v40x--v410)
   - [MMKV Dependency Change](#mmkv-dependency-change)
     - [If you're using `react-native-mmkv`](#if-youre-using-react-native-mmkv)
@@ -31,6 +34,98 @@ This guide helps you upgrade between major versions of `@kesha-antonov/react-nat
     - [Rebuild Required](#rebuild-required)
   - [Quick Migration Checklist](#quick-migration-checklist)
   - [Need Help?](#need-help)
+
+---
+
+# Migration Guide: v4.1.x → v4.2.0
+
+## Android Pause/Resume Now Supported
+
+In v4.2.0, Android now fully supports `task.pause()` and `task.resume()` methods! You no longer need platform-specific code for pause/resume functionality.
+
+### Before (v4.1.x)
+
+```javascript
+import { Platform } from 'react-native'
+
+async function pauseDownload() {
+  if (Platform.OS === 'ios') {
+    await task.pause()
+  } else {
+    // Android didn't support pause - had to stop and restart
+    console.log('Pause not supported on Android')
+  }
+}
+```
+
+### After (v4.2.0)
+
+```javascript
+// Works on both iOS and Android!
+async function pauseDownload() {
+  await task.pause()
+}
+
+async function resumeDownload() {
+  await task.resume()
+}
+```
+
+### How It Works on Android
+
+Android's `DownloadManager` doesn't natively support pause/resume. v4.2.0 implements this using:
+
+1. **HTTP Range Headers:** When resuming, the library uses the `Range` header to request only the remaining bytes
+2. **Foreground Service:** A `ResumableDownloadService` runs as a foreground service to ensure downloads continue in the background
+3. **Temp Files:** Progress is saved to a `.tmp` file which is renamed upon completion
+
+**Server Requirement:** The server must support HTTP Range requests for resume to work correctly. If the server doesn't support range requests, the download will restart from the beginning.
+
+### New Android Permissions
+
+The library now requires additional permissions that are automatically added:
+
+```xml
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+```
+
+These are declared in the library's `AndroidManifest.xml` and will be merged automatically.
+
+## bytesTotal Returns -1 for Unknown Sizes
+
+When a server doesn't provide a `Content-Length` header, `bytesTotal` now returns `-1` instead of `0`.
+
+### Before (v4.1.x)
+
+```javascript
+.progress(({ bytesDownloaded, bytesTotal }) => {
+  // bytesTotal was 0 when unknown, same as "zero bytes"
+  const percent = bytesTotal > 0 ? (bytesDownloaded / bytesTotal) * 100 : 0
+})
+```
+
+### After (v4.2.0)
+
+```javascript
+.progress(({ bytesDownloaded, bytesTotal }) => {
+  if (bytesTotal === -1) {
+    // Server didn't provide Content-Length - show indeterminate progress
+    console.log(`Downloaded ${bytesDownloaded} bytes (total unknown)`)
+  } else if (bytesTotal > 0) {
+    // Normal case - show percentage
+    const percent = (bytesDownloaded / bytesTotal) * 100
+    console.log(`Downloaded ${percent.toFixed(1)}%`)
+  }
+})
+```
+
+### Why This Change?
+
+- `-1` clearly indicates "unknown" vs `0` which could mean "zero bytes"
+- Allows apps to show indeterminate progress indicators when appropriate
+- Consistent with common conventions in download APIs
 
 ---
 
