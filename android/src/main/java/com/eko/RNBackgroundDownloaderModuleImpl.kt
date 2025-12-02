@@ -741,14 +741,17 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     val existLastBytes = configIdToLastBytes[configId]
     val prevPercent = existPercent ?: 0.0
     val prevBytes = existLastBytes ?: 0L
-    val percent = if (bytesTotal > 0.0) bytesDownloaded.toDouble() / bytesTotal else 0.0
+    // For unknown total (-1), use 0 for percent calculation
+    val effectiveTotal = if (bytesTotal > 0) bytesTotal else 0L
+    val percent = if (effectiveTotal > 0) bytesDownloaded.toDouble() / effectiveTotal else 0.0
 
     // Check if we should report progress based on percentage OR bytes threshold
-    val percentThresholdMet = percent - prevPercent > PROGRESS_REPORT_THRESHOLD
+    val percentThresholdMet = effectiveTotal > 0 && (percent - prevPercent > PROGRESS_REPORT_THRESHOLD)
     // Only check bytes threshold if progressMinBytes > 0
     val bytesThresholdMet = progressMinBytes > 0 && (bytesDownloaded - prevBytes >= progressMinBytes)
 
     // Report progress if either threshold is met, or if total bytes unknown (for realtime streams)
+    // bytesTotal <= 0 means unknown size (-1) or zero
     if (percentThresholdMet || bytesThresholdMet || bytesTotal <= 0) {
       val params = Arguments.createMap()
       params.putString("id", configId)

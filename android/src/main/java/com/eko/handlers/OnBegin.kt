@@ -83,10 +83,10 @@ class OnBegin(
             try {
                 contentLengthString.toLong()
             } catch (e: NumberFormatException) {
-                0
+                -1L // Unknown size
             }
         } else {
-            0
+            -1L // Unknown size - server didn't provide Content-Length
         }
     }
 }

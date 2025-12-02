@@ -101,7 +101,14 @@ class OnProgress(
 
     private fun updateProgress(cursor: Cursor): Boolean {
         val byteTotal = getColumnValue(DownloadManager.COLUMN_TOTAL_SIZE_BYTES, cursor)
-        bytesTotal = if (byteTotal > 0) byteTotal else bytesTotal
+        // DownloadManager returns -1 for unknown size, keep it as -1 to indicate unknown
+        // Only update if we get a positive value (actual size known)
+        if (byteTotal > 0) {
+            bytesTotal = byteTotal
+        } else if (byteTotal == -1L && bytesTotal <= 0) {
+            // Server doesn't provide content length, keep as -1
+            bytesTotal = -1L
+        }
 
         val byteDownloaded = getColumnValue(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR, cursor)
         bytesDownloaded = if (byteDownloaded > 0) byteDownloaded else bytesDownloaded
@@ -109,6 +116,7 @@ class OnProgress(
         // Always call progress callback, even when total bytes are unknown (for realtime streams)
         callback.onProgress(config.id, bytesDownloaded, bytesTotal)
 
+        // Download is complete when we have valid total and downloaded equals total
         return bytesTotal > 0 && bytesDownloaded > 0 && bytesDownloaded == bytesTotal
     }
 

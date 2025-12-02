@@ -7,6 +7,7 @@ import android.database.Cursor
 import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -132,10 +133,24 @@ class Downloader(private val context: Context) {
   }
 
   /**
-   * Cancel a resumable download.
+   * Cancel a resumable download and clean up all temp files.
    */
   fun cancelResumable(configId: String): Boolean {
-    pausedDownloads.remove(configId)
+    // Clean up paused download state and temp file
+    val pausedInfo = pausedDownloads.remove(configId)
+    if (pausedInfo != null) {
+      // Delete the temp file for resumable downloads
+      try {
+        val tempFile = File(pausedInfo.destination + ".tmp")
+        if (tempFile.exists()) {
+          tempFile.delete()
+          Log.d(TAG, "Deleted temp file for paused download: ${tempFile.absolutePath}")
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to delete temp file for paused download: ${e.message}")
+      }
+    }
+
     return resumableDownloader.cancel(configId)
   }
 
@@ -159,10 +174,22 @@ class Downloader(private val context: Context) {
   }
 
   /**
-   * Remove paused state for a config ID.
+   * Remove paused state for a config ID and clean up temp files.
    */
   fun removePausedState(configId: String) {
-    pausedDownloads.remove(configId)
+    val pausedInfo = pausedDownloads.remove(configId)
+    if (pausedInfo != null) {
+      // Delete the temp file for resumable downloads
+      try {
+        val tempFile = File(pausedInfo.destination + ".tmp")
+        if (tempFile.exists()) {
+          tempFile.delete()
+          Log.d(TAG, "Deleted temp file when removing paused state: ${tempFile.absolutePath}")
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to delete temp file when removing paused state: ${e.message}")
+      }
+    }
   }
 
   // Manually trigger the receiver from anywhere.
