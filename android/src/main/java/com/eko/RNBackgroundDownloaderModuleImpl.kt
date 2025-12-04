@@ -5,35 +5,28 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.SharedPreferences
-import android.database.Cursor
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.util.Log
 import android.webkit.MimeTypeMap
-import androidx.annotation.NonNull
 import com.eko.handlers.OnBegin
-import com.eko.handlers.OnBeginState
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
 import com.eko.utils.FileUtils
+import com.eko.utils.HeaderUtils
+import com.eko.utils.StorageManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
-import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import com.tencent.mmkv.MMKV
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.Date
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -43,46 +36,19 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   companion object {
     const val NAME = "RNBackgroundDownloader"
 
-    // Library version
-    private const val VERSION = "4.2.0"
-    private const val USER_AGENT = "ReactNative-BackgroundDownloader/$VERSION"
-
-    // Task state constants
-    private const val TASK_RUNNING = 0
-    private const val TASK_SUSPENDED = 1
-    private const val TASK_CANCELING = 2
-    private const val TASK_COMPLETED = 3
-
-    // Error code constants
-    private const val ERR_STORAGE_FULL = 0
-    private const val ERR_NO_INTERNET = 1
-    private const val ERR_NO_WRITE_PERMISSION = 2
-    private const val ERR_FILE_NOT_FOUND = 3
-    private const val ERR_OTHERS = 100
-
-    // Network timeout constants (milliseconds)
-    private const val REDIRECT_CONNECT_TIMEOUT_MS = 10000  // 10 seconds
-    private const val REDIRECT_READ_TIMEOUT_MS = 10000   // 10 seconds
-
-    // Progress reporting constants
-    private const val PROGRESS_REPORT_THRESHOLD = 0.01  // 1% change
-
-    // HTTP header constants
-    private const val KEEP_ALIVE_HEADER_VALUE = "timeout=600, max=1000"
-
     private val stateMap = mapOf(
-      DownloadManager.STATUS_FAILED to TASK_CANCELING,
-      DownloadManager.STATUS_PAUSED to TASK_SUSPENDED,
-      DownloadManager.STATUS_PENDING to TASK_RUNNING,
-      DownloadManager.STATUS_RUNNING to TASK_RUNNING,
-      DownloadManager.STATUS_SUCCESSFUL to TASK_COMPLETED
+      DownloadManager.STATUS_FAILED to DownloadConstants.TASK_CANCELING,
+      DownloadManager.STATUS_PAUSED to DownloadConstants.TASK_SUSPENDED,
+      DownloadManager.STATUS_PENDING to DownloadConstants.TASK_RUNNING,
+      DownloadManager.STATUS_RUNNING to DownloadConstants.TASK_RUNNING,
+      DownloadManager.STATUS_SUCCESSFUL to DownloadConstants.TASK_COMPLETED
     )
 
-    private var mmkv: MMKV? = null
-    private lateinit var sharedPreferences: SharedPreferences
-    private var isMMKVAvailable = false
     private val sharedLock = Any()
   }
+
+  // Storage manager for persistent state
+  private val storageManager = StorageManager(reactContext, NAME)
 
   private val cachedExecutorPool: ExecutorService = Executors.newCachedThreadPool()
   private val fixedExecutorPool: ExecutorService = Executors.newFixedThreadPool(1)
@@ -90,15 +56,19 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   private var downloadReceiver: BroadcastReceiver? = null
   private var downloadIdToConfig = mutableMapOf<Long, RNBGDTaskConfig>()
   private val configIdToDownloadId = mutableMapOf<String, Long>()
-  private val configIdToPercent = mutableMapOf<String, Double>()
-  private val configIdToLastBytes = mutableMapOf<String, Long>()
   private val configIdToProgressFuture = mutableMapOf<String, Future<OnProgressState?>>()
   private val configIdToHeaders = mutableMapOf<String, Map<String, String>>()
-  private val progressReports = mutableMapOf<String, WritableMap>()
-  private var progressInterval = 0
-  private var progressMinBytes: Long = 0
-  private var lastProgressReportedAt = Date()
   private lateinit var ee: DeviceEventManagerModule.RCTDeviceEventEmitter
+
+  // Centralized progress reporting with threshold filtering and batching
+  private val progressReporter = ProgressReporter { reportsArray ->
+    ee.emit("downloadProgress", reportsArray)
+  }
+
+  // Centralized event emitter for download events
+  private val eventEmitter by lazy {
+    DownloadEventEmitter { ee }
+  }
 
   // Listener for resumable downloads
   private val resumableDownloadListener = object : ResumableDownloader.DownloadListener {
@@ -115,69 +85,25 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
-      val params = Arguments.createMap()
-      params.putString("id", id)
-      params.putString("location", location)
-      params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
-      params.putDouble("bytesTotal", bytesTotal.toDouble())
-      ee.emit("downloadComplete", params)
+      eventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal)
 
-      // Clean up
+      // Clean up all download state
       synchronized(sharedLock) {
-        configIdToDownloadId.remove(id)
-        configIdToPercent.remove(id)
-        configIdToLastBytes.remove(id)
-        configIdToHeaders.remove(id)
-        downloader.removePausedState(id)
+        cleanupDownloadState(id)
       }
     }
 
     override fun onError(id: String, error: String, errorCode: Int) {
-      val params = Arguments.createMap()
-      params.putString("id", id)
-      params.putInt("errorCode", errorCode)
-      params.putString("error", error)
-      ee.emit("downloadFailed", params)
+      eventEmitter.emitFailed(id, error, errorCode)
 
-      // Clean up
+      // Clean up all download state
       synchronized(sharedLock) {
-        configIdToDownloadId.remove(id)
-        configIdToPercent.remove(id)
-        configIdToLastBytes.remove(id)
-        configIdToHeaders.remove(id)
-        downloader.removePausedState(id)
+        cleanupDownloadState(id)
       }
     }
   }
 
   init {
-    // Initialize SharedPreferences as fallback
-    sharedPreferences = reactContext.getSharedPreferences(NAME + "_prefs", Context.MODE_PRIVATE)
-
-    // Try to initialize MMKV with comprehensive error handling
-    try {
-      MMKV.initialize(reactContext)
-      mmkv = MMKV.mmkvWithID(NAME)
-      isMMKVAvailable = true
-      Log.d(NAME, "MMKV initialized successfully")
-    } catch (e: UnsatisfiedLinkError) {
-      Log.e(NAME, "Failed to initialize MMKV (libmmkv.so not found): ${e.message}")
-      Log.w(NAME, "This may be due to unsupported architecture (x86/ARMv7). Using SharedPreferences fallback.")
-      Log.w(NAME, "Download persistence across app restarts will use basic storage.")
-      mmkv = null
-      isMMKVAvailable = false
-    } catch (e: NoClassDefFoundError) {
-      Log.e(NAME, "MMKV classes not found: ${e.message}")
-      Log.w(NAME, "MMKV library not available on this architecture. Using SharedPreferences fallback.")
-      mmkv = null
-      isMMKVAvailable = false
-    } catch (e: Exception) {
-      Log.e(NAME, "Failed to initialize MMKV: ${e.message}")
-      Log.w(NAME, "Using SharedPreferences fallback for persistence.")
-      mmkv = null
-      isMMKVAvailable = false
-    }
-
     loadDownloadIdToConfigMap()
     loadConfigMap()
 
@@ -191,14 +117,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // issues with external storage paths on some devices
     constants["documents"] = reactContext.filesDir.absolutePath
 
-    constants["TaskRunning"] = TASK_RUNNING
-    constants["TaskSuspended"] = TASK_SUSPENDED
-    constants["TaskCanceling"] = TASK_CANCELING
-    constants["TaskCompleted"] = TASK_COMPLETED
-
-    // Expose storage type information for debugging/monitoring
-    constants["isMMKVAvailable"] = isMMKVAvailable
-    constants["storageType"] = if (isMMKVAvailable) "MMKV" else "SharedPreferences"
+    constants["TaskRunning"] = DownloadConstants.TASK_RUNNING
+    constants["TaskSuspended"] = DownloadConstants.TASK_SUSPENDED
+    constants["TaskCanceling"] = DownloadConstants.TASK_CANCELING
+    constants["TaskCompleted"] = DownloadConstants.TASK_COMPLETED
 
     return constants
   }
@@ -337,11 +259,38 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
       if (config != null) {
         configIdToDownloadId.remove(config.id)
-        configIdToPercent.remove(config.id)
-        configIdToLastBytes.remove(config.id)
+        progressReporter.clearDownloadState(config.id)
         downloadIdToConfig.remove(downloadId)
         saveDownloadIdToConfigMap()
       }
+    }
+  }
+
+  /**
+   * Cleans up all state associated with a download.
+   * This consolidates cleanup logic that was previously duplicated across
+   * onComplete, onError, stopTask, and removeTaskFromMap.
+   *
+   * @param configId The config ID of the download to clean up
+   * @param downloadId Optional download ID for DownloadManager cleanup
+   * @param removePausedState Whether to remove paused state from downloader
+   */
+  private fun cleanupDownloadState(
+    configId: String,
+    downloadId: Long? = null,
+    removePausedState: Boolean = true
+  ) {
+    configIdToDownloadId.remove(configId)
+    configIdToHeaders.remove(configId)
+    progressReporter.clearDownloadState(configId)
+
+    if (downloadId != null) {
+      downloadIdToConfig.remove(downloadId)
+      saveDownloadIdToConfigMap()
+    }
+
+    if (removePausedState) {
+      downloader.removePausedState(configId)
     }
   }
 
@@ -366,25 +315,15 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val connection = url.openConnection() as HttpURLConnection
 
         // Add headers to the redirect resolution request
-        headers?.let {
-          val iterator = it.keySetIterator()
-          while (iterator.hasNextKey()) {
-            val headerKey = iterator.nextKey()
-            connection.setRequestProperty(headerKey, it.getString(headerKey))
-          }
-        }
+        HeaderUtils.applyToConnection(connection, headers)
 
         // Add default headers for consistency with DownloadManager
-        connection.setRequestProperty("Connection", "keep-alive")
-        connection.setRequestProperty("Keep-Alive", KEEP_ALIVE_HEADER_VALUE)
-        if (!hasUserAgentHeader(headers)) {
-          connection.setRequestProperty("User-Agent", USER_AGENT)
-        }
+        HeaderUtils.applyDefaultHeaders(connection, headers)
 
         connection.instanceFollowRedirects = false
         connection.requestMethod = "HEAD" // Use HEAD to avoid downloading content
-        connection.connectTimeout = REDIRECT_CONNECT_TIMEOUT_MS
-        connection.readTimeout = REDIRECT_READ_TIMEOUT_MS
+        connection.connectTimeout = DownloadConstants.REDIRECT_TIMEOUT_MS
+        connection.readTimeout = DownloadConstants.REDIRECT_TIMEOUT_MS
 
         val responseCode = connection.responseCode
 
@@ -464,14 +403,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     val notificationTitle = options.getString("notificationTitle")
 
     val progressIntervalScope = options.getInt("progressInterval")
-    if (progressIntervalScope > 0) {
-      progressInterval = progressIntervalScope
-      saveConfigMap()
-    }
-
-    val progressMinBytesScope = options.getDouble("progressMinBytes")
-    if (progressMinBytesScope > 0) {
-      progressMinBytes = progressMinBytesScope.toLong()
+    val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
+    if (progressIntervalScope > 0 || progressMinBytesScope > 0) {
+      progressReporter.configure(
+        if (progressIntervalScope > 0) progressIntervalScope.toLong() else progressReporter.getProgressInterval(),
+        if (progressMinBytesScope > 0) progressMinBytesScope else progressReporter.getProgressMinBytes()
+      )
       saveConfigMap()
     }
 
@@ -511,14 +448,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     notificationTitle?.let { request.setTitle(it) }
 
     // Add default headers to improve connection handling for slow-responding URLs
-    // These headers encourage longer connections and help prevent premature timeouts
-    request.addRequestHeader("Connection", "keep-alive")
-    request.addRequestHeader("Keep-Alive", KEEP_ALIVE_HEADER_VALUE)
-
-    // Add a proper User-Agent to improve server compatibility
-    if (!hasUserAgentHeader(headers)) {
-      request.addRequestHeader("User-Agent", USER_AGENT)
-    }
+    HeaderUtils.applyDefaultHeaders(request, headers)
 
     headers?.let {
       val iterator = it.keySetIterator()
@@ -543,24 +473,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
          externalFilesDir.absolutePath.startsWith("/mnt/"))
 
     // Save headers for potential pause/resume functionality
-    val headersMap = mutableMapOf<String, String>()
-    headers?.let {
-      val iterator = it.keySetIterator()
-      while (iterator.hasNextKey()) {
-        val headerKey = iterator.nextKey()
-        headersMap[headerKey] = it.getString(headerKey) ?: ""
-      }
-    }
+    val headersMap = HeaderUtils.toMap(headers)
 
     // Helper function to start download with DownloadManager and track state
     fun startDownloadManagerDownload(downloadId: Long) {
       val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)
       synchronized(sharedLock) {
-        // Clear any stale progress data from previous download with same ID
-        progressReports.remove(id)
-        configIdToLastBytes.remove(id)
+        // Clear any stale progress data and initialize tracking for new download
+        progressReporter.clearDownloadState(id)
+        progressReporter.initializeDownload(id)
         configIdToDownloadId[id] = downloadId
-        configIdToPercent[id] = 0.0
         configIdToHeaders[id] = headersMap
         downloadIdToConfig[downloadId] = config
         saveDownloadIdToConfigMap()
@@ -571,10 +493,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Helper function to fall back to ResumableDownloader
     fun startWithResumableDownloader() {
       synchronized(sharedLock) {
-        // Clear any stale progress data from previous download with same ID
-        progressReports.remove(id)
-        configIdToLastBytes.remove(id)
-        configIdToPercent[id] = 0.0
+        // Clear any stale progress data and initialize tracking for new download
+        progressReporter.clearDownloadState(id)
+        progressReporter.initializeDownload(id)
         configIdToHeaders[id] = headersMap
       }
       downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener)
@@ -679,16 +600,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // Cancel resumable download if active
       downloader.cancelResumable(configId)
 
-      // Cancel DownloadManager download if active
+      // Cancel DownloadManager download if active and clean up
       val downloadId = configIdToDownloadId[configId]
       if (downloadId != null) {
-        removeTaskFromMap(downloadId)
         downloader.cancel(downloadId)
       }
 
-      // Clean up any paused state
-      downloader.removePausedState(configId)
-      configIdToHeaders.remove(configId)
+      // Clean up all download state
+      cleanupDownloadState(configId, downloadId)
     }
   }
 
@@ -763,7 +682,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
                   foundTasks.pushMap(params)
                   configIdToDownloadId[config.id] = downloadId
-                  configIdToPercent[config.id] = percent
+                  progressReporter.setPercent(config.id, percent)
                 }
               } else if (downloadId != null) {
                 downloader.cancel(downloadId)
@@ -786,53 +705,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   private fun onBeginDownload(configId: String, headers: WritableMap, expectedBytes: Long) {
-    val params = Arguments.createMap()
-    params.putString("id", configId)
-    params.putMap("headers", headers)
-    params.putDouble("expectedBytes", expectedBytes.toDouble())
-    ee.emit("downloadBegin", params)
+    eventEmitter.emitBegin(configId, headers, expectedBytes)
   }
 
   private fun onProgressDownload(configId: String, bytesDownloaded: Long, bytesTotal: Long) {
-    val existPercent = configIdToPercent[configId]
-    val existLastBytes = configIdToLastBytes[configId]
-    val prevPercent = existPercent ?: 0.0
-    val prevBytes = existLastBytes ?: 0L
-    // For unknown total (-1), use 0 for percent calculation
-    val effectiveTotal = if (bytesTotal > 0) bytesTotal else 0L
-    val percent = if (effectiveTotal > 0) bytesDownloaded.toDouble() / effectiveTotal else 0.0
-
-    // Check if we should report progress based on percentage OR bytes threshold
-    val percentThresholdMet = effectiveTotal > 0 && (percent - prevPercent > PROGRESS_REPORT_THRESHOLD)
-    // Only check bytes threshold if progressMinBytes > 0
-    val bytesThresholdMet = progressMinBytes > 0 && (bytesDownloaded - prevBytes >= progressMinBytes)
-
-    // Report progress if either threshold is met, or if total bytes unknown (for realtime streams)
-    // bytesTotal <= 0 means unknown size (-1) or zero
-    if (percentThresholdMet || bytesThresholdMet || bytesTotal <= 0) {
-      val params = Arguments.createMap()
-      params.putString("id", configId)
-      params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
-      params.putDouble("bytesTotal", bytesTotal.toDouble())
-      progressReports[configId] = params
-      configIdToPercent[configId] = percent
-      configIdToLastBytes[configId] = bytesDownloaded
-    }
-
-    val now = Date()
-    val isReportTimeDifference = now.time - lastProgressReportedAt.time > progressInterval
-    val isReportNotEmpty = progressReports.isNotEmpty()
-    if (isReportTimeDifference && isReportNotEmpty) {
-      // Extra steps to avoid map always consumed errors.
-      val reportsList = progressReports.values.toList()
-      val reportsArray = Arguments.createArray()
-      for (report in reportsList) {
-        reportsArray.pushMap(report.copy())
-      }
-      ee.emit("downloadProgress", reportsArray)
-      lastProgressReportedAt = now
-      progressReports.clear()
-    }
+    // Delegate all progress handling to ProgressReporter
+    // It handles threshold filtering, batching, and emission
+    progressReporter.reportProgress(configId, bytesDownloaded, bytesTotal)
   }
 
   private fun onSuccessfulDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
@@ -854,12 +733,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       return
     }
 
-    val params = Arguments.createMap()
-    params.putString("id", config.id)
-    params.putString("location", config.destination)
-    params.putDouble("bytesDownloaded", downloadStatus.getDouble("bytesDownloaded"))
-    params.putDouble("bytesTotal", downloadStatus.getDouble("bytesTotal"))
-    ee.emit("downloadComplete", params)
+    eventEmitter.emitComplete(
+      config.id,
+      config.destination,
+      downloadStatus.getDouble("bytesDownloaded").toLong(),
+      downloadStatus.getDouble("bytesTotal").toLong()
+    )
   }
 
   private fun onFailedDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
@@ -889,112 +768,35 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         "ERROR_CANNOT_RESUME - Unable to resume download. This may occur with large files due to Android DownloadManager limitations. Try restarting the download."
     }
 
-    val params = Arguments.createMap()
-    params.putString("id", config.id)
-    params.putInt("errorCode", reason)
-    params.putString("error", reasonText)
-    ee.emit("downloadFailed", params)
+    eventEmitter.emitFailed(config.id, reasonText ?: "Unknown error", reason)
   }
 
   private fun saveDownloadIdToConfigMap() {
     synchronized(sharedLock) {
-      try {
-        val gson = Gson()
-        // Create a defensive copy to prevent ConcurrentModificationException
-        // when Gson iterates over the map while another thread modifies it
-        val mapCopy = HashMap(downloadIdToConfig)
-        val str = gson.toJson(mapCopy)
-
-        if (isMMKVAvailable && mmkv != null) {
-          mmkv!!.encode("${NAME}_downloadIdToConfig", str)
-          Log.d(NAME, "Saved download config to MMKV")
-        } else {
-          sharedPreferences.edit()
-            .putString("${NAME}_downloadIdToConfig", str)
-            .apply()
-          Log.d(NAME, "Saved download config to SharedPreferences fallback")
-        }
-      } catch (e: Exception) {
-        Log.e(NAME, "Failed to save download config: ${e.message}")
-      }
+      storageManager.saveDownloadIdToConfigMap(downloadIdToConfig)
     }
   }
 
   private fun loadDownloadIdToConfigMap() {
     synchronized(sharedLock) {
-      downloadIdToConfig = mutableMapOf()
-
-      try {
-        val str = if (isMMKVAvailable && mmkv != null) {
-          mmkv!!.decodeString("${NAME}_downloadIdToConfig")?.also {
-            Log.d(NAME, "Loaded download config from MMKV")
-          }
-        } else {
-          sharedPreferences.getString("${NAME}_downloadIdToConfig", null)?.also {
-            Log.d(NAME, "Loaded download config from SharedPreferences fallback")
-          }
-        }
-
-        if (str != null) {
-          val gson = Gson()
-          val mapType = object : TypeToken<Map<Long, RNBGDTaskConfig>>() {}.type
-          downloadIdToConfig = gson.fromJson(str, mapType)
-        } else {
-          Log.d(NAME, "No existing download config found, starting with empty map")
-        }
-      } catch (e: Exception) {
-        Log.e(NAME, "Failed to load download config: ${e.message}")
-        downloadIdToConfig = mutableMapOf()
-      }
+      downloadIdToConfig = storageManager.loadDownloadIdToConfigMap()
     }
   }
 
   private fun saveConfigMap() {
     synchronized(sharedLock) {
-      try {
-        if (isMMKVAvailable && mmkv != null) {
-          mmkv!!.encode("${NAME}_progressInterval", progressInterval)
-          mmkv!!.encode("${NAME}_progressMinBytes", progressMinBytes)
-          Log.d(NAME, "Saved config to MMKV")
-        } else {
-          sharedPreferences.edit()
-            .putInt("${NAME}_progressInterval", progressInterval)
-            .putLong("${NAME}_progressMinBytes", progressMinBytes)
-            .apply()
-          Log.d(NAME, "Saved config to SharedPreferences fallback")
-        }
-      } catch (e: Exception) {
-        Log.e(NAME, "Failed to save config: ${e.message}")
-      }
+      storageManager.saveProgressConfig(
+        progressReporter.getProgressInterval(),
+        progressReporter.getProgressMinBytes()
+      )
     }
   }
 
   private fun loadConfigMap() {
     synchronized(sharedLock) {
-      try {
-        if (isMMKVAvailable && mmkv != null) {
-          val progressIntervalScope = mmkv!!.decodeInt("${NAME}_progressInterval")
-          if (progressIntervalScope > 0) {
-            progressInterval = progressIntervalScope
-          }
-          val progressMinBytesScope = mmkv!!.decodeLong("${NAME}_progressMinBytes")
-          if (progressMinBytesScope > 0) {
-            progressMinBytes = progressMinBytesScope
-          }
-          Log.d(NAME, "Loaded config from MMKV")
-        } else {
-          val progressIntervalScope = sharedPreferences.getInt("${NAME}_progressInterval", 0)
-          if (progressIntervalScope > 0) {
-            progressInterval = progressIntervalScope
-          }
-          val progressMinBytesScope = sharedPreferences.getLong("${NAME}_progressMinBytes", 0)
-          if (progressMinBytesScope > 0) {
-            progressMinBytes = progressMinBytesScope
-          }
-          Log.d(NAME, "Loaded config from SharedPreferences fallback")
-        }
-      } catch (e: Exception) {
-        Log.e(NAME, "Failed to load config: ${e.message}")
+      val (interval, minBytes) = storageManager.loadProgressConfig()
+      if (interval > 0 || minBytes > 0) {
+        progressReporter.configure(interval, minBytes)
       }
     }
   }
@@ -1003,13 +805,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     val onProgressFuture = configIdToProgressFuture[configId]
     if (onProgressFuture != null) {
       onProgressFuture.cancel(true)
-      configIdToPercent.remove(configId)
-      configIdToLastBytes.remove(configId)
       configIdToProgressFuture.remove(configId)
     }
     // Clear any batched progress report to prevent stale data from being emitted
     // when a new download starts with the same configId
-    progressReports.remove(configId)
+    progressReporter.clearPendingReport(configId)
   }
 
   private fun setFileChangesBeforeCompletion(targetSrc: String, destinationSrc: String): Future<Boolean> {
@@ -1032,25 +832,5 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
       true
     }
-  }
-
-  /**
-   * Check if the provided headers already contain a User-Agent header
-   * (case-insensitive)
-   */
-  private fun hasUserAgentHeader(headers: ReadableMap?): Boolean {
-    if (headers == null) {
-      return false
-    }
-
-    val iterator = headers.keySetIterator()
-    while (iterator.hasNextKey()) {
-      val headerKey = iterator.nextKey()
-      if (headerKey.lowercase() == "user-agent") {
-        return true
-      }
-    }
-
-    return false
   }
 }

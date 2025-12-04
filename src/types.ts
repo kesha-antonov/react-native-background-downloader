@@ -27,6 +27,7 @@ export type ProgressHandlerParams = {
 export type ProgressHandler = (params: ProgressHandlerParams) => void
 
 export type DoneHandlerParams = {
+  location: string
   bytesDownloaded: number
   bytesTotal: number
 }

@@ -19,6 +19,7 @@ export type DownloadProgressEvent = {
 
 export type DownloadCompleteEvent = {
   id: string
+  location: string
   bytesDownloaded: number
   bytesTotal: number
 }
@@ -37,8 +38,6 @@ export interface Spec extends TurboModule {
     TaskSuspended: number
     TaskCanceling: number
     TaskCompleted: number
-    isMMKVAvailable?: boolean
-    storageType?: string
   }
 
   // Methods

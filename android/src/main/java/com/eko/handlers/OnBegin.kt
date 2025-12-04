@@ -1,5 +1,6 @@
 package com.eko.handlers
 
+import com.eko.DownloadConstants
 import com.eko.RNBGDTaskConfig
 import com.eko.interfaces.BeginCallback
 import com.facebook.react.bridge.Arguments
@@ -17,13 +18,6 @@ class OnBegin(
     private val config: RNBGDTaskConfig,
     private val callback: BeginCallback
 ) : Callable<OnBeginState> {
-
-    companion object {
-        /** Timeout for establishing connection (milliseconds) */
-        private const val CONNECT_TIMEOUT_MS = 30000  // 30 seconds
-        /** Timeout for reading initial response (milliseconds) */
-        private const val READ_TIMEOUT_MS = 60000     // 60 seconds
-    }
 
     override fun call(): OnBeginState {
         var urlConnection: HttpURLConnection? = null
@@ -53,8 +47,8 @@ class OnBegin(
 
         // Set timeout values to prevent downloads from staying in PENDING state
         // when URLs are slow to respond (e.g., taking 2-6 minutes)
-        urlConnection.connectTimeout = CONNECT_TIMEOUT_MS
-        urlConnection.readTimeout = READ_TIMEOUT_MS
+        urlConnection.connectTimeout = DownloadConstants.CONNECT_TIMEOUT_MS
+        urlConnection.readTimeout = DownloadConstants.HEAD_REQUEST_READ_TIMEOUT_MS
 
         // 200 and 206 codes are successful http codes.
         val httpStatusCode = urlConnection.responseCode

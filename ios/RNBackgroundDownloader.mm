@@ -686,19 +686,9 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         }];
 #endif
     } else {
-        // Safely extract response headers - may be nil if response is not an HTTP response
-        NSDictionary *responseHeaders = nil;
-        if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
-            responseHeaders = ((NSHTTPURLResponse *)task.response).allHeaderFields;
-        }
-        // Use empty dictionary if headers are nil to prevent NSDictionary nil insertion crash
-        if (responseHeaders == nil) {
-            responseHeaders = @{};
-        }
 #ifdef RCT_NEW_ARCH_ENABLED
         [self emitOnDownloadComplete:@{
             @"id": taskConfig.id,
-            @"headers": responseHeaders,
             @"location": taskConfig.destination,
             @"bytesDownloaded": @(task.countOfBytesReceived),
             @"bytesTotal": @(task.countOfBytesExpectedToReceive)
@@ -706,7 +696,6 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 #else
         [self sendEventWithName:@"downloadComplete" body:@{
             @"id": taskConfig.id,
-            @"headers": responseHeaders,
             @"location": taskConfig.destination,
             @"bytesDownloaded": @(task.countOfBytesReceived),
             @"bytesTotal": @(task.countOfBytesExpectedToReceive)
