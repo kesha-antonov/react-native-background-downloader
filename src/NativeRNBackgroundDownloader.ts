@@ -2,8 +2,7 @@ import type { TurboModule } from 'react-native'
 import { TurboModuleRegistry } from 'react-native'
 import type { EventEmitter } from 'react-native/Libraries/Types/CodegenTypes'
 
-// UnsafeObject is used for dynamic key-value objects that codegen doesn't support
-type UnsafeObject = { [key: string]: string }
+import type { UnsafeObject } from './types'
 
 // Event payload types for codegen
 export type DownloadBeginEvent = {

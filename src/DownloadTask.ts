@@ -14,13 +14,16 @@ import {
   DownloadParams,
   DownloadTaskState,
   Metadata,
+  UnsafeObject,
+  Headers,
 } from './types'
 import { config, log } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 // Try to get the native module using TurboModuleRegistry first (new architecture),
 // then fall back to NativeModules (old architecture)
-const isTurboModuleEnabled = global.__turboModuleProxy != null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isTurboModuleEnabled = (global as any).__turboModuleProxy != null
 
 let RNBackgroundDownloader: Spec
 if (isTurboModuleEnabled)
@@ -160,6 +163,10 @@ export class DownloadTask {
       progressInterval: config.progressInterval,
       progressMinBytes: config.progressMinBytes,
       ...this.downloadParams,
+      headers: this.headersToUnsafeObject(this.downloadParams.headers),
+      isAllowedOverRoaming: this.downloadParams.isAllowedOverRoaming ?? false,
+      isAllowedOverMetered: this.downloadParams.isAllowedOverMetered ?? false,
+      isNotificationVisible: this.downloadParams.isNotificationVisible ?? false,
     })
   }
 
@@ -170,15 +177,28 @@ export class DownloadTask {
     await RNBackgroundDownloader.stopTask(this.id)
   }
 
-  tryParseJson (metadata?: string | Metadata): Metadata | null {
+  tryParseJson (metadata?: string | Metadata | object): Metadata | null {
     try {
       if (typeof metadata === 'string')
         return JSON.parse(metadata) as Metadata
 
-      return metadata ?? null
+      return (metadata as Metadata) ?? null
     } catch (e) {
       log('DownloadTask tryParseJson', e)
       return null
     }
+  }
+
+  private headersToUnsafeObject (headers: Headers | undefined): UnsafeObject | undefined {
+    if (!headers) return undefined
+
+    // Filter out null values from headers to match native UnsafeObject type
+    return Object.keys(headers)
+      .reduce<UnsafeObject>((mapped, key) => {
+        if (headers[key])
+          mapped[key] = headers[key]
+
+        return mapped
+      }, {})
   }
 }

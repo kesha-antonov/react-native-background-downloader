@@ -1,3 +1,6 @@
+// UnsafeObject is used for dynamic key-value objects that codegen doesn't support
+export type UnsafeObject = { [key: string]: string }
+
 export type Headers = Record<string, string | null>
 
 export interface Config {
