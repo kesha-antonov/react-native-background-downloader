@@ -1,6 +1,5 @@
 package com.eko
 
-import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
@@ -28,7 +27,6 @@ class ProgressReporter(
     private val configIdToPercent = ConcurrentHashMap<String, Double>()
     private val configIdToLastBytes = ConcurrentHashMap<String, Long>()
     private val progressReports = ConcurrentHashMap<String, WritableMap>()
-    private val lastProgressLogTime = ConcurrentHashMap<String, Long>()
 
     // Batching configuration
     private var progressInterval: Long = 0
@@ -112,17 +110,6 @@ class ProgressReporter(
     }
 
     /**
-     * Force emit all pending progress reports immediately.
-     * Useful when a download completes or is cancelled.
-     */
-    fun flushReports() {
-        if (progressReports.isNotEmpty()) {
-            emitBatchedReports()
-            lastProgressReportedAt = Date()
-        }
-    }
-
-    /**
      * Emit all batched progress reports to JS.
      */
     private fun emitBatchedReports() {
@@ -148,7 +135,6 @@ class ProgressReporter(
         configIdToPercent.remove(configId)
         configIdToLastBytes.remove(configId)
         progressReports.remove(configId)
-        lastProgressLogTime.remove(configId)
     }
 
     /**
@@ -160,34 +146,6 @@ class ProgressReporter(
     fun clearPendingReport(configId: String) {
         progressReports.remove(configId)
     }
-
-    /**
-     * Check if a log message should be emitted for this download
-     * based on throttling. Call this before logging progress.
-     *
-     * @param configId The download identifier
-     * @return true if enough time has passed since the last log
-     */
-    fun shouldLogProgress(configId: String): Boolean {
-        val now = System.currentTimeMillis()
-        val lastLogTime = lastProgressLogTime[configId] ?: 0L
-
-        if (now - lastLogTime >= DownloadConstants.PROGRESS_LOG_INTERVAL_MS) {
-            lastProgressLogTime[configId] = now
-            return true
-        }
-        return false
-    }
-
-    /**
-     * Get the current percent for a download (for external access).
-     */
-    fun getPercent(configId: String): Double = configIdToPercent[configId] ?: 0.0
-
-    /**
-     * Get the last reported bytes for a download (for external access).
-     */
-    fun getLastBytes(configId: String): Long = configIdToLastBytes[configId] ?: 0L
 
     /**
      * Set the percent tracking for a download (for restoring state).
@@ -203,11 +161,6 @@ class ProgressReporter(
         configIdToPercent[configId] = 0.0
         configIdToLastBytes[configId] = 0L
     }
-
-    /**
-     * Check if we have any pending reports.
-     */
-    fun hasPendingReports(): Boolean = progressReports.isNotEmpty()
 }
 
 /**

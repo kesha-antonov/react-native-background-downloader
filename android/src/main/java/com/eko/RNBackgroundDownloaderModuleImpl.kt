@@ -149,10 +149,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       override fun onReceive(context: Context, intent: Intent) {
         val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
 
-        // Ignore broadcasts for downloads being intentionally paused
-        if (downloader.isBeingPaused(downloadId)) {
-          downloader.clearPausingState(downloadId)
-          Log.d(NAME, "Ignoring broadcast for paused download: $downloadId")
+        // Check if this download is being intentionally cancelled (paused or stopped)
+        val cancelIntent = downloader.getCancelIntent(downloadId)
+        if (cancelIntent != null) {
+          downloader.clearCancelIntent(downloadId)
+          Log.d(NAME, "Ignoring broadcast for ${cancelIntent.name.lowercase()} download: $downloadId")
           return
         }
 

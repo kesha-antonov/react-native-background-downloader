@@ -64,39 +64,6 @@ sealed class DownloadResult {
         val id: String
     ) : DownloadResult()
 
-    // ========== Utility Methods ==========
-
-    /**
-     * Returns true if this result represents a terminal state
-     * (success, error, or cancelled - not paused or invalidated).
-     */
-    fun isTerminal(): Boolean = when (this) {
-        is Success, is Error, is Cancelled -> true
-        is Paused, is SessionInvalidated -> false
-    }
-
-    /**
-     * Returns true if this result represents a successful completion.
-     */
-    fun isSuccess(): Boolean = this is Success
-
-    /**
-     * Returns true if this result represents an error.
-     */
-    fun isError(): Boolean = this is Error
-
-    /**
-     * Returns the download ID for any result type.
-     */
-    val downloadId: String
-        get() = when (this) {
-            is Success -> id
-            is Paused -> id
-            is Cancelled -> id
-            is Error -> id
-            is SessionInvalidated -> id
-        }
-
     companion object {
         /**
          * Create an error result from an exception.

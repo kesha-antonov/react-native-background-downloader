@@ -2,9 +2,7 @@ package com.eko.utils
 
 import android.app.DownloadManager
 import com.eko.DownloadConstants
-import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableMap
-import com.facebook.react.bridge.WritableMap
 import java.net.HttpURLConnection
 
 /**
@@ -47,17 +45,6 @@ object HeaderUtils {
         while (iterator.hasNextKey()) {
             val key = iterator.nextKey()
             result[key] = headers.getString(key) ?: ""
-        }
-        return result
-    }
-
-    /**
-     * Convert a Map<String, String> to a WritableMap for React Native.
-     */
-    fun toWritableMap(headers: Map<String, String>): WritableMap {
-        val result = Arguments.createMap()
-        for ((key, value) in headers) {
-            result.putString(key, value)
         }
         return result
     }

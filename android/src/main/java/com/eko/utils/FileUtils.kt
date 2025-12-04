@@ -1,21 +1,11 @@
 package com.eko.utils
 
-import android.content.Context
-import android.os.StatFs
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 
 object FileUtils {
-    // Check available space in the app's internal storage directory
-    fun getAvailableSpace(context: Context): Long {
-        val path = context.filesDir.absolutePath
-
-        val statFs = StatFs(path)
-        return statFs.availableBytes
-    }
-
     @Throws(IOException::class)
     fun mv(sourceFile: File, destinationFile: File): Boolean {
         FileInputStream(sourceFile).channel.use { inChannel ->

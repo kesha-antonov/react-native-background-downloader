@@ -37,8 +37,10 @@ class Downloader(private val context: Context) {
   // Track which config IDs are using resumable downloads (paused state)
   private val pausedDownloads = ConcurrentHashMap<String, PausedDownloadInfo>()
 
-  // Track download IDs that are being intentionally paused (to ignore broadcast events)
-  private val pausingDownloadIds = ConcurrentHashMap.newKeySet<Long>()
+  // Track download IDs that are being intentionally cancelled (to ignore broadcast events)
+  // The value indicates the cancellation intent: PAUSING or STOPPING
+  enum class CancelIntent { PAUSING, STOPPING }
+  private val cancellingDownloads = ConcurrentHashMap<Long, CancelIntent>()
 
   // Service connection
   private val serviceConnection = object : ServiceConnection {
@@ -116,8 +118,27 @@ class Downloader(private val context: Context) {
     return downloadManager.enqueue(request)
   }
 
+  /**
+   * Cancel a download and mark it as being stopped to ignore broadcast events.
+   */
   fun cancel(downloadId: Long): Int {
+    cancellingDownloads[downloadId] = CancelIntent.STOPPING
     return downloadManager.remove(downloadId)
+  }
+
+  /**
+   * Get the cancellation intent for a download ID, if any.
+   * Returns null if the download is not being intentionally cancelled.
+   */
+  fun getCancelIntent(downloadId: Long): CancelIntent? {
+    return cancellingDownloads[downloadId]
+  }
+
+  /**
+   * Clear the cancellation tracking for a download ID.
+   */
+  fun clearCancelIntent(downloadId: Long) {
+    cancellingDownloads.remove(downloadId)
   }
 
   /**
@@ -126,7 +147,7 @@ class Downloader(private val context: Context) {
    */
   fun pause(downloadId: Long, configId: String, url: String, destination: String, headers: Map<String, String>): Boolean {
     // Mark this download as being paused to ignore broadcast events
-    pausingDownloadIds.add(downloadId)
+    cancellingDownloads[downloadId] = CancelIntent.PAUSING
 
     // Query current progress before cancelling
     val status = checkDownloadStatus(downloadId)
@@ -148,20 +169,6 @@ class Downloader(private val context: Context) {
 
     Log.d(TAG, "Paused download $configId at $bytesDownloaded/$bytesTotal bytes")
     return true
-  }
-
-  /**
-   * Check if a download ID is being intentionally paused (to ignore broadcast events).
-   */
-  fun isBeingPaused(downloadId: Long): Boolean {
-    return pausingDownloadIds.contains(downloadId)
-  }
-
-  /**
-   * Clear the pausing state for a download ID after pause is complete.
-   */
-  fun clearPausingState(downloadId: Long) {
-    pausingDownloadIds.remove(downloadId)
   }
 
   /**

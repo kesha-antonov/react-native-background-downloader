@@ -82,6 +82,7 @@ interface DownloadProgressEvent {
 
 interface DownloadCompleteEvent {
   id: string
+  location: string
   bytesDownloaded: number
   bytesTotal: number
 }

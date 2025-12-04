@@ -45,13 +45,6 @@ class DownloadEventEmitter(
     }
 
     /**
-     * Emit a download complete event from a DownloadResult.Success.
-     */
-    fun emitComplete(result: DownloadResult.Success) {
-        emitComplete(result.id, result.location, result.bytesDownloaded, result.bytesTotal)
-    }
-
-    /**
      * Emit a download failed event.
      */
     fun emitFailed(id: String, error: String, errorCode: Int) {
@@ -62,40 +55,4 @@ class DownloadEventEmitter(
         getEmitter().emit(EVENT_DOWNLOAD_FAILED, params)
     }
 
-    /**
-     * Emit a download failed event from a DownloadResult.Error.
-     */
-    fun emitFailed(result: DownloadResult.Error) {
-        emitFailed(result.id, result.message, result.errorCode)
-    }
-
-    /**
-     * Emit a download failed event from an exception.
-     */
-    fun emitFailed(id: String, exception: Throwable, errorCode: Int = -1) {
-        emitFailed(id, exception.message ?: "Unknown error", errorCode)
-    }
-
-    /**
-     * Emit events based on a DownloadResult.
-     * Returns true if an event was emitted (for terminal states).
-     */
-    fun emitForResult(result: DownloadResult): Boolean {
-        return when (result) {
-            is DownloadResult.Success -> {
-                emitComplete(result)
-                true
-            }
-            is DownloadResult.Error -> {
-                emitFailed(result)
-                true
-            }
-            is DownloadResult.Cancelled,
-            is DownloadResult.Paused,
-            is DownloadResult.SessionInvalidated -> {
-                // No event emission for these states
-                false
-            }
-        }
-    }
 }

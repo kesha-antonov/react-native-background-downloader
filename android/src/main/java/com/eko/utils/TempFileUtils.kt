@@ -81,23 +81,4 @@ object TempFileUtils {
         }
     }
 
-    /**
-     * Clean up both temp and destination files (used on error).
-     */
-    fun cleanupFiles(tempFile: File?, destFile: File?) {
-        tempFile?.let {
-            try {
-                if (it.exists()) it.delete()
-            } catch (e: Exception) {
-                Log.w(TAG, "Error cleaning up temp file: ${e.message}")
-            }
-        }
-        destFile?.let {
-            try {
-                if (it.exists()) it.delete()
-            } catch (e: Exception) {
-                Log.w(TAG, "Error cleaning up destination file: ${e.message}")
-            }
-        }
-    }
 }

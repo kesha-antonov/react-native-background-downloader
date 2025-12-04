@@ -305,8 +305,8 @@ for (let task of lostTasks) {
   console.log(`Task ${task.id} was found!`)
   task.progress(({ bytesDownloaded, bytesTotal }) => {
     console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-  }).done(({ bytesDownloaded, bytesTotal }) => {
-    console.log('Download is done!', { bytesDownloaded, bytesTotal })
+  }).done(({ location, bytesDownloaded, bytesTotal }) => {
+    console.log('Download is done!', { location, bytesDownloaded, bytesTotal })
   }).error(({ error, errorCode }) => {
     console.log('Download canceled due to error: ', { error, errorCode })
   })
@@ -345,8 +345,8 @@ const task = createDownloadTask({
   console.log(`Going to download ${expectedBytes} bytes!`)
 }).progress(({ bytesDownloaded, bytesTotal }) => {
   console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-}).done(({ bytesDownloaded, bytesTotal }) => {
-  console.log('Download is done!', { bytesDownloaded, bytesTotal })
+}).done(({ location, bytesDownloaded, bytesTotal }) => {
+  console.log('Download is done!', { location, bytesDownloaded, bytesTotal })
 }).error(({ error, errorCode }) => {
   console.log('Download canceled due to error: ', { error, errorCode })
 })
@@ -385,8 +385,8 @@ const task = createDownloadTask({
   console.log(`Going to download ${expectedBytes} bytes!`)
 }).progress(({ bytesDownloaded, bytesTotal }) => {
   console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-}).done(({ bytesDownloaded, bytesTotal }) => {
-  console.log('Download is done!', { bytesDownloaded, bytesTotal })
+}).done(({ location, bytesDownloaded, bytesTotal }) => {
+  console.log('Download is done!', { location, bytesDownloaded, bytesTotal })
 }).error(({ error, errorCode }) => {
   console.log('Download canceled due to error: ', { error, errorCode })
 
@@ -504,7 +504,7 @@ All callback methods return the current instance of the `DownloadTask` for chain
 | ---------- | --------------------------------- | ---- |
 | `begin`    | `{ expectedBytes: number, headers: Record<string, string \| null> }` | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
 | `progress` | `{ bytesDownloaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly. **Note:** `bytesTotal` will be `-1` if the server does not provide a `Content-Length` header |
-| `done`     | `{ bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set. **Note:** `bytesTotal` will be `-1` if the server did not provide a `Content-Length` header |
+| `done`     | `{ location: string, bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set. `location` is the final file path. **Note:** `bytesTotal` will be `-1` if the server did not provide a `Content-Length` header |
 | `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error |
 
 ### `pause(): Promise<void>`
