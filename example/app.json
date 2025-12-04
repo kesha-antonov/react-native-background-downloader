@@ -29,8 +29,6 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.INTERNET",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
       ]

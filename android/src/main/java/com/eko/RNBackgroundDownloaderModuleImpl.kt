@@ -187,8 +187,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun getConstants(): Map<String, Any>? {
     val constants = mutableMapOf<String, Any>()
 
-    val externalDirectory = reactContext.getExternalFilesDir(null)
-    constants["documents"] = externalDirectory?.absolutePath ?: reactContext.filesDir.absolutePath
+    // Use internal storage (filesDir) for consistency with iOS and to avoid
+    // issues with external storage paths on some devices
+    constants["documents"] = reactContext.filesDir.absolutePath
 
     constants["TaskRunning"] = TASK_RUNNING
     constants["TaskSuspended"] = TASK_SUSPENDED
@@ -527,10 +528,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
     }
 
+    // Use cache directory for temporary download storage
+    // This avoids SecurityException on some devices (e.g., OnePlus) where
+    // getExternalFilesDir() returns unsupported paths like /data/local/tmp/external/
     val uuid = (System.currentTimeMillis() and 0xfffffff).toInt()
     val extension = MimeTypeMap.getFileExtensionFromUrl(destination)
     val filename = "$uuid.$extension"
-    request.setDestinationInExternalFilesDir(reactContext, null, filename)
+    val tempFile = File(reactContext.cacheDir, filename)
+    request.setDestinationUri(Uri.fromFile(tempFile))
 
     val downloadId = downloader.download(request)
     val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)

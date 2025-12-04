@@ -8,12 +8,9 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 object FileUtils {
-    // TODO: We must change the way context is used.
-    //       We can check the storage space before starting file downloads.
-    //       Moving a source file requires space twice the size of the file.
+    // Check available space in the app's internal storage directory
     fun getAvailableSpace(context: Context): Long {
-        val externalDirectory = context.getExternalFilesDir(null)
-        val path = externalDirectory?.absolutePath ?: context.filesDir.absolutePath
+        val path = context.filesDir.absolutePath
 
         val statFs = StatFs(path)
         return statFs.availableBytes
