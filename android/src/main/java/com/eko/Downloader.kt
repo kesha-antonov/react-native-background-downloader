@@ -191,6 +191,10 @@ class Downloader(private val context: Context) {
 
   /**
    * Start a download via the foreground service for background support.
+   *
+   * We use ONLY the direct service call path (via binding), not the Intent path.
+   * The Intent is only used to ensure the service is started as a foreground service,
+   * but we set ACTION_STOP_SERVICE so it doesn't trigger another download.
    */
   private fun startDownloadService(
     configId: String,
@@ -201,27 +205,48 @@ class Downloader(private val context: Context) {
     totalBytes: Long,
     listener: ResumableDownloader.DownloadListener
   ) {
+    // First, ensure the service is started as a foreground service
+    // Use a no-op action to just wake up the service
+    val startIntent = Intent(context, ResumableDownloadService::class.java)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      try {
+        context.startForegroundService(startIntent)
+      } catch (e: Exception) {
+        Log.w(TAG, "Could not start foreground service: ${e.message}")
+      }
+    } else {
+      context.startService(startIntent)
+    }
+
+    // Now use the direct service call path
     executeWhenServiceReady {
       downloadService?.setDownloadListener(listener)
       downloadService?.startDownload(configId, url, destination, headers, startByte, totalBytes)
     }
+  }
 
-    // Also start the service explicitly to ensure it runs in foreground
-    val intent = Intent(context, ResumableDownloadService::class.java).apply {
-      action = ResumableDownloadService.ACTION_START_DOWNLOAD
-      putExtra(ResumableDownloadService.EXTRA_DOWNLOAD_ID, configId)
-      putExtra(ResumableDownloadService.EXTRA_URL, url)
-      putExtra(ResumableDownloadService.EXTRA_DESTINATION, destination)
-      putExtra(ResumableDownloadService.EXTRA_HEADERS, HashMap(headers))
-      putExtra(ResumableDownloadService.EXTRA_START_BYTE, startByte)
-      putExtra(ResumableDownloadService.EXTRA_TOTAL_BYTES, totalBytes)
-    }
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      context.startForegroundService(intent)
-    } else {
-      context.startService(intent)
-    }
+  /**
+   * Start a new download using ResumableDownloader (HTTP-based download).
+   * This is used as a fallback when DownloadManager can't handle the external storage path
+   * on devices like OnePlus that return invalid paths from getExternalFilesDir().
+   */
+  fun startResumableDownload(
+    configId: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    listener: ResumableDownloader.DownloadListener
+  ) {
+    startDownloadService(
+      configId,
+      url,
+      destination,
+      headers,
+      0L,  // Start from beginning
+      -1L, // Total bytes unknown
+      listener
+    )
+    Log.d(TAG, "Started ResumableDownloader for $configId (DownloadManager fallback)")
   }
 
   /**

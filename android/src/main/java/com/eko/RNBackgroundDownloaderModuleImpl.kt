@@ -528,17 +528,19 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
     }
 
-    // Use cache directory for temporary download storage
-    // This avoids SecurityException on some devices (e.g., OnePlus) where
-    // getExternalFilesDir() returns unsupported paths like /data/local/tmp/external/
+    // DownloadManager requires external storage for downloads
+    // Use app's private external files directory: /storage/emulated/0/Android/data/<package>/files/
+    // This keeps files private to the app while being compatible with DownloadManager
     val uuid = (System.currentTimeMillis() and 0xfffffff).toInt()
     val extension = MimeTypeMap.getFileExtensionFromUrl(destination)
     val filename = "$uuid.$extension"
-    val tempFile = File(reactContext.cacheDir, filename)
-    request.setDestinationUri(Uri.fromFile(tempFile))
 
-    val downloadId = downloader.download(request)
-    val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)
+    // Get external files directory and validate it's a proper external storage path
+    val externalFilesDir = reactContext.getExternalFilesDir(null)
+    val isValidExternalPath = externalFilesDir != null &&
+        (externalFilesDir.absolutePath.startsWith("/storage/") ||
+         externalFilesDir.absolutePath.startsWith("/sdcard/") ||
+         externalFilesDir.absolutePath.startsWith("/mnt/"))
 
     // Save headers for potential pause/resume functionality
     val headersMap = mutableMapOf<String, String>()
@@ -550,13 +552,59 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
     }
 
-    synchronized(sharedLock) {
-      configIdToDownloadId[id] = downloadId
-      configIdToPercent[id] = 0.0
-      configIdToHeaders[id] = headersMap
-      downloadIdToConfig[downloadId] = config
-      saveDownloadIdToConfigMap()
-      resumeTasks(downloadId, config)
+    // Helper function to start download with DownloadManager and track state
+    fun startDownloadManagerDownload(downloadId: Long) {
+      val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)
+      synchronized(sharedLock) {
+        // Clear any stale progress data from previous download with same ID
+        progressReports.remove(id)
+        configIdToLastBytes.remove(id)
+        configIdToDownloadId[id] = downloadId
+        configIdToPercent[id] = 0.0
+        configIdToHeaders[id] = headersMap
+        downloadIdToConfig[downloadId] = config
+        saveDownloadIdToConfigMap()
+        resumeTasks(downloadId, config)
+      }
+    }
+
+    // Helper function to fall back to ResumableDownloader
+    fun startWithResumableDownloader() {
+      synchronized(sharedLock) {
+        // Clear any stale progress data from previous download with same ID
+        progressReports.remove(id)
+        configIdToLastBytes.remove(id)
+        configIdToPercent[id] = 0.0
+        configIdToHeaders[id] = headersMap
+      }
+      downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener)
+    }
+
+    if (isValidExternalPath) {
+      // Use DownloadManager with valid external storage path
+      if (!externalFilesDir!!.exists()) {
+        externalFilesDir.mkdirs()
+      }
+      val tempFile = File(externalFilesDir, filename)
+      request.setDestinationUri(Uri.fromFile(tempFile))
+      startDownloadManagerDownload(downloader.download(request))
+    } else {
+      // External files directory path is invalid or null
+      // Try setDestinationInExternalFilesDir as fallback, then ResumableDownloader if that fails
+      Log.w(NAME, "External files directory path may be invalid for DownloadManager: ${externalFilesDir?.absolutePath}")
+
+      try {
+        // Try standard setDestinationInExternalFilesDir - may work on some devices
+        request.setDestinationInExternalFilesDir(reactContext, null, filename)
+        startDownloadManagerDownload(downloader.download(request))
+        Log.d(NAME, "Using setDestinationInExternalFilesDir for download: $id")
+      } catch (e: Exception) {
+        // DownloadManager failed - fall back to ResumableDownloader
+        // This handles OnePlus and other devices that return paths like /data/local/tmp/external/
+        Log.w(NAME, "DownloadManager failed with: ${e.message}")
+        Log.d(NAME, "Using ResumableDownloader as fallback for download: $id")
+        startWithResumableDownloader()
+      }
     }
   }
 
@@ -959,6 +1007,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       configIdToLastBytes.remove(configId)
       configIdToProgressFuture.remove(configId)
     }
+    // Clear any batched progress report to prevent stale data from being emitted
+    // when a new download starts with the same configId
+    progressReports.remove(configId)
   }
 
   private fun setFileChangesBeforeCompletion(targetSrc: String, destinationSrc: String): Future<Boolean> {

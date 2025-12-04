@@ -237,7 +237,12 @@ const BasicExampleScreen = () => {
       id: uuid(),
       url: 'https://testfile.org/1.3GBiconpng',
       title: 'Large File · 1GB',
-    }
+    },
+    {
+      id: uuid(),
+      url: 'https://firebasestorage.googleapis.com/v0/b/higher-self-7603e.appspot.com/o/hypnosis-sounds%2FjiDIGAaGrNOdN3hjb4xemmGRZyu2-Tue,%2018%20Nov%202025%2010:10:30%20GMT?alt=media&token=12152238-c662-4c94-94e6-864396e41534',
+      title: 'Firebase Storage Test',
+    },
   ], [])
 
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())

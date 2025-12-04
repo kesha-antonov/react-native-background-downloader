@@ -33,8 +33,12 @@ class ResumableDownloader {
     val isCancelled: AtomicBoolean = AtomicBoolean(false),
     val bytesDownloaded: AtomicLong = AtomicLong(0),
     var bytesTotal: Long = -1,
-    var thread: Thread? = null,
-    var hasReportedBegin: Boolean = false
+    @Volatile var thread: Thread? = null,
+    @Volatile var connection: HttpURLConnection? = null,
+    @Volatile var inputStream: InputStream? = null,
+    var hasReportedBegin: Boolean = false,
+    // Session counter to detect stale threads after pause/resume
+    val sessionId: AtomicLong = AtomicLong(0)
   )
 
   private val activeDownloads = ConcurrentHashMap<String, DownloadState>()
@@ -60,7 +64,33 @@ class ResumableDownloader {
     startByte: Long = 0,
     totalBytes: Long = -1
   ) {
+    // Cancel any existing download with the same ID first
+    val existingState = activeDownloads[id]
+    if (existingState != null) {
+      Log.d(TAG, "Cancelling existing download before starting new one: $id")
+      existingState.isCancelled.set(true)
+      existingState.sessionId.incrementAndGet()
+      try {
+        existingState.inputStream?.close()
+        existingState.connection?.disconnect()
+      } catch (e: Exception) {
+        Log.w(TAG, "Error cleaning up existing download: ${e.message}")
+      }
+      existingState.thread?.interrupt()
+      activeDownloads.remove(id)
+    }
+
     val tempFile = "$destination.tmp"
+
+    // Clean up any existing temp file if starting fresh (startByte == 0)
+    if (startByte == 0L) {
+      try {
+        File(tempFile).delete()
+      } catch (e: Exception) {
+        Log.w(TAG, "Error deleting old temp file: ${e.message}")
+      }
+    }
+
     val state = DownloadState(
       id = id,
       url = url,
@@ -70,7 +100,7 @@ class ResumableDownloader {
       bytesTotal = totalBytes
     )
 
-    // Set initial bytes downloaded
+    // Set initial bytes downloaded (only for explicit resume with startByte > 0)
     if (startByte > 0) {
       state.bytesDownloaded.set(startByte)
       state.hasReportedBegin = true // Don't report begin again for resumed downloads
@@ -83,8 +113,9 @@ class ResumableDownloader {
 
     activeDownloads[id] = state
 
+    val currentSessionId = state.sessionId.get()
     val thread = Thread {
-      downloadWithResume(state, listener)
+      downloadWithResume(state, listener, currentSessionId)
     }
     state.thread = thread
     thread.start()
@@ -92,8 +123,30 @@ class ResumableDownloader {
 
   fun pause(id: String): Boolean {
     val state = activeDownloads[id] ?: return false
+
+    // Increment session ID FIRST to invalidate current thread
+    val newSessionId = state.sessionId.incrementAndGet()
     state.isPaused.set(true)
-    Log.d(TAG, "Pausing download: $id at ${state.bytesDownloaded.get()} bytes")
+
+    // Close input stream to force read to fail immediately
+    try {
+      state.inputStream?.close()
+    } catch (e: Exception) {
+      // Expected when closing during active read - SSL layer may report "Unbalanced enter/exit"
+      Log.d(TAG, "Stream closed during pause: ${e.message}")
+    }
+
+    // Disconnect current connection to force read to fail
+    try {
+      state.connection?.disconnect()
+    } catch (e: Exception) {
+      // Expected when disconnecting during active download
+      Log.d(TAG, "Connection disconnected during pause: ${e.message}")
+    }
+
+    // Interrupt current thread to speed up pause
+    state.thread?.interrupt()
+    Log.d(TAG, "Pausing download: $id at ${state.bytesDownloaded.get()} bytes (invalidated session, new=$newSessionId)")
     return true
   }
 
@@ -105,22 +158,47 @@ class ResumableDownloader {
       return false
     }
 
+    // Session ID was already incremented in pause(), use current value
+    val currentSessionId = state.sessionId.get()
     state.isPaused.set(false)
 
     val thread = Thread {
-      downloadWithResume(state, listener)
+      downloadWithResume(state, listener, currentSessionId)
     }
     state.thread = thread
     thread.start()
 
-    Log.d(TAG, "Resuming download: $id from ${state.bytesDownloaded.get()} bytes")
+    Log.d(TAG, "Resuming download: $id from ${state.bytesDownloaded.get()} bytes (session $currentSessionId)")
     return true
   }
 
   fun cancel(id: String): Boolean {
     val state = activeDownloads[id] ?: return false
+    Log.d(TAG, "Cancelling download: $id")
+
+    // Increment session ID to invalidate any running threads immediately
+    state.sessionId.incrementAndGet()
+
+    // Set cancelled flag
     state.isCancelled.set(true)
     state.isPaused.set(false) // Unblock if paused
+
+    // Close input stream to force read to fail immediately
+    try {
+      state.inputStream?.close()
+    } catch (e: Exception) {
+      Log.w(TAG, "Error closing input stream: ${e.message}")
+    }
+
+    // Disconnect the HTTP connection to force the read to fail immediately
+    try {
+      state.connection?.disconnect()
+    } catch (e: Exception) {
+      Log.w(TAG, "Error disconnecting: ${e.message}")
+    }
+
+    // Interrupt the download thread to stop blocking I/O operations
+    state.thread?.interrupt()
 
     // Clean up temp file
     try {
@@ -129,7 +207,9 @@ class ResumableDownloader {
       Log.w(TAG, "Failed to delete temp file: ${e.message}")
     }
 
+    // Remove from active downloads after setting cancelled flag
     activeDownloads.remove(id)
+    Log.d(TAG, "Download cancelled and removed: $id")
     return true
   }
 
@@ -141,17 +221,39 @@ class ResumableDownloader {
 
   fun getBytesTotal(id: String): Long = activeDownloads[id]?.bytesTotal ?: -1
 
-  private fun downloadWithResume(state: DownloadState, listener: DownloadListener) {
+  private fun downloadWithResume(state: DownloadState, listener: DownloadListener, expectedSessionId: Long) {
     var connection: HttpURLConnection? = null
     var inputStream: InputStream? = null
     var outputStream: FileOutputStream? = null
 
+    // Helper to check if this thread should stop
+    fun shouldStop(): Boolean {
+      return state.sessionId.get() != expectedSessionId ||
+             state.isCancelled.get() ||
+             Thread.currentThread().isInterrupted
+    }
+
     try {
+      // Check if session is still valid
+      if (shouldStop()) {
+        Log.d(TAG, "Should stop detected at start for ${state.id}, exiting")
+        return
+      }
+
       val url = URL(state.url)
       connection = url.openConnection() as HttpURLConnection
+      // Store connection reference so it can be disconnected on cancel
+      state.connection = connection
       connection.connectTimeout = CONNECT_TIMEOUT_MS
       connection.readTimeout = READ_TIMEOUT_MS
       connection.requestMethod = "GET"
+
+      // Check again after connection setup
+      if (shouldStop()) {
+        Log.d(TAG, "Should stop after connection setup for ${state.id}")
+        connection.disconnect()
+        return
+      }
 
       // Add custom headers
       for ((key, value) in state.headers) {
@@ -235,7 +337,7 @@ class ResumableDownloader {
             connection.disconnect()
             val newState = state.copyWithUrl(newUrl)
             activeDownloads[state.id] = newState
-            downloadWithResume(newState, listener)
+            downloadWithResume(newState, listener, expectedSessionId)
             return
           }
         }
@@ -266,6 +368,15 @@ class ResumableDownloader {
       }
 
       inputStream = connection.inputStream
+      // Store input stream reference so it can be closed on cancel/pause
+      state.inputStream = inputStream
+
+      // Check immediately after getting input stream
+      if (shouldStop()) {
+        Log.d(TAG, "Should stop after getting input stream for ${state.id}")
+        return
+      }
+
       val tempFile = File(state.tempFile)
 
       // Create parent directories if needed
@@ -278,23 +389,41 @@ class ResumableDownloader {
       val buffer = ByteArray(BUFFER_SIZE)
       var bytesRead: Int
 
-      while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-        // Check for pause
+      downloadLoop@ while (true) {
+        // Check all termination conditions at the start of each iteration
+        if (shouldStop()) {
+          Log.d(TAG, "Download should stop (loop start): ${state.id}")
+          break
+        }
         if (state.isPaused.get()) {
           Log.d(TAG, "Download paused: ${state.id}")
           outputStream.flush()
           return
         }
 
-        // Check for cancel
-        if (state.isCancelled.get()) {
-          Log.d(TAG, "Download cancelled: ${state.id}")
-          return
+        // Read data
+        bytesRead = inputStream.read(buffer)
+        if (bytesRead == -1) break
+
+        // Check termination conditions again after read (read may block for a while)
+        if (shouldStop()) {
+          Log.d(TAG, "Download should stop (after read): ${state.id}")
+          break
         }
 
         outputStream.write(buffer, 0, bytesRead)
         val newTotal = state.bytesDownloaded.addAndGet(bytesRead.toLong())
-        listener.onProgress(state.id, newTotal, state.bytesTotal)
+
+        // Only report progress if we should still be running
+        if (!shouldStop()) {
+          listener.onProgress(state.id, newTotal, state.bytesTotal)
+        }
+      }
+
+      // Check if we exited due to cancellation/stale session
+      if (shouldStop()) {
+        Log.d(TAG, "Download terminated, not completing: ${state.id}")
+        return
       }
 
       outputStream.flush()
@@ -314,9 +443,20 @@ class ResumableDownloader {
         listener.onComplete(state.id, state.destination, state.bytesDownloaded.get(), state.bytesTotal)
       }
 
+    } catch (e: InterruptedException) {
+      Log.d(TAG, "Download interrupted: ${state.id} (shouldStop=${shouldStop()})")
+      // Don't report error for interrupted downloads
+    } catch (e: java.io.InterruptedIOException) {
+      Log.d(TAG, "Download I/O interrupted: ${state.id} (shouldStop=${shouldStop()})")
+      // Don't report error for interrupted I/O
     } catch (e: Exception) {
-      Log.e(TAG, "Download error: ${e.message}", e)
-      if (!state.isPaused.get() && !state.isCancelled.get()) {
+      // Only log as error if this wasn't an expected stop (pause/cancel)
+      if (shouldStop() || state.isPaused.get()) {
+        // Expected exception from closing socket during pause/cancel - log as debug
+        Log.d(TAG, "Download stopped: ${state.id} - ${e.message}")
+      } else {
+        // Unexpected error - log with stack trace and report to listener
+        Log.e(TAG, "Download error: ${e.message}", e)
         listener.onError(state.id, e.message ?: "Unknown error", -1)
       }
     } finally {
@@ -342,7 +482,10 @@ class ResumableDownloader {
       bytesDownloaded = this.bytesDownloaded,
       bytesTotal = this.bytesTotal,
       thread = this.thread,
-      hasReportedBegin = this.hasReportedBegin
+      connection = this.connection,
+      inputStream = this.inputStream,
+      hasReportedBegin = this.hasReportedBegin,
+      sessionId = this.sessionId
     )
   }
 }

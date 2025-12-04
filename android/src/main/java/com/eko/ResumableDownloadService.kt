@@ -50,6 +50,15 @@ class ResumableDownloadService : Service() {
   private var wakeLock: PowerManager.WakeLock? = null
   private var listener: ResumableDownloader.DownloadListener? = null
 
+  // Generation counter per download ID - incremented each time a new download starts
+  // This is separate from sessionToken to ensure we can detect stale events even
+  // across cancel/restart cycles where the job is removed and re-added
+  private val downloadGeneration = ConcurrentHashMap<String, Long>()
+
+  // Throttle progress logging to reduce log noise (log every 500ms per download)
+  private val lastProgressLogTime = ConcurrentHashMap<String, Long>()
+  private val PROGRESS_LOG_INTERVAL_MS = 500L
+
   // Shared ResumableDownloader instance
   val resumableDownloader = ResumableDownloader()
 
@@ -63,7 +72,8 @@ class ResumableDownloadService : Service() {
     val destination: String,
     val headers: Map<String, String>,
     val startByte: Long,
-    val totalBytes: Long
+    val totalBytes: Long,
+    val sessionToken: Long = System.nanoTime() // Unique token for this download session
   )
 
   override fun onCreate() {
@@ -155,30 +165,77 @@ class ResumableDownloadService : Service() {
     startForegroundWithNotification()
     acquireWakeLock()
 
+    // Increment generation counter for this download ID
+    // This ensures we can detect stale events even if job was removed and re-added
+    val generation = (downloadGeneration[id] ?: 0) + 1
+    downloadGeneration[id] = generation
+    Log.d(TAG, "Download $id starting with generation $generation")
+
     val job = DownloadJob(id, url, destination, headers, startByte, totalBytes)
+    val sessionToken = job.sessionToken
     activeDownloads[id] = job
 
     // Create a wrapper listener that handles service lifecycle
+    // Capture both session token and generation to verify events
     val serviceListener = object : ResumableDownloader.DownloadListener {
       override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
-        listener?.onBegin(id, expectedBytes, headers)
-        updateNotification()
+        // Check both job session token AND generation counter
+        val currentJob = activeDownloads[id]
+        val currentGeneration = downloadGeneration[id] ?: 0
+        if (currentJob != null && currentJob.sessionToken == sessionToken && currentGeneration == generation) {
+          listener?.onBegin(id, expectedBytes, headers)
+          updateNotification()
+        } else {
+          Log.d(TAG, "Ignoring stale onBegin for $id (session: my=$sessionToken vs job=${currentJob?.sessionToken}, gen: my=$generation vs current=$currentGeneration)")
+        }
       }
 
       override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
-        listener?.onProgress(id, bytesDownloaded, bytesTotal)
+        // Check both job session token AND generation counter
+        val currentJob = activeDownloads[id]
+        val currentGeneration = downloadGeneration[id] ?: 0
+
+        // Throttle progress logging to reduce noise
+        val now = System.currentTimeMillis()
+        val lastLogTime = lastProgressLogTime[id] ?: 0L
+        if (now - lastLogTime >= PROGRESS_LOG_INTERVAL_MS) {
+          Log.d(TAG, "onProgress wrapper: id=$id, bytes=$bytesDownloaded, myToken=$sessionToken, jobToken=${currentJob?.sessionToken}, myGen=$generation, currentGen=$currentGeneration")
+          lastProgressLogTime[id] = now
+        }
+
+        if (currentJob != null && currentJob.sessionToken == sessionToken && currentGeneration == generation) {
+          listener?.onProgress(id, bytesDownloaded, bytesTotal)
+        } else {
+          Log.d(TAG, "Ignoring stale onProgress for $id (session: my=$sessionToken vs job=${currentJob?.sessionToken}, gen: my=$generation vs current=$currentGeneration)")
+        }
       }
 
       override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
-        listener?.onComplete(id, location, bytesDownloaded, bytesTotal)
-        activeDownloads.remove(id)
-        stopServiceIfIdle()
+        // Check both job session token AND generation counter
+        val currentJob = activeDownloads[id]
+        val currentGeneration = downloadGeneration[id] ?: 0
+        if (currentJob != null && currentJob.sessionToken == sessionToken && currentGeneration == generation) {
+          listener?.onComplete(id, location, bytesDownloaded, bytesTotal)
+          activeDownloads.remove(id)
+          lastProgressLogTime.remove(id)
+          stopServiceIfIdle()
+        } else {
+          Log.d(TAG, "Ignoring stale onComplete for $id (session: my=$sessionToken vs job=${currentJob?.sessionToken}, gen: my=$generation vs current=$currentGeneration)")
+        }
       }
 
       override fun onError(id: String, error: String, errorCode: Int) {
-        listener?.onError(id, error, errorCode)
-        activeDownloads.remove(id)
-        stopServiceIfIdle()
+        // Check both job session token AND generation counter
+        val currentJob = activeDownloads[id]
+        val currentGeneration = downloadGeneration[id] ?: 0
+        if (currentJob != null && currentJob.sessionToken == sessionToken && currentGeneration == generation) {
+          listener?.onError(id, error, errorCode)
+          activeDownloads.remove(id)
+          lastProgressLogTime.remove(id)
+          stopServiceIfIdle()
+        } else {
+          Log.d(TAG, "Ignoring stale onError for $id (session: my=$sessionToken vs job=${currentJob?.sessionToken}, gen: my=$generation vs current=$currentGeneration)")
+        }
       }
     }
 
@@ -208,28 +265,56 @@ class ResumableDownloadService : Service() {
     Log.d(TAG, "Resuming download: $id")
 
     val listener = this.listener ?: return false
+    val currentJob = activeDownloads[id] ?: return false
+    val sessionToken = currentJob.sessionToken
+    val generation = downloadGeneration[id] ?: 0
+    Log.d(TAG, "Resuming $id with session=$sessionToken, generation=$generation")
 
-    // Create wrapper listener
+    // Create wrapper listener with session token and generation check
     val serviceListener = object : ResumableDownloader.DownloadListener {
       override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
-        listener.onBegin(id, expectedBytes, headers)
-        updateNotification()
+        val job = activeDownloads[id]
+        val currentGen = downloadGeneration[id] ?: 0
+        if (job != null && job.sessionToken == sessionToken && currentGen == generation) {
+          listener.onBegin(id, expectedBytes, headers)
+          updateNotification()
+        } else {
+          Log.d(TAG, "Ignoring stale onBegin in resume for $id")
+        }
       }
 
       override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
-        listener.onProgress(id, bytesDownloaded, bytesTotal)
+        val job = activeDownloads[id]
+        val currentGen = downloadGeneration[id] ?: 0
+        if (job != null && job.sessionToken == sessionToken && currentGen == generation) {
+          listener.onProgress(id, bytesDownloaded, bytesTotal)
+        } else {
+          Log.d(TAG, "Ignoring stale onProgress in resume for $id (my gen=$generation, current=$currentGen)")
+        }
       }
 
       override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
-        listener.onComplete(id, location, bytesDownloaded, bytesTotal)
-        activeDownloads.remove(id)
-        stopServiceIfIdle()
+        val job = activeDownloads[id]
+        val currentGen = downloadGeneration[id] ?: 0
+        if (job != null && job.sessionToken == sessionToken && currentGen == generation) {
+          listener.onComplete(id, location, bytesDownloaded, bytesTotal)
+          activeDownloads.remove(id)
+          stopServiceIfIdle()
+        } else {
+          Log.d(TAG, "Ignoring stale onComplete in resume for $id")
+        }
       }
 
       override fun onError(id: String, error: String, errorCode: Int) {
-        listener.onError(id, error, errorCode)
-        activeDownloads.remove(id)
-        stopServiceIfIdle()
+        val job = activeDownloads[id]
+        val currentGen = downloadGeneration[id] ?: 0
+        if (job != null && job.sessionToken == sessionToken && currentGen == generation) {
+          listener.onError(id, error, errorCode)
+          activeDownloads.remove(id)
+          stopServiceIfIdle()
+        } else {
+          Log.d(TAG, "Ignoring stale onError in resume for $id")
+        }
       }
     }
 

@@ -105,6 +105,7 @@ export class DownloadTask {
 
   onBegin (params: BeginHandlerParams) {
     this.state = 'DOWNLOADING'
+    this.bytesTotal = params.expectedBytes
     this.beginHandler?.(params)
   }
 
