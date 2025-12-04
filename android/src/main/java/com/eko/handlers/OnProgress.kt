@@ -45,10 +45,12 @@ class OnProgress(
             try {
                 downloader.downloadManager.query(query)?.use { cursor ->
                     if (!cursor.moveToFirst()) {
-                        // Check if download was intentionally paused
-                        if (downloader.isBeingPaused(downloadId)) {
-                            downloader.clearPausingState(downloadId)
-                            stopLoopWithSuccess() // Not a failure, just paused
+                        // Check if download was intentionally cancelled (paused or stopped)
+                        // Use atomic get-and-clear to avoid race conditions
+                        val cancelIntent = downloader.getAndClearCancelIntent(downloadId)
+                        if (cancelIntent != null) {
+                            // Both PAUSING and STOPPING are intentional - not a failure
+                            stopLoopWithSuccess()
                             return@use
                         }
                         stopLoopWithFail()

@@ -1,4 +1,3 @@
-import { NativeModules } from 'react-native'
 import {
   TaskInfo,
   DownloadTask as DownloadTaskType,
@@ -18,19 +17,18 @@ import {
   Headers,
 } from './types'
 import { config, log } from './config'
-import type { Spec } from './NativeRNBackgroundDownloader'
 
-// Try to get the native module using TurboModuleRegistry first (new architecture),
-// then fall back to NativeModules (old architecture)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const isTurboModuleEnabled = (global as any).__turboModuleProxy != null
+// Import shared native module getter to avoid duplicating TurboModule lookup
+// This is lazily imported to avoid circular dependency issues at module load time
+let getNativeModuleImpl: (() => import('./NativeRNBackgroundDownloader').Spec) | null = null
 
-let RNBackgroundDownloader: Spec
-if (isTurboModuleEnabled)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  RNBackgroundDownloader = require('./NativeRNBackgroundDownloader').default
-else
-  RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
+function getNativeModule (): import('./NativeRNBackgroundDownloader').Spec {
+  if (!getNativeModuleImpl)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    getNativeModuleImpl = require('./index').getNativeModule
+
+  return getNativeModuleImpl!()
+}
 
 export class DownloadTask {
   id: string = ''
@@ -136,29 +134,31 @@ export class DownloadTask {
   async pause (): Promise<void> {
     log('DownloadTask: pause', this.id)
     this.state = 'PAUSED'
-    await RNBackgroundDownloader.pauseTask(this.id)
+    await getNativeModule().pauseTask(this.id)
   }
 
   async resume (): Promise<void> {
     log('DownloadTask: resume', this.id)
     this.state = 'DOWNLOADING'
     this.errorCode = 0
-    await RNBackgroundDownloader.resumeTask(this.id)
+    await getNativeModule().resumeTask(this.id)
   }
 
   start () {
     if (this.state !== 'PENDING') {
       log('DownloadTask: start. Download already started, can\' start again... ', this.id)
+      this.errorHandler?.({ error: 'Download already started', errorCode: -1 })
       return
     }
 
     if (!this.downloadParams) {
       log('DownloadTask: start. downloadParams is missing. "setDownloadParams" wasn\'t called before "start"', this.id)
+      this.errorHandler?.({ error: 'downloadParams is missing. setDownloadParams must be called before start', errorCode: -2 })
       return
     }
 
     // kick-off download after returning the task
-    RNBackgroundDownloader.download({
+    getNativeModule().download({
       id: this.id,
       metadata: JSON.stringify(this.metadata),
       progressInterval: config.progressInterval,
@@ -175,7 +175,7 @@ export class DownloadTask {
     log('DownloadTask: stop', this.id)
 
     this.state = 'STOPPED'
-    await RNBackgroundDownloader.stopTask(this.id)
+    await getNativeModule().stopTask(this.id)
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {

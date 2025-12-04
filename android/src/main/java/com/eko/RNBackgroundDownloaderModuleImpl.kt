@@ -480,6 +480,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     fun startDownloadManagerDownload(downloadId: Long) {
       val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)
       synchronized(sharedLock) {
+        // Clean up any stale state from previous downloads with the same ID
+        downloader.cleanupStaleState(id)
         // Clear any stale progress data and initialize tracking for new download
         progressReporter.clearDownloadState(id)
         progressReporter.initializeDownload(id)
@@ -494,6 +496,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Helper function to fall back to ResumableDownloader
     fun startWithResumableDownloader() {
       synchronized(sharedLock) {
+        // Clean up any stale state from previous downloads with the same ID
+        downloader.cleanupStaleState(id)
         // Clear any stale progress data and initialize tracking for new download
         progressReporter.clearDownloadState(id)
         progressReporter.initializeDownload(id)

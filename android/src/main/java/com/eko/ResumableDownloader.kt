@@ -343,6 +343,9 @@ class ResumableDownloader {
           val newUrl = connection.getHeaderField("Location")
           if (newUrl != null) {
             connection.disconnect()
+            // Create new state with updated URL
+            // Note: We preserve bytesDownloaded since the redirect should point to the same resource.
+            // If the new server doesn't support Range headers, the HTTP_OK case above will reset it.
             val newState = state.copyWithUrl(newUrl)
             activeDownloads[state.id] = newState
             return executeDownload(newState, listener, expectedSessionId)

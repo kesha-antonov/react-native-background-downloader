@@ -13,7 +13,7 @@ type RNBackgroundDownloaderModule = Spec & {
 }
 
 // Lazy initialization state
-let RNBackgroundDownloader: RNBackgroundDownloaderModule & NativeModule
+let RNBackgroundDownloader: (RNBackgroundDownloaderModule & NativeModule) | null = null
 let turboModule: Spec | null = null
 let isIOSNewArchitecture = false
 let isInitialized = false
@@ -24,7 +24,7 @@ let isInitialized = false
  * This prevents issues with module loading before React Native's bridge is ready.
  */
 function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & NativeModule {
-  if (isInitialized && RNBackgroundDownloader)
+  if (isInitialized && RNBackgroundDownloader != null)
     return RNBackgroundDownloader
 
   // Try TurboModules first
@@ -97,6 +97,25 @@ interface DownloadFailedEvent {
 // For old architecture, we need to defer NativeEventEmitter creation
 // to avoid issues during module initialization
 let eventListenersInitialized = false
+let eventSubscriptions: { remove: () => void }[] = []
+
+/**
+ * Clean up event listeners. Call this before hot reload or module invalidation.
+ * This prevents memory leaks from accumulated event listeners.
+ */
+export function cleanup () {
+  for (const subscription of eventSubscriptions)
+    subscription.remove()
+
+  eventSubscriptions = []
+  eventListenersInitialized = false
+  isInitialized = false
+  // Clear module references to allow proper re-initialization
+  RNBackgroundDownloader = null
+  turboModule = null
+  isIOSNewArchitecture = false
+  tasksMap.clear()
+}
 
 function initializeEventListeners () {
   if (eventListenersInitialized) return
@@ -108,7 +127,11 @@ function initializeEventListeners () {
       const { id, ...rest } = data
       log('downloadBegin', id, rest)
       const task = tasksMap.get(id)
-      task?.onBegin(rest)
+      if (!task) {
+        log('downloadBegin: task not found in tasksMap', id)
+        return
+      }
+      task.onBegin(rest)
     })
 
     turboModule.onDownloadProgress((events: DownloadProgressEvent[]) => {
@@ -116,7 +139,8 @@ function initializeEventListeners () {
       for (const event of events) {
         const { id, ...rest } = event
         const task = tasksMap.get(id)
-        task?.onProgress(rest)
+        if (task)
+          task.onProgress(rest)
       }
     })
 
@@ -124,7 +148,10 @@ function initializeEventListeners () {
       const { id, ...rest } = data
       log('downloadComplete', id, rest)
       const task = tasksMap.get(id)
-      task?.onDone(rest)
+      if (!task)
+        log('downloadComplete: task not found in tasksMap', id)
+      else
+        task.onDone(rest)
       tasksMap.delete(id)
     })
 
@@ -132,45 +159,69 @@ function initializeEventListeners () {
       const { id, ...rest } = data
       log('downloadFailed', id, rest)
       const task = tasksMap.get(id)
-      task?.onError(rest)
+      if (!task)
+        log('downloadFailed: task not found in tasksMap', id)
+      else
+        task.onError(rest)
       tasksMap.delete(id)
     })
   } else {
     // Old architecture: use NativeEventEmitter with the native module
     // RCTEventEmitter on native side requires NativeEventEmitter on JS side
-    const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader)
+    // RNBackgroundDownloader is guaranteed to be non-null here since initializeEventListeners
+    // is only called after ensureNativeModuleInitialized() succeeds
+    const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader!)
 
-    eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
-      const { id, ...rest } = data
-      log('downloadBegin', id, rest)
-      const task = tasksMap.get(id)
-      task?.onBegin(rest)
-    })
-
-    eventEmitter.addListener('downloadProgress', (events: DownloadProgressEvent[]) => {
-      log('downloadProgress', events)
-      for (const event of events) {
-        const { id, ...rest } = event
+    eventSubscriptions.push(
+      eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
+        const { id, ...rest } = data
+        log('downloadBegin', id, rest)
         const task = tasksMap.get(id)
-        task?.onProgress(rest)
-      }
-    })
+        if (!task) {
+          log('downloadBegin: task not found in tasksMap', id)
+          return
+        }
+        task.onBegin(rest)
+      })
+    )
 
-    eventEmitter.addListener('downloadComplete', (data: DownloadCompleteEvent) => {
-      const { id, ...rest } = data
-      log('downloadComplete', id, rest)
-      const task = tasksMap.get(id)
-      task?.onDone(rest)
-      tasksMap.delete(id)
-    })
+    eventSubscriptions.push(
+      eventEmitter.addListener('downloadProgress', (events: DownloadProgressEvent[]) => {
+        log('downloadProgress', events)
+        for (const event of events) {
+          const { id, ...rest } = event
+          const task = tasksMap.get(id)
+          if (task)
+            task.onProgress(rest)
+        }
+      })
+    )
 
-    eventEmitter.addListener('downloadFailed', (data: DownloadFailedEvent) => {
-      const { id, ...rest } = data
-      log('downloadFailed', id, rest)
-      const task = tasksMap.get(id)
-      task?.onError(rest)
-      tasksMap.delete(id)
-    })
+    eventSubscriptions.push(
+      eventEmitter.addListener('downloadComplete', (data: DownloadCompleteEvent) => {
+        const { id, ...rest } = data
+        log('downloadComplete', id, rest)
+        const task = tasksMap.get(id)
+        if (!task)
+          log('downloadComplete: task not found in tasksMap', id)
+        else
+          task.onDone(rest)
+        tasksMap.delete(id)
+      })
+    )
+
+    eventSubscriptions.push(
+      eventEmitter.addListener('downloadFailed', (data: DownloadFailedEvent) => {
+        const { id, ...rest } = data
+        log('downloadFailed', id, rest)
+        const task = tasksMap.get(id)
+        if (!task)
+          log('downloadFailed: task not found in tasksMap', id)
+        else
+          task.onError(rest)
+        tasksMap.delete(id)
+      })
+    )
   }
 }
 
@@ -305,6 +356,16 @@ export const directories = {
   get documents () {
     return ensureNativeModuleInitialized().documents
   },
+}
+
+/**
+ * Get the native module instance.
+ * This is exported for internal use by DownloadTask to avoid duplicating
+ * the TurboModule/NativeModule lookup logic.
+ * @internal
+ */
+export function getNativeModule (): Spec {
+  return ensureNativeModuleInitialized()
 }
 
 export type * from './types'

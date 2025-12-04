@@ -20,6 +20,7 @@ static const NSTimeInterval kResourceTimeoutSeconds = 60 * 60 * 24;  // 1 day - 
 // Progress reporting constants
 static const NSTimeInterval kTaskReconciliationDelay = 0.1;  // Delay to allow session tasks to stabilize
 static const float kProgressReportThreshold = 0.01f;         // Report progress every 1% change
+static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for completion handler (30 seconds)
 
 // DISABLES LOGS IN RELEASE MODE. NSLOG IS SLOW: https://stackoverflow.com/a/17738695/3452513
 // DLog accepts taskId as first parameter to help debugging
@@ -256,6 +257,8 @@ RCT_EXPORT_MODULE();
             [self -> idToTaskMap removeObjectForKey:taskConfig.id];
             [idToPercentMap removeObjectForKey:taskConfig.id];
             [idToLastBytesMap removeObjectForKey:taskConfig.id];
+            // Clean up decode error retry tracking to prevent memory leak
+            [decodeErrorRetriedIds removeObject:taskConfig.id];
         }
     }
 }
@@ -815,7 +818,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         // NSURLErrorCancelled (-999) is used for paused or cancelled tasks
         // Extract resume data first before checking isPausedTask
         NSData *resumeData = error.userInfo[NSURLSessionDownloadTaskResumeData];
-        BOOL isPausedTask = (error.code == NSURLErrorCancelled && resumeData != nil);
+
+        // Check if this task was intentionally paused (marked in idsToPauseSet)
+        BOOL wasIntentionallyPaused = [idsToPauseSet containsObject:taskConfig.id];
+        BOOL hasResumeData = resumeData != nil;
+        BOOL isPausedTask = (error.code == NSURLErrorCancelled && (wasIntentionallyPaused || hasResumeData));
 
         if (isPausedTask) {
             taskConfig.errorCode = error.code;
@@ -827,6 +834,9 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] task was paused, ignoring error for %@", taskConfig.id);
             return;
         }
+
+        // Not a pause - remove from pause set if it was there (cleanup on failure)
+        [idsToPauseSet removeObject:taskConfig.id];
 
         // Fallback: certain servers return -1015 (NSURLErrorCannotDecodeRawData) on resumed tasks.
         // Instead of failing permanently, attempt ONE fresh retry without resume data.
@@ -897,6 +907,20 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
       [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
   if ([sessionIdentifier isEqualToString:identifier]) {
     storedCompletionHandler = completionHandler;
+
+    // Set a timeout to prevent memory leak if JS never calls completeHandler
+    // iOS requires the completion handler to be called within 30 seconds
+    // Copy the handler to a local variable to avoid retain cycle with static variable
+    __block CompletionHandler handlerToCall = completionHandler;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kCompletionHandlerTimeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+      // Check if this is still the same handler (not already called or replaced)
+      if (storedCompletionHandler && storedCompletionHandler == handlerToCall) {
+        DLog(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier] timeout - calling completion handler automatically");
+        storedCompletionHandler();
+        storedCompletionHandler = nil;
+      }
+      handlerToCall = nil;  // Release the block reference
+    });
   }
 }
 

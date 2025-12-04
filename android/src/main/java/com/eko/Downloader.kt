@@ -32,7 +32,7 @@ class Downloader(private val context: Context) {
   // Service for background resumable downloads
   private var downloadService: ResumableDownloadService? = null
   private var serviceBound = false
-  private var pendingServiceOperations = mutableListOf<() -> Unit>()
+  private val pendingServiceOperations = java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>()
 
   // Track which config IDs are using resumable downloads (paused state)
   private val pausedDownloads = ConcurrentHashMap<String, PausedDownloadInfo>()
@@ -51,9 +51,10 @@ class Downloader(private val context: Context) {
       Log.d(TAG, "ResumableDownloadService connected")
 
       // Execute any pending operations
-      synchronized(pendingServiceOperations) {
-        pendingServiceOperations.forEach { it.invoke() }
-        pendingServiceOperations.clear()
+      var operation = pendingServiceOperations.poll()
+      while (operation != null) {
+        operation.invoke()
+        operation = pendingServiceOperations.poll()
       }
     }
 
@@ -65,8 +66,15 @@ class Downloader(private val context: Context) {
   }
 
   // Expose resumableDownloader for compatibility (delegates to service)
+  // Cache a fallback instance to avoid creating new instances on every access when service is null
+  private var fallbackResumableDownloader: ResumableDownloader? = null
   val resumableDownloader: ResumableDownloader
-    get() = downloadService?.resumableDownloader ?: ResumableDownloader()
+    get() = downloadService?.resumableDownloader ?: run {
+      if (fallbackResumableDownloader == null) {
+        fallbackResumableDownloader = ResumableDownloader()
+      }
+      fallbackResumableDownloader!!
+    }
 
   data class PausedDownloadInfo(
     val configId: String,
@@ -106,9 +114,7 @@ class Downloader(private val context: Context) {
     if (serviceBound && downloadService != null) {
       operation()
     } else {
-      synchronized(pendingServiceOperations) {
-        pendingServiceOperations.add(operation)
-      }
+      pendingServiceOperations.offer(operation)
       // Ensure service is started
       bindToService()
     }
@@ -116,6 +122,19 @@ class Downloader(private val context: Context) {
 
   fun download(request: DownloadManager.Request): Long {
     return downloadManager.enqueue(request)
+  }
+
+  /**
+   * Clean up any stale state for a download ID before starting.
+   * This handles cases where a previous download was interrupted without proper cleanup.
+   */
+  fun cleanupStaleState(configId: String) {
+    // Remove any stale paused state from a previous download with the same ID
+    val pausedInfo = pausedDownloads.remove(configId)
+    if (pausedInfo != null) {
+      Log.d(TAG, "Cleaned up stale paused state for: $configId")
+      TempFileUtils.deleteTempFile(pausedInfo.destination)
+    }
   }
 
   /**
@@ -132,6 +151,15 @@ class Downloader(private val context: Context) {
    */
   fun getCancelIntent(downloadId: Long): CancelIntent? {
     return cancellingDownloads[downloadId]
+  }
+
+  /**
+   * Atomically get and clear the cancellation tracking for a download ID.
+   * This is thread-safe and avoids race conditions between checking and clearing.
+   * Returns the cancel intent if it was set, or null if not.
+   */
+  fun getAndClearCancelIntent(downloadId: Long): CancelIntent? {
+    return cancellingDownloads.remove(downloadId)
   }
 
   /**
