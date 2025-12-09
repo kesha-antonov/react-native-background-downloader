@@ -34,31 +34,51 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun pauseTask(id: String, promise: Promise) {
-        impl.pauseTask(id)
-        promise.resolve(null)
+        try {
+            impl.pauseTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_PAUSE_TASK", e.message, e)
+        }
     }
 
     @ReactMethod
     fun resumeTask(id: String, promise: Promise) {
-        impl.resumeTask(id)
-        promise.resolve(null)
+        try {
+            impl.resumeTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_RESUME_TASK", e.message, e)
+        }
     }
 
     @ReactMethod
     fun stopTask(id: String, promise: Promise) {
-        impl.stopTask(id)
-        promise.resolve(null)
+        try {
+            impl.stopTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_STOP_TASK", e.message, e)
+        }
     }
 
     @ReactMethod
     fun completeHandler(jobId: String, promise: Promise) {
-        impl.completeHandler(jobId)
-        promise.resolve(null)
+        try {
+            impl.completeHandler(jobId)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_COMPLETE_HANDLER", e.message, e)
+        }
     }
 
     @ReactMethod
     fun getExistingDownloadTasks(promise: Promise) {
-        impl.getExistingDownloadTasks(promise)
+        try {
+            impl.getExistingDownloadTasks(promise)
+        } catch (e: Exception) {
+            promise.reject("ERR_GET_EXISTING_TASKS", e.message, e)
+        }
     }
 
     @ReactMethod

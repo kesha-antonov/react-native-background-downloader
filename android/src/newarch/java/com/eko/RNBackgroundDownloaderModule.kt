@@ -31,27 +31,47 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     override fun pauseTask(id: String, promise: com.facebook.react.bridge.Promise) {
-        impl.pauseTask(id)
-        promise.resolve(null)
+        try {
+            impl.pauseTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_PAUSE_TASK", e.message, e)
+        }
     }
 
     override fun resumeTask(id: String, promise: com.facebook.react.bridge.Promise) {
-        impl.resumeTask(id)
-        promise.resolve(null)
+        try {
+            impl.resumeTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_RESUME_TASK", e.message, e)
+        }
     }
 
     override fun stopTask(id: String, promise: com.facebook.react.bridge.Promise) {
-        impl.stopTask(id)
-        promise.resolve(null)
+        try {
+            impl.stopTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_STOP_TASK", e.message, e)
+        }
     }
 
     override fun completeHandler(jobId: String, promise: com.facebook.react.bridge.Promise) {
-        impl.completeHandler(jobId)
-        promise.resolve(null)
+        try {
+            impl.completeHandler(jobId)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_COMPLETE_HANDLER", e.message, e)
+        }
     }
 
     override fun getExistingDownloadTasks(promise: com.facebook.react.bridge.Promise) {
-        impl.getExistingDownloadTasks(promise)
+        try {
+            impl.getExistingDownloadTasks(promise)
+        } catch (e: Exception) {
+            promise.reject("ERR_GET_EXISTING_TASKS", e.message, e)
+        }
     }
 
     @ReactMethod
