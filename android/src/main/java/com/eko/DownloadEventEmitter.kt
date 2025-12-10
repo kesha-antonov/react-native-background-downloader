@@ -1,5 +1,6 @@
 package com.eko
 
+import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
@@ -14,11 +15,23 @@ class DownloadEventEmitter(
 ) {
 
     companion object {
+        private const val TAG = "DownloadEventEmitter"
         // Event names
         const val EVENT_DOWNLOAD_BEGIN = "downloadBegin"
         const val EVENT_DOWNLOAD_PROGRESS = "downloadProgress"
         const val EVENT_DOWNLOAD_COMPLETE = "downloadComplete"
         const val EVENT_DOWNLOAD_FAILED = "downloadFailed"
+    }
+
+    /**
+     * Safely emit an event, handling cases where the emitter might not be ready.
+     */
+    private fun safeEmit(eventName: String, params: WritableMap) {
+        try {
+            getEmitter().emit(eventName, params)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to emit $eventName event: ${e.message}")
+        }
     }
 
     /**
@@ -29,7 +42,7 @@ class DownloadEventEmitter(
         params.putString("id", id)
         params.putMap("headers", headers)
         params.putDouble("expectedBytes", expectedBytes.toDouble())
-        getEmitter().emit(EVENT_DOWNLOAD_BEGIN, params)
+        safeEmit(EVENT_DOWNLOAD_BEGIN, params)
     }
 
     /**
@@ -41,7 +54,7 @@ class DownloadEventEmitter(
         params.putString("location", location)
         params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
         params.putDouble("bytesTotal", bytesTotal.toDouble())
-        getEmitter().emit(EVENT_DOWNLOAD_COMPLETE, params)
+        safeEmit(EVENT_DOWNLOAD_COMPLETE, params)
     }
 
     /**
@@ -52,7 +65,7 @@ class DownloadEventEmitter(
         params.putString("id", id)
         params.putInt("errorCode", errorCode)
         params.putString("error", error)
-        getEmitter().emit(EVENT_DOWNLOAD_FAILED, params)
+        safeEmit(EVENT_DOWNLOAD_FAILED, params)
     }
 
 }

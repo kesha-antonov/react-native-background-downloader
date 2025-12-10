@@ -62,12 +62,52 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
   // Centralized progress reporting with threshold filtering and batching
   private val progressReporter = ProgressReporter { reportsArray ->
-    ee.emit("downloadProgress", reportsArray)
+    getEventEmitter()?.emit("downloadProgress", reportsArray)
   }
 
   // Centralized event emitter for download events
   private val eventEmitter by lazy {
-    DownloadEventEmitter { ee }
+    DownloadEventEmitter { getEventEmitter()!! }
+  }
+
+  // Flag to track if module is fully initialized
+  @Volatile
+  private var isInitialized = false
+
+  /**
+   * Get the event emitter, ensuring it's initialized.
+   * Returns null if the module hasn't been initialized yet.
+   */
+  private fun getEventEmitter(): DeviceEventManagerModule.RCTDeviceEventEmitter? {
+    if (!isInitialized) {
+      // Attempt lazy initialization if not yet initialized
+      // This handles the case where download() is called before initialize()
+      try {
+        if (!::ee.isInitialized) {
+          ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        }
+      } catch (e: Exception) {
+        Log.w(NAME, "Event emitter not ready yet: ${e.message}")
+        return null
+      }
+    }
+    return if (::ee.isInitialized) ee else null
+  }
+
+  /**
+   * Ensure event emitter is initialized before starting downloads.
+   * This is called before download() to fix issues on first app install
+   * where download() might be called before initialize() completes.
+   */
+  private fun ensureEventEmitterInitialized() {
+    if (!::ee.isInitialized) {
+      try {
+        ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        Log.d(NAME, "Event emitter initialized eagerly before download")
+      } catch (e: Exception) {
+        Log.w(NAME, "Could not initialize event emitter: ${e.message}")
+      }
+    }
   }
 
   // Listener for resumable downloads
@@ -127,6 +167,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
   fun initialize() {
     ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+    isInitialized = true
     registerDownloadReceiver()
 
     // Set the listener for resumable downloads (used by the background service)
@@ -378,6 +419,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   fun download(options: ReadableMap) {
+    // Ensure event emitter is initialized before starting download
+    // This fixes issues on first app install where download() might be called
+    // before initialize() completes
+    ensureEventEmitterInitialized()
+
     val id = options.getString("id")
     var url = options.getString("url")
     val destination = options.getString("destination")

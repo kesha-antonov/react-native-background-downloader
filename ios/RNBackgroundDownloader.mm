@@ -32,6 +32,9 @@ static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for com
 
 static CompletionHandler storedCompletionHandler;
 
+// Maximum retry attempts for queued events when bridge isn't ready
+static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max wait
+
 @implementation RNBackgroundDownloader {
     MMKV *mmkv;
     NSURLSession *urlSession;
@@ -85,7 +88,26 @@ RCT_EXPORT_MODULE();
 
 #ifndef RCT_NEW_ARCH_ENABLED
 // Old architecture override to ensure events are sent
+// Check if bridge is valid and loaded before sending events
 - (void)sendEventWithName:(NSString *)eventName body:(id)body {
+    [self sendEventWithName:eventName body:body retryCount:0];
+}
+
+- (void)sendEventWithName:(NSString *)eventName body:(id)body retryCount:(int)retryCount {
+    // Check if bridge is available and loaded
+    // This prevents crashes on first app install when events fire before JS is ready
+    if (self.bridge == nil || !self.bridge.isValid) {
+        if (retryCount < kMaxEventRetries) {
+            DLog(nil, @"[RNBackgroundDownloader] - Bridge not ready (attempt %d), queueing event: %@", retryCount + 1, eventName);
+            // Queue the event to be sent when bridge becomes available
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self sendEventWithName:eventName body:body retryCount:retryCount + 1];
+            });
+        } else {
+            DLog(nil, @"[RNBackgroundDownloader] - Bridge not ready after %d attempts, dropping event: %@", kMaxEventRetries, eventName);
+        }
+        return;
+    }
     [super sendEventWithName:eventName body:body];
 }
 #endif

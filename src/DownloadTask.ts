@@ -157,6 +157,8 @@ export class DownloadTask {
       return
     }
 
+    this.state = 'DOWNLOADING'
+
     // kick-off download after returning the task
     getNativeModule().download({
       id: this.id,
