@@ -54,6 +54,10 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     NSDate *lastProgressReportedAt;
     BOOL isBridgeListenerInited;
     BOOL hasListeners;
+    // Tracks whether the session has been fully activated (warmed up)
+    BOOL isSessionActivated;
+    // Queue of download operations waiting for session activation
+    NSMutableArray<dispatch_block_t> *pendingDownloads;
 }
 
 RCT_EXPORT_MODULE();
@@ -178,6 +182,8 @@ RCT_EXPORT_MODULE();
         progressMinBytes = progressMinBytesScope > 0 ? progressMinBytesScope : 0;
         lastProgressReportedAt = [[NSDate alloc] init];
         decodeErrorRetriedIds = [[NSMutableSet alloc] init];
+        isSessionActivated = NO;
+        pendingDownloads = [[NSMutableArray alloc] init];
 
         [self registerBridgeListener];
 
@@ -205,8 +211,31 @@ RCT_EXPORT_MODULE();
     @synchronized (sharedLock) {
         if (urlSession == nil) {
             urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+            // Activate the session by calling getTasksWithCompletionHandler
+            // This forces iOS to fully initialize the background session
+            // On fresh installs, the session may not be ready to process tasks immediately
+            [self activateSession];
         }
     }
+}
+
+// Activates the background session by warming it up with getTasksWithCompletionHandler
+// This is crucial for fresh app installs where the session needs to be fully initialized
+// before downloads can start reliably
+- (void)activateSession {
+    DLog(nil, @"[RNBackgroundDownloader] - [activateSession]");
+    [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
+        @synchronized (self->sharedLock) {
+            DLog(nil, @"[RNBackgroundDownloader] - [activateSession] session activated, processing %lu pending downloads", (unsigned long)self->pendingDownloads.count);
+            self->isSessionActivated = YES;
+
+            // Process any pending downloads that were queued while waiting for activation
+            for (dispatch_block_t downloadBlock in self->pendingDownloads) {
+                downloadBlock();
+            }
+            [self->pendingDownloads removeAllObjects];
+        }
+    }];
 }
 
 - (void)unregisterSession {
@@ -215,6 +244,8 @@ RCT_EXPORT_MODULE();
         [urlSession invalidateAndCancel];
         urlSession = nil;
     }
+    isSessionActivated = NO;
+    [pendingDownloads removeAllObjects];
 }
 
 - (void)registerBridgeListener {
@@ -352,6 +383,30 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 
     @synchronized (sharedLock) {
         [self lazyRegisterSession];
+
+        // If session is not yet activated, queue the download to be executed after activation
+        // This fixes the issue where downloads don't start on fresh app installs
+        if (!isSessionActivated) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [download] session not activated, queueing download");
+            __weak typeof(self) weakSelf = self;
+            dispatch_block_t downloadBlock = ^{
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (strongSelf) {
+                    [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+                }
+            };
+            [pendingDownloads addObject:downloadBlock];
+            return;
+        }
+
+        [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+    }
+}
+
+// Internal method to execute the download after session is activated
+- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier url:(NSString *)url destination:(NSString *)destination metadata:(NSString *)metadata {
+    @synchronized (sharedLock) {
+        DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest]");
 
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {

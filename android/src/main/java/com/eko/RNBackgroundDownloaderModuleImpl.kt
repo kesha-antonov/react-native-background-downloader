@@ -74,6 +74,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   @Volatile
   private var isInitialized = false
 
+  // Flag to track if download receiver is registered
+  @Volatile
+  private var isReceiverRegistered = false
+
   /**
    * Get the event emitter, ensuring it's initialized.
    * Returns null if the module hasn't been initialized yet.
@@ -106,6 +110,20 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         Log.d(NAME, "Event emitter initialized eagerly before download")
       } catch (e: Exception) {
         Log.w(NAME, "Could not initialize event emitter: ${e.message}")
+      }
+    }
+  }
+
+  /**
+   * Ensure download receiver is registered before starting downloads.
+   * This fixes issues on first app install where download() might be called
+   * before initialize() completes, causing download completion events to be missed.
+   */
+  private fun ensureReceiverRegistered() {
+    synchronized(sharedLock) {
+      if (!isReceiverRegistered) {
+        registerDownloadReceiver()
+        Log.d(NAME, "Download receiver registered eagerly before download")
       }
     }
   }
@@ -184,6 +202,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   private fun registerDownloadReceiver() {
+    // Prevent double registration
+    if (isReceiverRegistered) {
+      return
+    }
+
     val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
 
     downloadReceiver = object : BroadcastReceiver() {
@@ -234,6 +257,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     compatRegisterReceiver(reactContext, downloadReceiver!!, filter, true)
+    isReceiverRegistered = true
   }
 
   // TAKEN FROM
@@ -257,8 +281,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
   private fun unregisterDownloadReceiver() {
     downloadReceiver?.let {
-      reactContext.unregisterReceiver(it)
+      try {
+        reactContext.unregisterReceiver(it)
+      } catch (e: Exception) {
+        Log.w(NAME, "Could not unregister receiver: ${e.message}")
+      }
       downloadReceiver = null
+      isReceiverRegistered = false
     }
   }
 
@@ -423,6 +452,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // This fixes issues on first app install where download() might be called
     // before initialize() completes
     ensureEventEmitterInitialized()
+
+    // Ensure download receiver is registered before starting download
+    // This fixes issues on first app install where download completion events
+    // might be missed if download() is called before initialize() completes
+    ensureReceiverRegistered()
 
     val id = options.getString("id")
     var url = options.getString("url")
