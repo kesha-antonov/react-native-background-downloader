@@ -388,9 +388,9 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         // This fixes the issue where downloads don't start on fresh app installs
         if (!isSessionActivated) {
             DLog(identifier, @"[RNBackgroundDownloader] - [download] session not activated, queueing download");
-            __weak typeof(self) weakSelf = self;
+            __weak RNBackgroundDownloader *weakSelf = self;
             dispatch_block_t downloadBlock = ^{
-                __strong typeof(weakSelf) strongSelf = weakSelf;
+                RNBackgroundDownloader *strongSelf = weakSelf;
                 if (strongSelf) {
                     [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
                 }
