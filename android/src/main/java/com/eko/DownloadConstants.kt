@@ -40,7 +40,7 @@ object DownloadConstants {
     const val KEEP_ALIVE_HEADER_VALUE = "timeout=600, max=1000"
 
     /** Library version for User-Agent */
-    const val VERSION = "4.3.2"
+    const val VERSION = "4.3.3"
 
     /** User-Agent string for HTTP requests */
     const val USER_AGENT = "ReactNative-BackgroundDownloader/$VERSION"
