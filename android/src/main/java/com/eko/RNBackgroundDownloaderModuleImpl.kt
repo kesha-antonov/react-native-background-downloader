@@ -486,10 +486,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     val progressIntervalScope = options.getInt("progressInterval")
     val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
     if (progressIntervalScope > 0 || progressMinBytesScope > 0) {
-      progressReporter.configure(
-        if (progressIntervalScope > 0) progressIntervalScope.toLong() else progressReporter.getProgressInterval(),
-        if (progressMinBytesScope > 0) progressMinBytesScope else progressReporter.getProgressMinBytes()
-      )
+      val newInterval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else progressReporter.getProgressInterval()
+      val newMinBytes = if (progressMinBytesScope > 0) progressMinBytesScope else progressReporter.getProgressMinBytes()
+      progressReporter.configure(newInterval, newMinBytes)
       saveConfigMap()
     }
 
