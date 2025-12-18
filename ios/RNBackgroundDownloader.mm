@@ -355,13 +355,13 @@ RCT_EXPORT_MODULE();
 #pragma mark - JS exported methods
 
 // Method to enable/disable native debug logging
-- (void)setLogsEnabled:(BOOL)enabled {
+- (void)_setLogsEnabledInternal:(BOOL)enabled {
     isLogsEnabled = enabled;
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
-    [self setLogsEnabled:enabled];
+    [self _setLogsEnabledInternal:enabled];
 }
 #endif
 
