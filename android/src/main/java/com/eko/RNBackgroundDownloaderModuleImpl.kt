@@ -643,7 +643,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             configIdToDownloadId.remove(configId)
             saveDownloadIdToConfigMap()
             Log.d(NAME, "Paused DownloadManager download: $configId")
+          } else {
+            Log.d(NAME, "pauseTask: Download not paused (may already be paused): $configId")
           }
+        } else {
+          Log.w(NAME, "pauseTask: No config found for downloadId: $downloadId")
         }
       } else {
         Log.w(NAME, "pauseTask: No download found for configId: $configId")
