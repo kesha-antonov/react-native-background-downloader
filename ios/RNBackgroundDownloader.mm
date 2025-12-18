@@ -24,7 +24,15 @@ static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for com
 
 // DLog accepts taskId as first parameter to help debugging
 // Only logs if isLogsEnabled is true (works in both DEBUG and RELEASE builds)
+// Note: Cannot be used in class methods (+) since it references self->isLogsEnabled
 #define DLog( taskId, s, ... ) do { if (self->isLogsEnabled) { NSLog( @"<%p %@:(%d)> %@ %@", self, [[NSString stringWithUTF8String:__FILE__] lastPathComponent], __LINE__, [NSString stringWithFormat:(s), ##__VA_ARGS__], ((id)(taskId) ? [NSString stringWithFormat:@"taskId:%@", (id)(taskId)] : @"taskId:NULL") ); } } while(0)
+
+// Static log macro for class methods - always logs when DEBUG is enabled
+#ifdef DEBUG
+#define DLogStatic( taskId, s, ... ) do { NSLog( @"<%@ %@:(%d)> %@ %@", @"RNBackgroundDownloader", [[NSString stringWithUTF8String:__FILE__] lastPathComponent], __LINE__, [NSString stringWithFormat:(s), ##__VA_ARGS__], ((id)(taskId) ? [NSString stringWithFormat:@"taskId:%@", (id)(taskId)] : @"taskId:NULL") ); } while(0)
+#else
+#define DLogStatic( taskId, s, ... ) do { } while(0)
+#endif
 
 static CompletionHandler storedCompletionHandler;
 
@@ -1072,7 +1080,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 }
 
 + (void)setCompletionHandlerWithIdentifier:(NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
-  DLog(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
+  DLogStatic(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
   NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
   NSString *sessionIdentifier =
       [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
@@ -1086,7 +1094,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kCompletionHandlerTimeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       // Check if this is still the same handler (not already called or replaced)
       if (storedCompletionHandler && storedCompletionHandler == handlerToCall) {
-        DLog(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier] timeout - calling completion handler automatically");
+        DLogStatic(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier] timeout - calling completion handler automatically");
         storedCompletionHandler();
         storedCompletionHandler = nil;
       }
