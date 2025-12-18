@@ -22,13 +22,9 @@ static const NSTimeInterval kTaskReconciliationDelay = 0.1;  // Delay to allow s
 static const float kProgressReportThreshold = 0.01f;         // Report progress every 1% change
 static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for completion handler (30 seconds)
 
-// DISABLES LOGS IN RELEASE MODE. NSLOG IS SLOW: https://stackoverflow.com/a/17738695/3452513
 // DLog accepts taskId as first parameter to help debugging
-#ifdef DEBUG
-#define DLog( taskId, s, ... ) NSLog( @"<%p %@:(%d)> %@ %@", self, [[NSString stringWithUTF8String:__FILE__] lastPathComponent], __LINE__, [NSString stringWithFormat:(s), ##__VA_ARGS__], ((id)(taskId) ? [NSString stringWithFormat:@"taskId:%@", (id)(taskId)] : @"taskId:NULL") )
-#else
-#define DLog( taskId, s, ... )
-#endif
+// Only logs if isLogsEnabled is true (works in both DEBUG and RELEASE builds)
+#define DLog( taskId, s, ... ) do { if (self->isLogsEnabled) { NSLog( @"<%p %@:(%d)> %@ %@", self, [[NSString stringWithUTF8String:__FILE__] lastPathComponent], __LINE__, [NSString stringWithFormat:(s), ##__VA_ARGS__], ((id)(taskId) ? [NSString stringWithFormat:@"taskId:%@", (id)(taskId)] : @"taskId:NULL") ); } } while(0)
 
 static CompletionHandler storedCompletionHandler;
 
@@ -58,6 +54,8 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     BOOL isSessionActivated;
     // Queue of download operations waiting for session activation
     NSMutableArray<dispatch_block_t> *pendingDownloads;
+    // Controls whether debug logs are sent to JS
+    BOOL isLogsEnabled;
 }
 
 RCT_EXPORT_MODULE();
@@ -85,10 +83,32 @@ RCT_EXPORT_MODULE();
         @"downloadBegin",
         @"downloadProgress",
         @"downloadComplete",
-        @"downloadFailed"
+        @"downloadFailed",
+        @"nativeDebugLog"
     ];
 }
 #endif
+
+// Helper method to send debug logs to JS
+- (void)sendDebugLog:(NSString *)message taskId:(NSString *)taskId {
+    // Only send logs if logging is enabled
+    if (!isLogsEnabled) {
+        return;
+    }
+
+    NSDictionary *body = @{
+        @"message": message ?: @"",
+        @"taskId": taskId ?: @"",
+        @"timestamp": @([[NSDate date] timeIntervalSince1970] * 1000)
+    };
+#ifdef RCT_NEW_ARCH_ENABLED
+    // For new architecture, we'd need to add this to the spec
+    // For now, just log to NSLog
+    NSLog(@"[RNBD-Native] %@ taskId:%@", message, taskId);
+#else
+    [self sendEventWithName:@"nativeDebugLog" body:body];
+#endif
+}
 
 #ifndef RCT_NEW_ARCH_ENABLED
 // Old architecture override to ensure events are sent
@@ -208,13 +228,17 @@ RCT_EXPORT_MODULE();
 
 - (void)lazyRegisterSession {
     DLog(nil, @"[RNBackgroundDownloader] - [lazyRegisterSession]");
+    [self sendDebugLog:@"lazyRegisterSession called" taskId:nil];
     @synchronized (sharedLock) {
         if (urlSession == nil) {
+            [self sendDebugLog:@"lazyRegisterSession: creating new session" taskId:nil];
             urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
             // Activate the session by calling getTasksWithCompletionHandler
             // This forces iOS to fully initialize the background session
             // On fresh installs, the session may not be ready to process tasks immediately
             [self activateSession];
+        } else {
+            [self sendDebugLog:@"lazyRegisterSession: session already exists" taskId:nil];
         }
     }
 }
@@ -224,9 +248,13 @@ RCT_EXPORT_MODULE();
 // before downloads can start reliably
 - (void)activateSession {
     DLog(nil, @"[RNBackgroundDownloader] - [activateSession]");
+    [self sendDebugLog:@"activateSession: calling getTasksWithCompletionHandler" taskId:nil];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         @synchronized (self->sharedLock) {
-            DLog(nil, @"[RNBackgroundDownloader] - [activateSession] session activated, processing %lu pending downloads", (unsigned long)self->pendingDownloads.count);
+            NSString *logMsg = [NSString stringWithFormat:@"activateSession: session activated, pendingDownloads=%lu, existingTasks=%lu",
+                (unsigned long)self->pendingDownloads.count, (unsigned long)downloadTasks.count];
+            DLog(nil, @"[RNBackgroundDownloader] - %@", logMsg);
+            [self sendDebugLog:logMsg taskId:nil];
             self->isSessionActivated = YES;
 
             // Process any pending downloads that were queued while waiting for activation
@@ -317,6 +345,18 @@ RCT_EXPORT_MODULE();
 }
 
 #pragma mark - JS exported methods
+
+// Method to enable/disable native debug logging
+- (void)setLogsEnabled:(BOOL)enabled {
+    isLogsEnabled = enabled;
+}
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
+    [self setLogsEnabled:enabled];
+}
+#endif
+
 #ifdef RCT_NEW_ARCH_ENABLED
 - (void)download:(JS::NativeRNBackgroundDownloader::SpecDownloadOptions &)options {
     NSString *identifier = options.id_();
@@ -382,12 +422,14 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     @synchronized (sharedLock) {
+        [self sendDebugLog:@"download: calling lazyRegisterSession" taskId:identifier];
         [self lazyRegisterSession];
 
         // If session is not yet activated, queue the download to be executed after activation
         // This fixes the issue where downloads don't start on fresh app installs
         if (!isSessionActivated) {
             DLog(identifier, @"[RNBackgroundDownloader] - [download] session not activated, queueing download");
+            [self sendDebugLog:@"download: session not activated, queueing download" taskId:identifier];
             __weak RNBackgroundDownloader *weakSelf = self;
             dispatch_block_t downloadBlock = ^{
                 RNBackgroundDownloader *strongSelf = weakSelf;
@@ -399,6 +441,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
             return;
         }
 
+        [self sendDebugLog:@"download: session activated, executing download" taskId:identifier];
         [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
     }
 }
@@ -407,12 +450,16 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 - (void)executeDownloadWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier url:(NSString *)url destination:(NSString *)destination metadata:(NSString *)metadata {
     @synchronized (sharedLock) {
         DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest]");
+        [self sendDebugLog:@"executeDownloadWithRequest: creating download task" taskId:identifier];
 
         NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
         if (task == nil) {
             DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create download task");
+            [self sendDebugLog:@"executeDownloadWithRequest: ERROR - failed to create download task" taskId:identifier];
             return;
         }
+
+        [self sendDebugLog:[NSString stringWithFormat:@"executeDownloadWithRequest: task created with taskIdentifier=%lu", (unsigned long)task.taskIdentifier] taskId:identifier];
 
         RNBGDTaskConfig *taskConfig = [[RNBGDTaskConfig alloc] initWithDictionary: @{
             @"id": identifier,
@@ -429,6 +476,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         idToLastBytesMap[identifier] = @0;
 
         [task resume];
+        [self sendDebugLog:@"executeDownloadWithRequest: task.resume() called" taskId:identifier];
         lastProgressReportedAt = [[NSDate alloc] init];
     }
 }
@@ -592,17 +640,23 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
 
 - (void)getExistingDownloadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(nil, @"[RNBackgroundDownloader] - [getExistingDownloadTasks]");
+    [self sendDebugLog:@"getExistingDownloadTasks: starting" taskId:nil];
     [self lazyRegisterSession];
 
     // Defensive check: if session is nil, reject instead of hanging
     if (urlSession == nil) {
+        [self sendDebugLog:@"getExistingDownloadTasks: ERROR - urlSession is nil" taskId:nil];
         reject(@"ERR_SESSION_NIL", @"URL session could not be initialized", nil);
         return;
     }
 
+    [self sendDebugLog:@"getExistingDownloadTasks: calling getTasksWithCompletionHandler" taskId:nil];
     [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
         @synchronized (self->sharedLock) {
             @try {
+                NSString *logMsg = [NSString stringWithFormat:@"getExistingDownloadTasks: found %lu download tasks", (unsigned long)downloadTasks.count];
+                [self sendDebugLog:logMsg taskId:nil];
+
                 // Wait for session tasks to stabilize after app restart
                 [NSThread sleepForTimeInterval:kTaskReconciliationDelay];
 
@@ -627,8 +681,11 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
                 // Phase 2: Add paused tasks with resume data (not in active session)
                 [self addPausedTasksToResults:foundTasks processedIds:processedIds];
 
+                NSString *resultMsg = [NSString stringWithFormat:@"getExistingDownloadTasks: returning %lu tasks", (unsigned long)foundTasks.count];
+                [self sendDebugLog:resultMsg taskId:nil];
                 resolve(foundTasks);
             } @catch (NSException *exception) {
+                [self sendDebugLog:[NSString stringWithFormat:@"getExistingDownloadTasks: ERROR - %@", exception.reason] taskId:nil];
                 reject(@"ERR_GET_EXISTING_TASKS", exception.reason, nil);
             }
         }
@@ -761,14 +818,20 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     @synchronized (sharedLock) {
         RNBGDTaskConfig *taskConfig = [self configForTask:downloadTask];
         if (!taskConfig) {
+            [self sendDebugLog:@"didFinishDownloadingToURL: no taskConfig found" taskId:nil];
             return;
         }
 
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didFinishDownloadingToURL]");
+        [self sendDebugLog:@"didFinishDownloadingToURL: download finished" taskId:taskConfig.id];
 
         NSError *error = [self getServerError:downloadTask];
         if (!error) {
             [self saveFile:taskConfig downloadURL:location error:&error];
+        }
+
+        if (error) {
+            [self sendDebugLog:[NSString stringWithFormat:@"didFinishDownloadingToURL: error - %@", error.localizedDescription] taskId:taskConfig.id];
         }
 
         [self sendDownloadCompletionEvent:taskConfig task:downloadTask error:error];
@@ -914,10 +977,14 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         RNBGDTaskConfig *taskConfig = [self configForTask:task];
 
         if (!error || !taskConfig) {
+            if (taskConfig) {
+                [self sendDebugLog:@"didCompleteWithError: completed without error" taskId:taskConfig.id];
+            }
             return;
         }
 
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] error: %@", error);
+        [self sendDebugLog:[NSString stringWithFormat:@"didCompleteWithError: error code=%ld, %@", (long)error.code, error.localizedDescription] taskId:taskConfig.id];
 
         // NSURLErrorCancelled (-999) is used for paused or cancelled tasks
         // Extract resume data first before checking isPausedTask

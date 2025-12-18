@@ -1,6 +1,5 @@
 package com.eko
 
-import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
@@ -30,7 +29,7 @@ class DownloadEventEmitter(
         try {
             getEmitter().emit(eventName, params)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to emit $eventName event: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to emit $eventName event: ${e.message}")
         }
     }
 

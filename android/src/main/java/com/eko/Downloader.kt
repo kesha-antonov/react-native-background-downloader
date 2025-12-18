@@ -48,7 +48,7 @@ class Downloader(private val context: Context) {
       val binder = service as ResumableDownloadService.LocalBinder
       downloadService = binder.getService()
       serviceBound = true
-      Log.d(TAG, "ResumableDownloadService connected")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "ResumableDownloadService connected")
 
       // Execute any pending operations
       var operation = pendingServiceOperations.poll()
@@ -61,7 +61,7 @@ class Downloader(private val context: Context) {
     override fun onServiceDisconnected(name: ComponentName?) {
       downloadService = null
       serviceBound = false
-      Log.d(TAG, "ResumableDownloadService disconnected")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "ResumableDownloadService disconnected")
     }
   }
 
@@ -132,7 +132,7 @@ class Downloader(private val context: Context) {
     // Remove any stale paused state from a previous download with the same ID
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
-      Log.d(TAG, "Cleaned up stale paused state for: $configId")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Cleaned up stale paused state for: $configId")
       TempFileUtils.deleteTempFile(pausedInfo.destination)
     }
   }
@@ -195,7 +195,7 @@ class Downloader(private val context: Context) {
       bytesTotal = bytesTotal
     )
 
-    Log.d(TAG, "Paused download $configId at $bytesDownloaded/$bytesTotal bytes")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Paused download $configId at $bytesDownloaded/$bytesTotal bytes")
     return true
   }
 
@@ -205,7 +205,7 @@ class Downloader(private val context: Context) {
   fun resume(configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
     val pausedInfo = pausedDownloads[configId]
     if (pausedInfo == null) {
-      Log.w(TAG, "No paused download found for configId: $configId")
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "No paused download found for configId: $configId")
       return false
     }
 
@@ -220,7 +220,7 @@ class Downloader(private val context: Context) {
       listener
     )
 
-    Log.d(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes via service")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes via service")
     return true
   }
 
@@ -247,7 +247,7 @@ class Downloader(private val context: Context) {
       try {
         context.startForegroundService(startIntent)
       } catch (e: Exception) {
-        Log.w(TAG, "Could not start foreground service: ${e.message}")
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Could not start foreground service: ${e.message}")
       }
     } else {
       context.startService(startIntent)
@@ -281,7 +281,7 @@ class Downloader(private val context: Context) {
       -1L, // Total bytes unknown
       listener
     )
-    Log.d(TAG, "Started ResumableDownloader for $configId (DownloadManager fallback)")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Started ResumableDownloader for $configId (DownloadManager fallback)")
   }
 
   /**
@@ -368,7 +368,7 @@ class Downloader(private val context: Context) {
         }
       }
     } catch (e: Exception) {
-      Log.e(TAG, "Downloader: ${Log.getStackTraceString(e)}")
+      RNBackgroundDownloaderModuleImpl.logE(TAG, "Downloader: ${Log.getStackTraceString(e)}")
     }
 
     return result

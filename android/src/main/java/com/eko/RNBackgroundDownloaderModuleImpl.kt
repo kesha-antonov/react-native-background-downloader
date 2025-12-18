@@ -45,6 +45,23 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     )
 
     private val sharedLock = Any()
+
+    // Controls whether debug logs are enabled
+    @Volatile
+    private var isLogsEnabled = false
+
+    // Helper functions for conditional logging
+    fun logD(tag: String, message: String) {
+      if (isLogsEnabled) Log.d(tag, message)
+    }
+
+    fun logW(tag: String, message: String) {
+      if (isLogsEnabled) Log.w(tag, message)
+    }
+
+    fun logE(tag: String, message: String) {
+      if (isLogsEnabled) Log.e(tag, message)
+    }
   }
 
   // Storage manager for persistent state
@@ -91,7 +108,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
         }
       } catch (e: Exception) {
-        Log.w(NAME, "Event emitter not ready yet: ${e.message}")
+        logW(NAME, "Event emitter not ready yet: ${e.message}")
         return null
       }
     }
@@ -107,9 +124,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     if (!::ee.isInitialized) {
       try {
         ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        Log.d(NAME, "Event emitter initialized eagerly before download")
+        logD(NAME, "Event emitter initialized eagerly before download")
       } catch (e: Exception) {
-        Log.w(NAME, "Could not initialize event emitter: ${e.message}")
+        logW(NAME, "Could not initialize event emitter: ${e.message}")
       }
     }
   }
@@ -123,7 +140,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     synchronized(sharedLock) {
       if (!isReceiverRegistered) {
         registerDownloadReceiver()
-        Log.d(NAME, "Download receiver registered eagerly before download")
+        logD(NAME, "Download receiver registered eagerly before download")
       }
     }
   }
@@ -183,6 +200,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     return constants
   }
 
+  fun setLogsEnabled(enabled: Boolean) {
+    isLogsEnabled = enabled
+  }
+
   fun initialize() {
     ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
     isInitialized = true
@@ -217,7 +238,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val cancelIntent = downloader.getCancelIntent(downloadId)
         if (cancelIntent != null) {
           downloader.clearCancelIntent(downloadId)
-          Log.d(NAME, "Ignoring broadcast for ${cancelIntent.name.lowercase()} download: $downloadId")
+          logD(NAME, "Ignoring broadcast for ${cancelIntent.name.lowercase()} download: $downloadId")
           return
         }
 
@@ -284,7 +305,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       try {
         reactContext.unregisterReceiver(it)
       } catch (e: Exception) {
-        Log.w(NAME, "Could not unregister receiver: ${e.message}")
+        logW(NAME, "Could not unregister receiver: ${e.message}")
       }
       downloadReceiver = null
       isReceiverRegistered = false
@@ -319,7 +340,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val onProgressFuture = cachedExecutorPool.submit(onProgressCallable)
         configIdToProgressFuture[config.id] = onProgressFuture
       } catch (e: Exception) {
-        Log.e(NAME, "resumeTasks: ${Log.getStackTraceString(e)}")
+        logE(NAME, "resumeTasks: ${Log.getStackTraceString(e)}")
       }
     }.start()
   }
@@ -402,7 +423,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           // This is a redirect
           val location = connection.getHeaderField("Location")
           if (location == null) {
-            Log.w(NAME, "Redirect response without Location header at: $currentUrl")
+            logW(NAME, "Redirect response without Location header at: $currentUrl")
             break
           }
 
@@ -419,7 +440,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             else -> location
           }
 
-          Log.d(NAME, "Redirect ${redirectCount + 1}/$maxRedirects: $currentUrl -> $location")
+          logD(NAME, "Redirect ${redirectCount + 1}/$maxRedirects: $currentUrl -> $location")
           redirectCount++
         } else {
           // Not a redirect, we've found the final URL
@@ -430,18 +451,18 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
 
       if (redirectCount >= maxRedirects) {
-        Log.w(
+        logW(
           NAME,
           "Reached maximum redirects ($maxRedirects) for URL: $originalUrl. Final URL: $currentUrl"
         )
       } else {
-        Log.d(NAME, "Resolved URL after $redirectCount redirects: $currentUrl")
+        logD(NAME, "Resolved URL after $redirectCount redirects: $currentUrl")
       }
 
       return currentUrl
 
     } catch (e: Exception) {
-      Log.e(NAME, "Failed to resolve redirects for URL: $originalUrl. Error: ${e.message}")
+      logE(NAME, "Failed to resolve redirects for URL: $originalUrl. Error: ${e.message}")
       // Return original URL if redirect resolution fails
       return originalUrl
     }
@@ -474,7 +495,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
               JSONObject(it.toString()).toString()
             } ?: "{}"
           } catch (e: Exception) {
-            Log.w(NAME, "Failed to convert metadata map to string: ${e.message}")
+            logW(NAME, "Failed to convert metadata map to string: ${e.message}")
             "{}"
           }
         }
@@ -503,15 +524,15 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     if (id == null || url == null || destination == null) {
-      Log.e(NAME, "download: id, url and destination must be set.")
+      logE(NAME, "download: id, url and destination must be set.")
       return
     }
 
     // Resolve redirects if maxRedirects is specified
     if (maxRedirects > 0) {
-      Log.d(NAME, "Resolving redirects for URL: $url (maxRedirects: $maxRedirects)")
+      logD(NAME, "Resolving redirects for URL: $url (maxRedirects: $maxRedirects)")
       url = resolveRedirects(url, maxRedirects, headers)
-      Log.d(NAME, "Final resolved URL: $url")
+      logD(NAME, "Final resolved URL: $url")
     }
 
     val request = DownloadManager.Request(Uri.parse(url))
@@ -596,18 +617,18 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     } else {
       // External files directory path is invalid or null
       // Try setDestinationInExternalFilesDir as fallback, then ResumableDownloader if that fails
-      Log.w(NAME, "External files directory path may be invalid for DownloadManager: ${externalFilesDir?.absolutePath}")
+      logW(NAME, "External files directory path may be invalid for DownloadManager: ${externalFilesDir?.absolutePath}")
 
       try {
         // Try standard setDestinationInExternalFilesDir - may work on some devices
         request.setDestinationInExternalFilesDir(reactContext, null, filename)
         startDownloadManagerDownload(downloader.download(request))
-        Log.d(NAME, "Using setDestinationInExternalFilesDir for download: $id")
+        logD(NAME, "Using setDestinationInExternalFilesDir for download: $id")
       } catch (e: Exception) {
         // DownloadManager failed - fall back to ResumableDownloader
         // This handles OnePlus and other devices that return paths like /data/local/tmp/external/
-        Log.w(NAME, "DownloadManager failed with: ${e.message}")
-        Log.d(NAME, "Using ResumableDownloader as fallback for download: $id")
+        logW(NAME, "DownloadManager failed with: ${e.message}")
+        logD(NAME, "Using ResumableDownloader as fallback for download: $id")
         startWithResumableDownloader()
       }
     }
@@ -620,7 +641,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // First check if it's an active resumable download
       if (downloader.isResumableDownload(configId)) {
         downloader.pauseResumable(configId)
-        Log.d(NAME, "Paused resumable download: $configId")
+        logD(NAME, "Paused resumable download: $configId")
         return
       }
 
@@ -642,15 +663,15 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             downloadIdToConfig.remove(downloadId)
             configIdToDownloadId.remove(configId)
             saveDownloadIdToConfigMap()
-            Log.d(NAME, "Paused DownloadManager download: $configId")
+            logD(NAME, "Paused DownloadManager download: $configId")
           } else {
-            Log.d(NAME, "pauseTask: Download not paused (may already be paused): $configId")
+            logD(NAME, "pauseTask: Download not paused (may already be paused): $configId")
           }
         } else {
-          Log.w(NAME, "pauseTask: No config found for downloadId: $downloadId")
+          logW(NAME, "pauseTask: No config found for downloadId: $downloadId")
         }
       } else {
-        Log.w(NAME, "pauseTask: No download found for configId: $configId")
+        logW(NAME, "pauseTask: No download found for configId: $configId")
       }
     }
   }
@@ -661,7 +682,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // First check if it's a paused resumable download
       if (downloader.resumableDownloader.isPaused(configId)) {
         downloader.resumeResumable(configId, resumableDownloadListener)
-        Log.d(NAME, "Resumed paused resumable download: $configId")
+        logD(NAME, "Resumed paused resumable download: $configId")
         return
       }
 
@@ -669,14 +690,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       if (downloader.isPaused(configId)) {
         val resumed = downloader.resume(configId, resumableDownloadListener)
         if (resumed) {
-          Log.d(NAME, "Resumed download via ResumableDownloader: $configId")
+          logD(NAME, "Resumed download via ResumableDownloader: $configId")
         } else {
-          Log.w(NAME, "Failed to resume download: $configId")
+          logW(NAME, "Failed to resume download: $configId")
         }
         return
       }
 
-      Log.w(NAME, "resumeTask: No paused download found for configId: $configId")
+      logW(NAME, "resumeTask: No paused download found for configId: $configId")
     }
   }
 
@@ -703,11 +724,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Firebase Performance compatibility: Add defensive programming to prevent crashes
     // when Firebase Performance SDK is installed and uses bytecode instrumentation
 
-    Log.d(NAME, "completeHandler called with configId: $configId")
+    logD(NAME, "completeHandler called with configId: $configId")
 
     // Defensive programming: Validate parameters
     if (configId.isEmpty()) {
-      Log.w(NAME, "completeHandler: Invalid configId provided")
+      logW(NAME, "completeHandler: Invalid configId provided")
       return
     }
 
@@ -715,12 +736,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // Currently this method doesn't have any implementation on Android
       // as completion handlers are handled differently than iOS.
       // This defensive structure ensures Firebase Performance compatibility.
-      Log.d(NAME, "completeHandler executed successfully for configId: $configId")
+      logD(NAME, "completeHandler executed successfully for configId: $configId")
 
     } catch (e: Exception) {
       // Catch any potential exceptions that might be thrown due to Firebase Performance
       // bytecode instrumentation interfering with method dispatch
-      Log.e(NAME, "completeHandler: Exception occurred: ${Log.getStackTraceString(e)}")
+      logE(NAME, "completeHandler: Exception occurred: ${Log.getStackTraceString(e)}")
     }
   }
 
@@ -749,7 +770,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                         val future = setFileChangesBeforeCompletion(localUri, config.destination)
                         future.get()
                       } catch (e: Exception) {
-                        Log.e(NAME, "Error moving completed download file: ${e.message}")
+                        logE(NAME, "Error moving completed download file: ${e.message}")
                         // Continue with normal processing even if file move fails
                       }
                     }
@@ -779,7 +800,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           }
         }
       } catch (e: Exception) {
-        Log.e(NAME, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
+        logE(NAME, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
       }
     }
 
@@ -830,7 +851,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   private fun onFailedDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
-    Log.e(
+    logE(
       NAME, "onFailedDownload: " +
           "${downloadStatus.getInt("status")}:" +
           "${downloadStatus.getInt("reason")}:" +
@@ -842,7 +863,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Enhanced handling for ERROR_CANNOT_RESUME (1008)
     if (reason == DownloadManager.ERROR_CANNOT_RESUME) {
-      Log.w(
+      logW(
         NAME, "ERROR_CANNOT_RESUME detected for download: ${config.id}" +
             ". This is a known Android DownloadManager issue with larger files. " +
             "Consider restarting the download or using smaller file segments."

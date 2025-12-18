@@ -1,6 +1,6 @@
 package com.eko.utils
 
-import android.util.Log
+import com.eko.RNBackgroundDownloaderModuleImpl
 import java.io.File
 
 /**
@@ -33,16 +33,16 @@ object TempFileUtils {
             if (tempFile.exists()) {
                 val deleted = tempFile.delete()
                 if (deleted) {
-                    Log.d(TAG, "Deleted temp file: ${tempFile.absolutePath}")
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted temp file: ${tempFile.absolutePath}")
                 } else {
-                    Log.w(TAG, "Failed to delete temp file: ${tempFile.absolutePath}")
+                    RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete temp file: ${tempFile.absolutePath}")
                 }
                 deleted
             } else {
                 true // File doesn't exist, considered success
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error deleting temp file for $destination: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logW(TAG, "Error deleting temp file for $destination: ${e.message}")
             false
         }
     }
@@ -66,17 +66,17 @@ object TempFileUtils {
             ensureParentDirs(destFile)
 
             if (tempFile.renameTo(destFile)) {
-                Log.d(TAG, "Renamed temp file to destination: ${destFile.absolutePath}")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Renamed temp file to destination: ${destFile.absolutePath}")
                 true
             } else {
                 // Fallback: copy and delete
                 tempFile.copyTo(destFile, overwrite = true)
                 tempFile.delete()
-                Log.d(TAG, "Copied temp file to destination: ${destFile.absolutePath}")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Copied temp file to destination: ${destFile.absolutePath}")
                 true
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to move temp file to destination: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to move temp file to destination: ${e.message}")
             false
         }
     }

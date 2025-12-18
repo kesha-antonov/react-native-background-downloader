@@ -3,11 +3,15 @@ export type UnsafeObject = { [key: string]: string }
 
 export type Headers = Record<string, string | null>
 
+// External log callback for capturing logs in parent app
+export type LogCallback = (tag: string, message: string, ...args: unknown[]) => void
+
 export interface Config {
   headers?: Headers
   progressInterval?: number
   progressMinBytes?: number
   isLogsEnabled?: boolean
+  logCallback?: LogCallback
 }
 
 export type SetConfig = (config: Partial<Config>) => void

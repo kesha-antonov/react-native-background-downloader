@@ -2,7 +2,7 @@ package com.eko.utils
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
+import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.RNBGDTaskConfig
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -35,18 +35,18 @@ class StorageManager(context: Context, private val name: String) {
             MMKV.initialize(context)
             mmkv = MMKV.mmkvWithID(name)
             mmkvAvailable = true
-            Log.d(TAG, "MMKV initialized successfully")
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "MMKV initialized successfully")
         } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "Failed to initialize MMKV (libmmkv.so not found): ${e.message}")
-            Log.w(TAG, "This may be due to unsupported architecture (x86/ARMv7). Using SharedPreferences fallback.")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to initialize MMKV (libmmkv.so not found): ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logW(TAG, "This may be due to unsupported architecture (x86/ARMv7). Using SharedPreferences fallback.")
             mmkv = null
         } catch (e: NoClassDefFoundError) {
-            Log.e(TAG, "MMKV classes not found: ${e.message}")
-            Log.w(TAG, "MMKV library not available on this architecture. Using SharedPreferences fallback.")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "MMKV classes not found: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logW(TAG, "MMKV library not available on this architecture. Using SharedPreferences fallback.")
             mmkv = null
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize MMKV: ${e.message}")
-            Log.w(TAG, "Using SharedPreferences fallback for persistence.")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to initialize MMKV: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logW(TAG, "Using SharedPreferences fallback for persistence.")
             mmkv = null
         }
         isMMKVAvailable = mmkvAvailable
@@ -64,15 +64,15 @@ class StorageManager(context: Context, private val name: String) {
 
             if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.encode("$name$KEY_DOWNLOAD_ID_TO_CONFIG", str)
-                Log.d(TAG, "Saved download config to MMKV")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved download config to MMKV")
             } else {
                 sharedPreferences.edit()
                     .putString("$name$KEY_DOWNLOAD_ID_TO_CONFIG", str)
                     .apply()
-                Log.d(TAG, "Saved download config to SharedPreferences fallback")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved download config to SharedPreferences fallback")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save download config: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save download config: ${e.message}")
         }
     }
 
@@ -83,11 +83,11 @@ class StorageManager(context: Context, private val name: String) {
         try {
             val str = if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.decodeString("$name$KEY_DOWNLOAD_ID_TO_CONFIG")?.also {
-                    Log.d(TAG, "Loaded download config from MMKV")
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded download config from MMKV")
                 }
             } else {
                 sharedPreferences.getString("$name$KEY_DOWNLOAD_ID_TO_CONFIG", null)?.also {
-                    Log.d(TAG, "Loaded download config from SharedPreferences fallback")
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded download config from SharedPreferences fallback")
                 }
             }
 
@@ -96,10 +96,10 @@ class StorageManager(context: Context, private val name: String) {
                 val mapType = object : TypeToken<Map<Long, RNBGDTaskConfig>>() {}.type
                 return gson.fromJson(str, mapType)
             } else {
-                Log.d(TAG, "No existing download config found, starting with empty map")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "No existing download config found, starting with empty map")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load download config: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load download config: ${e.message}")
         }
         return mutableMapOf()
     }
@@ -112,16 +112,16 @@ class StorageManager(context: Context, private val name: String) {
             if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.encode("$name$KEY_PROGRESS_INTERVAL", progressInterval.toInt())
                 mmkv!!.encode("$name$KEY_PROGRESS_MIN_BYTES", progressMinBytes)
-                Log.d(TAG, "Saved config to MMKV")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved config to MMKV")
             } else {
                 sharedPreferences.edit()
                     .putInt("$name$KEY_PROGRESS_INTERVAL", progressInterval.toInt())
                     .putLong("$name$KEY_PROGRESS_MIN_BYTES", progressMinBytes)
                     .apply()
-                Log.d(TAG, "Saved config to SharedPreferences fallback")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved config to SharedPreferences fallback")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save config: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save config: ${e.message}")
         }
     }
 
@@ -141,7 +141,7 @@ class StorageManager(context: Context, private val name: String) {
                 val progressMinBytesScope = mmkv!!.decodeLong("$name$KEY_PROGRESS_MIN_BYTES")
                 minBytes = if (progressMinBytesScope > 0) progressMinBytesScope else 0L
 
-                Log.d(TAG, "Loaded config from MMKV")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded config from MMKV")
             } else {
                 val progressIntervalScope = sharedPreferences.getInt("$name$KEY_PROGRESS_INTERVAL", 0)
                 interval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else 0L
@@ -149,12 +149,12 @@ class StorageManager(context: Context, private val name: String) {
                 val progressMinBytesScope = sharedPreferences.getLong("$name$KEY_PROGRESS_MIN_BYTES", 0)
                 minBytes = if (progressMinBytesScope > 0) progressMinBytesScope else 0L
 
-                Log.d(TAG, "Loaded config from SharedPreferences fallback")
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded config from SharedPreferences fallback")
             }
 
             return Pair(interval, minBytes)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load config: ${e.message}")
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load config: ${e.message}")
             return Pair(0L, 0L)
         }
     }

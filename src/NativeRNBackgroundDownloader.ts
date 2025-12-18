@@ -62,6 +62,8 @@ export interface Spec extends TurboModule {
 
   completeHandler(jobId: string): Promise<void>
 
+  setLogsEnabled(enabled: boolean): void
+
   getExistingDownloadTasks(): Promise<Array<{
     id: string
     metadata: string

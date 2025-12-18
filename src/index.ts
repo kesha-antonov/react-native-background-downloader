@@ -222,6 +222,13 @@ function initializeEventListeners () {
         tasksMap.delete(id)
       })
     )
+
+    // Native debug log events - forward native iOS logs to JS logCallback
+    eventSubscriptions.push(
+      eventEmitter.addListener('nativeDebugLog', (data: { message: string, taskId?: string }) => {
+        log('[Native]', data.taskId || '', data.message)
+      })
+    )
   }
 }
 
@@ -233,6 +240,7 @@ export function setConfig ({
   progressInterval = DEFAULT_PROGRESS_INTERVAL,
   progressMinBytes = DEFAULT_PROGRESS_MIN_BYTES,
   isLogsEnabled = false,
+  logCallback,
 }: Config) {
   config.headers = headers
 
@@ -247,6 +255,16 @@ export function setConfig ({
     console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
 
   config.isLogsEnabled = isLogsEnabled
+  config.logCallback = logCallback
+
+  // Notify native side about logging state
+  try {
+    const nativeModule = ensureNativeModuleInitialized() as RNBackgroundDownloaderModule & NativeModule & { setLogsEnabled?: (enabled: boolean) => void }
+    if (nativeModule.setLogsEnabled)
+      nativeModule.setLogsEnabled(isLogsEnabled)
+  } catch {
+    // Ignore if native module is not available yet
+  }
 }
 
 export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {

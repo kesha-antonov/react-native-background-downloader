@@ -355,6 +355,43 @@ task.start()
 ```
 Headers given in `createDownloadTask()` are **merged** with the ones given in `setConfig({ headers: { ... } })`.
 
+### Enabling Debug Logs
+
+The library includes verbose debug logging that can help diagnose download issues. Logging is disabled by default but can be enabled at runtime using `setConfig()`. **Logging works in both debug and production/release builds.**
+
+```javascript
+import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+// Option 1: Enable native console logging (logs appear in Xcode/Android Studio console)
+setConfig({
+  isLogsEnabled: true
+})
+
+// Option 2: Enable logging with a JavaScript callback to capture logs in your app
+setConfig({
+  isLogsEnabled: true,
+  logCallback: (log) => {
+    // log.message - The debug message
+    // log.taskId - Optional task ID associated with the log (iOS only)
+    console.log('[BackgroundDownloader]', log.message)
+
+    // You can also send logs to your analytics/crash reporting service
+    // crashlytics.log(log.message)
+  }
+})
+
+// Disable logging
+setConfig({
+  isLogsEnabled: false
+})
+```
+
+**Notes:**
+- When `isLogsEnabled` is `true`, native debug logs (NSLog on iOS, Log.d/w/e on Android) are printed
+- The `logCallback` function is called for each native debug log (iOS only sends logs to callback currently)
+- Logs include detailed information about download lifecycle, session management, and errors
+- In production builds, logs are only printed when explicitly enabled via `isLogsEnabled`
+
 ### Handling Slow-Responding URLs
 
 This library automatically includes connection timeout improvements for slow-responding URLs. By default, the following headers are added to all download requests on Android:
@@ -469,7 +506,27 @@ An object containing configuration properties
 | `headers`     | Record<string, string \| null> | Optional headers to use in all future downloads. Headers with null values will be removed |
 | `progressInterval` | Number | Interval in milliseconds for download progress updates. Must be >= 250. Default is 1000 |
 | `progressMinBytes` | Number | Minimum number of bytes that must be downloaded before a progress event is emitted. When set to 0, only the percentage threshold (1% change) triggers progress updates. Default is 1048576 (1MB) |
-| `isLogsEnabled`   | Boolean | Enables/disables debug logs in library. Default is false |
+| `isLogsEnabled`   | Boolean | Enables/disables verbose debug logs in native code (iOS and Android). Works in both debug and release builds. Default is false |
+| `logCallback`   | (log: { message: string, taskId?: string }) => void | Optional callback function to receive native debug logs in JavaScript. Only called when `isLogsEnabled` is true |
+
+**Example:**
+
+```javascript
+import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+// Enable verbose logging with callback
+setConfig({
+  isLogsEnabled: true,
+  logCallback: (log) => {
+    console.log('[BackgroundDownloader]', log.message, log.taskId ? `(${log.taskId})` : '')
+  }
+})
+
+// Or just enable native console logging without JS callback
+setConfig({
+  isLogsEnabled: true
+})
+```
 
 ### DownloadTask
 

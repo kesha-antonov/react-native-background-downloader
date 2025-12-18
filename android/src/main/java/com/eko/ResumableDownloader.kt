@@ -1,6 +1,5 @@
 package com.eko
 
-import android.util.Log
 import com.eko.utils.HeaderUtils
 import com.eko.utils.TempFileUtils
 import java.io.File
@@ -66,14 +65,14 @@ class ResumableDownloader {
     // Cancel any existing download with the same ID first
     val existingState = activeDownloads[id]
     if (existingState != null) {
-      Log.d(TAG, "Cancelling existing download before starting new one: $id")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling existing download before starting new one: $id")
       existingState.isCancelled.set(true)
       existingState.sessionId.incrementAndGet()
       try {
         existingState.inputStream?.close()
         existingState.connection?.disconnect()
       } catch (e: Exception) {
-        Log.w(TAG, "Error cleaning up existing download: ${e.message}")
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Error cleaning up existing download: ${e.message}")
       }
       existingState.thread?.interrupt()
       activeDownloads.remove(id)
@@ -128,7 +127,7 @@ class ResumableDownloader {
       state.inputStream?.close()
     } catch (e: Exception) {
       // Expected when closing during active read - SSL layer may report "Unbalanced enter/exit"
-      Log.d(TAG, "Stream closed during pause: ${e.message}")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Stream closed during pause: ${e.message}")
     }
 
     // Disconnect current connection to force read to fail
@@ -136,12 +135,12 @@ class ResumableDownloader {
       state.connection?.disconnect()
     } catch (e: Exception) {
       // Expected when disconnecting during active download
-      Log.d(TAG, "Connection disconnected during pause: ${e.message}")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Connection disconnected during pause: ${e.message}")
     }
 
     // Interrupt current thread to speed up pause
     state.thread?.interrupt()
-    Log.d(TAG, "Pausing download: $id at ${state.bytesDownloaded.get()} bytes (invalidated session, new=$newSessionId)")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Pausing download: $id at ${state.bytesDownloaded.get()} bytes (invalidated session, new=$newSessionId)")
     return true
   }
 
@@ -149,7 +148,7 @@ class ResumableDownloader {
     val state = activeDownloads[id] ?: return false
 
     if (!state.isPaused.get()) {
-      Log.w(TAG, "Download $id is not paused")
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "Download $id is not paused")
       return false
     }
 
@@ -163,13 +162,13 @@ class ResumableDownloader {
     state.thread = thread
     thread.start()
 
-    Log.d(TAG, "Resuming download: $id from ${state.bytesDownloaded.get()} bytes (session $currentSessionId)")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download: $id from ${state.bytesDownloaded.get()} bytes (session $currentSessionId)")
     return true
   }
 
   fun cancel(id: String): Boolean {
     val state = activeDownloads[id] ?: return false
-    Log.d(TAG, "Cancelling download: $id")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling download: $id")
 
     // Increment session ID to invalidate any running threads immediately
     state.sessionId.incrementAndGet()
@@ -182,14 +181,14 @@ class ResumableDownloader {
     try {
       state.inputStream?.close()
     } catch (e: Exception) {
-      Log.w(TAG, "Error closing input stream: ${e.message}")
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "Error closing input stream: ${e.message}")
     }
 
     // Disconnect the HTTP connection to force the read to fail immediately
     try {
       state.connection?.disconnect()
     } catch (e: Exception) {
-      Log.w(TAG, "Error disconnecting: ${e.message}")
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "Error disconnecting: ${e.message}")
     }
 
     // Interrupt the download thread to stop blocking I/O operations
@@ -200,7 +199,7 @@ class ResumableDownloader {
 
     // Remove from active downloads after setting cancelled flag
     activeDownloads.remove(id)
-    Log.d(TAG, "Download cancelled and removed: $id")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Download cancelled and removed: $id")
     return true
   }
 
@@ -222,15 +221,15 @@ class ResumableDownloader {
       }
       is DownloadResult.Paused -> {
         // Paused state - no listener callback needed, user can resume later
-        Log.d(TAG, "Download paused: ${result.id} at ${result.bytesDownloaded} bytes")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Download paused: ${result.id} at ${result.bytesDownloaded} bytes")
       }
       is DownloadResult.Cancelled -> {
         // Cancelled - no callback, cleanup already done
-        Log.d(TAG, "Download cancelled: ${result.id}")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Download cancelled: ${result.id}")
       }
       is DownloadResult.SessionInvalidated -> {
         // Session invalidated - stale thread, no callback
-        Log.d(TAG, "Download session invalidated: ${result.id}")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Download session invalidated: ${result.id}")
       }
       is DownloadResult.Error -> {
         // Error already reported to listener in executeDownload
@@ -250,11 +249,11 @@ class ResumableDownloader {
     try {
       // Check if session is still valid
       if (state.sessionId.get() != expectedSessionId) {
-        Log.d(TAG, "Session invalidated at start for ${state.id}, exiting")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Session invalidated at start for ${state.id}, exiting")
         return DownloadResult.SessionInvalidated(state.id)
       }
       if (state.isCancelled.get()) {
-        Log.d(TAG, "Already cancelled at start for ${state.id}")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Already cancelled at start for ${state.id}")
         return DownloadResult.Cancelled(state.id)
       }
 
@@ -268,7 +267,7 @@ class ResumableDownloader {
 
       // Check again after connection setup
       if (state.sessionId.get() != expectedSessionId) {
-        Log.d(TAG, "Session invalidated after connection setup for ${state.id}")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Session invalidated after connection setup for ${state.id}")
         connection.disconnect()
         return DownloadResult.SessionInvalidated(state.id)
       }
@@ -286,7 +285,7 @@ class ResumableDownloader {
       val startByte = state.bytesDownloaded.get()
       if (startByte > 0) {
         connection.setRequestProperty("Range", "bytes=$startByte-")
-        Log.d(TAG, "Resuming from byte: $startByte")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming from byte: $startByte")
       }
 
       val responseCode = connection.responseCode
@@ -299,7 +298,7 @@ class ResumableDownloader {
 
           // If we were trying to resume but server sent full content, reset
           if (startByte > 0) {
-            Log.w(TAG, "Server doesn't support Range headers, starting from beginning")
+            RNBackgroundDownloaderModuleImpl.logW(TAG, "Server doesn't support Range headers, starting from beginning")
             state.bytesDownloaded.set(0)
           }
 
@@ -333,7 +332,7 @@ class ResumableDownloader {
             listener.onBegin(state.id, state.bytesTotal, responseHeaders)
           }
 
-          Log.d(TAG, "Server supports Range, continuing from $startByte")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Server supports Range, continuing from $startByte")
         }
         HttpURLConnection.HTTP_MOVED_PERM,
         HttpURLConnection.HTTP_MOVED_TEMP,
@@ -353,7 +352,7 @@ class ResumableDownloader {
         }
         416 -> {
           // Range Not Satisfiable - file might be complete or server doesn't support ranges
-          Log.w(TAG, "Range not satisfiable for ${state.id}, checking if complete")
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Range not satisfiable for ${state.id}, checking if complete")
 
           // The download might already be complete
           val tempFile = File(state.tempFile)
@@ -385,7 +384,7 @@ class ResumableDownloader {
 
       // Check immediately after getting input stream
       if (state.sessionId.get() != expectedSessionId) {
-        Log.d(TAG, "Session invalidated after getting input stream for ${state.id}")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Session invalidated after getting input stream for ${state.id}")
         return DownloadResult.SessionInvalidated(state.id)
       }
       if (state.isCancelled.get()) {
@@ -407,15 +406,15 @@ class ResumableDownloader {
       downloadLoop@ while (true) {
         // Check all termination conditions at the start of each iteration
         if (state.sessionId.get() != expectedSessionId) {
-          Log.d(TAG, "Session invalidated (loop start): ${state.id}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Session invalidated (loop start): ${state.id}")
           return DownloadResult.SessionInvalidated(state.id)
         }
         if (state.isCancelled.get()) {
-          Log.d(TAG, "Download cancelled (loop start): ${state.id}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Download cancelled (loop start): ${state.id}")
           return DownloadResult.Cancelled(state.id)
         }
         if (state.isPaused.get()) {
-          Log.d(TAG, "Download paused: ${state.id}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Download paused: ${state.id}")
           outputStream.flush()
           return DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
         }
@@ -426,11 +425,11 @@ class ResumableDownloader {
 
         // Check termination conditions again after read (read may block for a while)
         if (state.sessionId.get() != expectedSessionId) {
-          Log.d(TAG, "Session invalidated (after read): ${state.id}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Session invalidated (after read): ${state.id}")
           return DownloadResult.SessionInvalidated(state.id)
         }
         if (state.isCancelled.get()) {
-          Log.d(TAG, "Download cancelled (after read): ${state.id}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Download cancelled (after read): ${state.id}")
           return DownloadResult.Cancelled(state.id)
         }
 
@@ -445,11 +444,11 @@ class ResumableDownloader {
 
       // Check if we exited due to cancellation/stale session
       if (state.sessionId.get() != expectedSessionId) {
-        Log.d(TAG, "Session invalidated after loop: ${state.id}")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Session invalidated after loop: ${state.id}")
         return DownloadResult.SessionInvalidated(state.id)
       }
       if (state.isCancelled.get()) {
-        Log.d(TAG, "Cancelled after loop: ${state.id}")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled after loop: ${state.id}")
         return DownloadResult.Cancelled(state.id)
       }
 
@@ -473,7 +472,7 @@ class ResumableDownloader {
       }
 
     } catch (e: InterruptedException) {
-      Log.d(TAG, "Download interrupted: ${state.id}")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Download interrupted: ${state.id}")
       // Determine result based on state
       return when {
         state.sessionId.get() != expectedSessionId -> DownloadResult.SessionInvalidated(state.id)
@@ -482,7 +481,7 @@ class ResumableDownloader {
         else -> DownloadResult.SessionInvalidated(state.id) // Treat unexpected interrupt as session invalidation
       }
     } catch (e: java.io.InterruptedIOException) {
-      Log.d(TAG, "Download I/O interrupted: ${state.id}")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Download I/O interrupted: ${state.id}")
       // Determine result based on state
       return when {
         state.sessionId.get() != expectedSessionId -> DownloadResult.SessionInvalidated(state.id)
@@ -494,20 +493,20 @@ class ResumableDownloader {
       // Determine result based on state - expected exceptions vs real errors
       return when {
         state.sessionId.get() != expectedSessionId -> {
-          Log.d(TAG, "Download stopped (session invalidated): ${state.id} - ${e.message}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Download stopped (session invalidated): ${state.id} - ${e.message}")
           DownloadResult.SessionInvalidated(state.id)
         }
         state.isCancelled.get() -> {
-          Log.d(TAG, "Download stopped (cancelled): ${state.id} - ${e.message}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Download stopped (cancelled): ${state.id} - ${e.message}")
           DownloadResult.Cancelled(state.id)
         }
         state.isPaused.get() -> {
-          Log.d(TAG, "Download stopped (paused): ${state.id} - ${e.message}")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Download stopped (paused): ${state.id} - ${e.message}")
           DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
         }
         else -> {
           // Unexpected error - log with stack trace and report to listener
-          Log.e(TAG, "Download error: ${e.message}", e)
+          RNBackgroundDownloaderModuleImpl.logE(TAG, "Download error: ${e.message}")
           val error = DownloadResult.fromException(state.id, e)
           listener.onError(state.id, error.message, error.errorCode)
           error
@@ -519,7 +518,7 @@ class ResumableDownloader {
         outputStream?.close()
         connection?.disconnect()
       } catch (e: Exception) {
-        Log.w(TAG, "Error closing streams: ${e.message}")
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Error closing streams: ${e.message}")
       }
     }
   }

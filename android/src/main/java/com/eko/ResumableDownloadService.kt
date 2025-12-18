@@ -10,7 +10,6 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -92,7 +91,7 @@ class ResumableDownloadService : Service() {
       private fun logStale(event: String) {
         val currentJob = activeDownloads[id]
         val currentGeneration = downloadGeneration[id] ?: 0
-        Log.d(TAG, "Ignoring stale $event for $id (session: my=$sessionToken vs job=${currentJob?.sessionToken}, gen: my=$generation vs current=$currentGeneration)")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Ignoring stale $event for $id (session: my=$sessionToken vs job=${currentJob?.sessionToken}, gen: my=$generation vs current=$currentGeneration)")
       }
 
       override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
@@ -112,7 +111,7 @@ class ResumableDownloadService : Service() {
         val now = System.currentTimeMillis()
         val lastLogTime = lastProgressLogTime[id] ?: 0L
         if (now - lastLogTime >= DownloadConstants.PROGRESS_LOG_INTERVAL_MS) {
-          Log.d(TAG, "onProgress: id=$id, bytes=$bytesDownloaded, myToken=$sessionToken, jobToken=${currentJob?.sessionToken}, myGen=$generation, currentGen=$currentGeneration")
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "onProgress: id=$id, bytes=$bytesDownloaded, myToken=$sessionToken, jobToken=${currentJob?.sessionToken}, myGen=$generation, currentGen=$currentGeneration")
           lastProgressLogTime[id] = now
         }
 
@@ -163,7 +162,7 @@ class ResumableDownloadService : Service() {
 
   override fun onCreate() {
     super.onCreate()
-    Log.d(TAG, "Service created")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Service created")
     createNotificationChannel()
   }
 
@@ -172,7 +171,7 @@ class ResumableDownloadService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    Log.d(TAG, "onStartCommand: action=${intent?.action}")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "onStartCommand: action=${intent?.action}")
 
     when (intent?.action) {
       ACTION_START_DOWNLOAD -> {
@@ -215,7 +214,7 @@ class ResumableDownloadService : Service() {
   }
 
   override fun onDestroy() {
-    Log.d(TAG, "Service destroyed")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Service destroyed")
     releaseWakeLock()
     executorService.shutdownNow()
     super.onDestroy()
@@ -244,7 +243,7 @@ class ResumableDownloadService : Service() {
     startByte: Long,
     totalBytes: Long
   ) {
-    Log.d(TAG, "Starting download: $id from byte $startByte")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Starting download: $id from byte $startByte")
 
     // Start foreground service if not already
     startForegroundWithNotification()
@@ -254,7 +253,7 @@ class ResumableDownloadService : Service() {
     // This ensures we can detect stale events even if job was removed and re-added
     val generation = (downloadGeneration[id] ?: 0) + 1
     downloadGeneration[id] = generation
-    Log.d(TAG, "Download $id starting with generation $generation")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Download $id starting with generation $generation")
 
     val job = DownloadJob(id, url, destination, headers, startByte, totalBytes)
     activeDownloads[id] = job
@@ -275,7 +274,7 @@ class ResumableDownloadService : Service() {
   }
 
   fun pauseDownload(id: String): Boolean {
-    Log.d(TAG, "Pausing download: $id")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Pausing download: $id")
     val result = resumableDownloader.pause(id)
     if (result) {
       updateNotification()
@@ -285,13 +284,13 @@ class ResumableDownloadService : Service() {
   }
 
   fun resumeDownload(id: String): Boolean {
-    Log.d(TAG, "Resuming download: $id")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download: $id")
 
     if (this.listener == null) return false
     val currentJob = activeDownloads[id] ?: return false
     val sessionToken = currentJob.sessionToken
     val generation = downloadGeneration[id] ?: 0
-    Log.d(TAG, "Resuming $id with session=$sessionToken, generation=$generation")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming $id with session=$sessionToken, generation=$generation")
 
     // Create a validating listener wrapper (don't cleanup since job already exists)
     val serviceListener = createValidatingListener(id, sessionToken, generation, cleanupOnTerminal = false)
@@ -304,7 +303,7 @@ class ResumableDownloadService : Service() {
   }
 
   fun cancelDownload(id: String): Boolean {
-    Log.d(TAG, "Cancelling download: $id")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling download: $id")
     activeDownloads.remove(id)
     val result = resumableDownloader.cancel(id)
     stopServiceIfIdle()
@@ -324,7 +323,7 @@ class ResumableDownloadService : Service() {
         startForeground(DownloadConstants.NOTIFICATION_ID, notification)
       }
     } catch (e: Exception) {
-      Log.e(TAG, "Failed to start foreground service: ${e.message}")
+      RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to start foreground service: ${e.message}")
     }
   }
 
@@ -379,7 +378,7 @@ class ResumableDownloadService : Service() {
         setReferenceCounted(false)
         acquire(DownloadConstants.WAKELOCK_TIMEOUT_MS)
       }
-      Log.d(TAG, "WakeLock acquired")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "WakeLock acquired")
     }
   }
 
@@ -387,7 +386,7 @@ class ResumableDownloadService : Service() {
     wakeLock?.let {
       if (it.isHeld) {
         it.release()
-        Log.d(TAG, "WakeLock released")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "WakeLock released")
       }
     }
     wakeLock = null
@@ -399,12 +398,12 @@ class ResumableDownloadService : Service() {
     val hasPausedInResumable = activeDownloads.keys.any { resumableDownloader.getState(it) != null }
 
     if (!hasActiveDownloads && !hasPausedInResumable) {
-      Log.d(TAG, "No active downloads, stopping service")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "No active downloads, stopping service")
       releaseWakeLock()
       stopForeground(STOP_FOREGROUND_REMOVE)
       stopSelf()
     } else {
-      Log.d(TAG, "Service has active downloads, keeping alive")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Service has active downloads, keeping alive")
       updateNotification()
     }
   }
