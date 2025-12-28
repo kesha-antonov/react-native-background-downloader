@@ -82,6 +82,11 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun setLogsEnabled(enabled: Boolean) {
+        impl.setLogsEnabled(enabled)
+    }
+
+    @ReactMethod
     fun addListener(eventName: String) {
         impl.addListener(eventName)
     }

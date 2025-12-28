@@ -359,7 +359,11 @@ RCT_EXPORT_MODULE();
     isLogsEnabled = enabled;
 }
 
-#ifndef RCT_NEW_ARCH_ENABLED
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)setLogsEnabled:(BOOL)enabled {
+    [self _setLogsEnabledInternal:enabled];
+}
+#else
 RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
     [self _setLogsEnabledInternal:enabled];
 }
