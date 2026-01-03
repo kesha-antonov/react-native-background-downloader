@@ -608,6 +608,12 @@ dependencies {
 
 The Android implementation uses the system's `DownloadManager` service for downloads, with custom pause/resume support:
 
+#### Android 16+ User-Initiated Data Transfer (UIDT) Support
+- **Android 16 Compatibility**: Downloads are automatically marked as user-initiated data transfers on Android 16+ (API 36)
+- **What this fixes**: Prevents background downloads from being killed due to thermal throttling or job quota restrictions
+- **Requirements**: The library automatically includes the `RUN_USER_INITIATED_JOBS` permission and marks downloads as user-initiated when running on Android 16+
+- **No action needed**: This is handled automatically by the library - your downloads will continue reliably even under moderate thermal conditions (~40°C) on Android 16+
+
 #### Pause/Resume Support
 - **Implementation**: Pause/resume on Android is implemented using HTTP Range headers
 - **How it works**: When you pause a download, the current progress is saved. When resumed, a new download starts from where it left off using the `Range` header
