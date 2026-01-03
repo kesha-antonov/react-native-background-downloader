@@ -105,4 +105,50 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     fun removeListeners(count: Int) {
         impl.removeListeners(count)
     }
+
+    // ============= Upload methods =============
+
+    @ReactMethod
+    fun upload(options: ReadableMap) {
+        impl.upload(options)
+    }
+
+    @ReactMethod
+    fun pauseUploadTask(id: String, promise: Promise) {
+        try {
+            impl.pauseUploadTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_PAUSE_UPLOAD_TASK", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun resumeUploadTask(id: String, promise: Promise) {
+        try {
+            impl.resumeUploadTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_RESUME_UPLOAD_TASK", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun stopUploadTask(id: String, promise: Promise) {
+        try {
+            impl.stopUploadTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_STOP_UPLOAD_TASK", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getExistingUploadTasks(promise: Promise) {
+        try {
+            impl.getExistingUploadTasks(promise)
+        } catch (e: Exception) {
+            promise.reject("ERR_GET_EXISTING_UPLOAD_TASKS", e.message, e)
+        }
+    }
 }

@@ -1,6 +1,7 @@
 import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
 import { DownloadTask } from './DownloadTask'
-import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative } from './types'
+import { UploadTask } from './UploadTask'
+import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
 import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
@@ -67,6 +68,7 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
 
 const MIN_PROGRESS_INTERVAL = 250
 const tasksMap = new Map<string, DownloadTask>()
+const uploadTasksMap = new Map<string, UploadTask>()
 
 interface DownloadBeginEvent {
   id: string
@@ -88,6 +90,32 @@ interface DownloadCompleteEvent {
 }
 
 interface DownloadFailedEvent {
+  id: string
+  error: string
+  errorCode: number
+}
+
+// Upload event types
+interface UploadBeginEvent {
+  id: string
+  expectedBytes: number
+}
+
+interface UploadProgressEvent {
+  id: string
+  bytesUploaded: number
+  bytesTotal: number
+}
+
+interface UploadCompleteEvent {
+  id: string
+  responseCode: number
+  responseBody: string
+  bytesUploaded: number
+  bytesTotal: number
+}
+
+interface UploadFailedEvent {
   id: string
   error: string
   errorCode: number
@@ -115,6 +143,7 @@ export function cleanup () {
   turboModule = null
   isIOSNewArchitecture = false
   tasksMap.clear()
+  uploadTasksMap.clear()
 }
 
 function initializeEventListeners () {
@@ -165,6 +194,52 @@ function initializeEventListeners () {
         task.onError(rest)
       tasksMap.delete(id)
     })
+
+    // Upload events for new architecture (optional - may not exist in all versions)
+    if (typeof turboModule.onUploadBegin === 'function') {
+      turboModule.onUploadBegin?.((data: UploadBeginEvent) => {
+        const { id, ...rest } = data
+        log('uploadBegin', id, rest)
+        const task = uploadTasksMap.get(id)
+        if (!task) {
+          log('uploadBegin: task not found in uploadTasksMap', id)
+          return
+        }
+        task.onBegin(rest)
+      })
+
+      turboModule.onUploadProgress?.((events: UploadProgressEvent[]) => {
+        log('uploadProgress', events)
+        for (const event of events) {
+          const { id, ...rest } = event
+          const task = uploadTasksMap.get(id)
+          if (task)
+            task.onProgress(rest)
+        }
+      })
+
+      turboModule.onUploadComplete?.((data: UploadCompleteEvent) => {
+        const { id, ...rest } = data
+        log('uploadComplete', id, rest)
+        const task = uploadTasksMap.get(id)
+        if (!task)
+          log('uploadComplete: task not found in uploadTasksMap', id)
+        else
+          task.onDone(rest)
+        uploadTasksMap.delete(id)
+      })
+
+      turboModule.onUploadFailed?.((data: UploadFailedEvent) => {
+        const { id, ...rest } = data
+        log('uploadFailed', id, rest)
+        const task = uploadTasksMap.get(id)
+        if (!task)
+          log('uploadFailed: task not found in uploadTasksMap', id)
+        else
+          task.onError(rest)
+        uploadTasksMap.delete(id)
+      })
+    }
   } else {
     // Old architecture: use NativeEventEmitter with the native module
     // RCTEventEmitter on native side requires NativeEventEmitter on JS side
@@ -220,6 +295,58 @@ function initializeEventListeners () {
         else
           task.onError(rest)
         tasksMap.delete(id)
+      })
+    )
+
+    // Upload events for old architecture
+    eventSubscriptions.push(
+      eventEmitter.addListener('uploadBegin', (data: UploadBeginEvent) => {
+        const { id, ...rest } = data
+        log('uploadBegin', id, rest)
+        const task = uploadTasksMap.get(id)
+        if (!task) {
+          log('uploadBegin: task not found in uploadTasksMap', id)
+          return
+        }
+        task.onBegin(rest)
+      })
+    )
+
+    eventSubscriptions.push(
+      eventEmitter.addListener('uploadProgress', (events: UploadProgressEvent[]) => {
+        log('uploadProgress', events)
+        for (const event of events) {
+          const { id, ...rest } = event
+          const task = uploadTasksMap.get(id)
+          if (task)
+            task.onProgress(rest)
+        }
+      })
+    )
+
+    eventSubscriptions.push(
+      eventEmitter.addListener('uploadComplete', (data: UploadCompleteEvent) => {
+        const { id, ...rest } = data
+        log('uploadComplete', id, rest)
+        const task = uploadTasksMap.get(id)
+        if (!task)
+          log('uploadComplete: task not found in uploadTasksMap', id)
+        else
+          task.onDone(rest)
+        uploadTasksMap.delete(id)
+      })
+    )
+
+    eventSubscriptions.push(
+      eventEmitter.addListener('uploadFailed', (data: UploadFailedEvent) => {
+        const { id, ...rest } = data
+        log('uploadFailed', id, rest)
+        const task = uploadTasksMap.get(id)
+        if (!task)
+          log('uploadFailed: task not found in uploadTasksMap', id)
+        else
+          task.onError(rest)
+        uploadTasksMap.delete(id)
       })
     )
 
@@ -385,6 +512,103 @@ export function createDownloadTask ({
   })
 
   tasksMap.set(rest.id, task)
+
+  return task
+}
+
+export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
+  const nativeModule = ensureNativeModuleInitialized()
+  if (!nativeModule.getExistingUploadTasks) {
+    log('getExistingUploadTasks: not supported - native implementation missing')
+    return []
+  }
+
+  const uploads = await nativeModule.getExistingUploadTasks()
+  const uploadTasks: UploadTask[] = uploads.map(uploadInfo => {
+    // Parse metadata from JSON string to object
+    let metadata = {}
+    if (uploadInfo.metadata)
+      try {
+        metadata = JSON.parse(uploadInfo.metadata)
+      } catch {
+        // Keep empty object if parsing fails
+      }
+
+    const taskInfo: UploadTaskInfoNative = {
+      ...uploadInfo,
+      metadata,
+      errorCode: uploadInfo.errorCode ?? 0,
+    }
+    // second argument re-assigns event handlers
+    const task = new UploadTask(taskInfo, uploadTasksMap.get(taskInfo.id))
+
+    switch (taskInfo.state) {
+      case nativeModule.TaskRunning: {
+        task.state = 'UPLOADING'
+        break
+      }
+      case nativeModule.TaskSuspended: {
+        task.state = 'PAUSED'
+        break
+      }
+      case nativeModule.TaskCanceling: {
+        // On iOS, paused tasks (via cancelByProducingResumeData) are in Canceling state with errorCode -999
+        if (taskInfo.errorCode === -999) {
+          task.state = 'PAUSED'
+        } else {
+          task.stop()
+          return undefined
+        }
+        break
+      }
+      case nativeModule.TaskCompleted: {
+        if (taskInfo.bytesUploaded === taskInfo.bytesTotal)
+          task.state = 'DONE'
+        else
+          // IOS completed the upload but it was not done.
+          return undefined
+      }
+    }
+
+    return task
+  }).filter((task): task is UploadTask => task !== undefined)
+
+  for (const task of uploadTasks)
+    uploadTasksMap.set(task.id, task)
+
+  return uploadTasks
+}
+
+export function createUploadTask ({
+  isAllowedOverRoaming = true,
+  isAllowedOverMetered = true,
+  isNotificationVisible = false,
+  metadata,
+  ...rest
+}: UploadTaskInfo & UploadParams) {
+  // Ensure native module and event listeners are initialized before creating tasks
+  ensureNativeModuleInitialized()
+
+  if (!rest.id || !rest.url || !rest.source)
+    throw new Error('[RNBackgroundDownloader] id, url and source are required')
+
+  rest.headers = { ...config.headers, ...rest.headers }
+
+  rest.source = rest.source.replace('file://', '')
+
+  const task = new UploadTask({
+    id: rest.id,
+    metadata,
+  })
+
+  task.setUploadParams({
+    isAllowedOverRoaming,
+    isAllowedOverMetered,
+    isNotificationVisible,
+    ...rest,
+  })
+
+  uploadTasksMap.set(rest.id, task)
 
   return task
 }

@@ -27,7 +27,9 @@ If you need the previous stable version: [3.2.6 readme](https://github.com/kesha
 
 # @kesha-antonov/react-native-background-downloader
 
-A library for React-Native to help you download large files on iOS and Android both in the foreground and most importantly in the background.
+A library for React-Native to help you download and upload large files on iOS and Android both in the foreground and most importantly in the background.
+
+> **📢 Upload Feature Status**: The upload API is available in JavaScript/TypeScript but native implementation (iOS/Android) is in progress. See [UPLOAD_IMPLEMENTATION.md](./UPLOAD_IMPLEMENTATION.md) for details and implementation guide.
 
 ### Why?
 
@@ -43,7 +45,10 @@ The real challenge of using this method is making sure the app's UI is always up
 
 ## ToC
 
+- [Getting started](#getting-started)
 - [Usage](#usage)
+  - [Downloading](#downloading-a-file)
+  - [Uploading](#uploading-a-file)
 - [API](#api)
 - [Constants](#constants)
 
@@ -315,6 +320,78 @@ for (let task of lostTasks) {
 
 `task.id` is very important for re-attaching the download task with any UI component representing that task. This is why you need to make sure to give sensible IDs that you know what to do with, try to avoid using random IDs.
 
+### Uploading a file
+
+> **⚠️ Status**: The upload API is complete in JavaScript/TypeScript, but native iOS and Android implementations are in progress. See [UPLOAD_IMPLEMENTATION.md](./UPLOAD_IMPLEMENTATION.md) for implementation details.
+
+```javascript
+import { Platform } from 'react-native'
+import { createUploadTask, completeHandler, directories } from '@kesha-antonov/react-native-background-downloader'
+
+const jobId = 'upload123'
+
+let task = createUploadTask({
+  id: jobId,
+  url: 'https://your-server.com/upload',
+  source: `${directories.documents}/photo.jpg`,
+  method: 'POST', // or 'PUT', 'PATCH'
+  fieldName: 'file', // multipart form field name
+  mimeType: 'image/jpeg',
+  parameters: {
+    userId: '123',
+    description: 'My photo'
+  },
+  metadata: {}
+}).begin(({ expectedBytes }) => {
+  console.log(`Going to upload ${expectedBytes} bytes!`)
+}).progress(({ bytesUploaded, bytesTotal }) => {
+  console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
+}).done(({ responseCode, responseBody, bytesUploaded, bytesTotal }) => {
+  console.log('Upload is done!', { responseCode, responseBody })
+  
+  // PROCESS YOUR STUFF
+  
+  // FINISH UPLOAD JOB
+  completeHandler(jobId)
+}).error(({ error, errorCode }) => {
+  console.log('Upload canceled due to error: ', { error, errorCode })
+})
+
+// starts upload
+task.start()
+
+// ...later
+
+// Pause the task (platform support may vary)
+await task.pause()
+
+// Resume after pause
+await task.resume()
+
+// Cancel the task
+await task.stop()
+```
+
+### Re-Attaching to background uploads
+
+Similar to downloads, you can re-attach to uploads that were running when your app was terminated:
+
+```javascript
+import { getExistingUploadTasks } from '@kesha-antonov/react-native-background-downloader'
+
+let lostUploads = await getExistingUploadTasks()
+for (let task of lostUploads) {
+  console.log(`Upload task ${task.id} was found!`)
+  task.progress(({ bytesUploaded, bytesTotal }) => {
+    console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
+  }).done(({ responseCode, responseBody }) => {
+    console.log('Upload is done!', { responseCode, responseBody })
+  }).error(({ error, errorCode }) => {
+    console.log('Upload canceled due to error: ', { error, errorCode })
+  })
+}
+```
+
 ### Using custom headers
 If you need to send custom headers with your download request, you can do in it 2 ways:
 
@@ -504,7 +581,9 @@ The library exports the following functions and objects:
 import {
   setConfig,
   createDownloadTask,
+  createUploadTask,
   getExistingDownloadTasks,
+  getExistingUploadTasks,
   completeHandler,
   directories
 } from '@kesha-antonov/react-native-background-downloader'
@@ -544,6 +623,48 @@ Recommended to run at the init stage of the app.
 **returns**
 
 `Promise<DownloadTask[]>` - A promise that resolves to an array of tasks that were running in the background so you can re-attach callbacks to them
+
+### `createUploadTask(options)`
+
+> **⚠️ Note**: Native implementation in progress. JavaScript API is complete and ready to use.
+
+Upload a file to a server
+
+**options**
+
+An object containing options properties
+
+| Property      | Type                                             | Required | Platforms | Info                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------------------ | :------: | :-------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`          | String |    ✅     |    All    | A unique ID to provide for this upload. This ID will help to identify the upload task when the app re-launches |
+| `url`         | String |    ✅     |    All    | URL to upload the file to |
+| `source`      | String |    ✅     |    All    | Path to the local file to upload. The 'file://' prefix will be automatically removed if present |
+| `method`      | 'POST' \| 'PUT' \| 'PATCH' |          |    All    | HTTP method for upload. Default is 'POST' |
+| `metadata`    | Record<string, unknown> |           |    All    | Custom data to be preserved across app restarts. Will be serialized to JSON |
+| `headers`     | Record<string, string \| null> |           |    All    | Custom headers to add to the upload request. These are merged with the headers given in `setConfig({ headers: { ... } })`. Headers with null values will be removed |
+| `fieldName`   | String |          |    All    | Name of the multipart form field for the file. Default is 'file' |
+| `mimeType`    | String |          |    All    | MIME type of the file being uploaded. Default is inferred from file extension |
+| `parameters`  | Record<string, string> |          |    All    | Additional form parameters to send with the upload |
+| `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this upload may proceed over a roaming connection. By default, roaming is allowed |
+| `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this upload may proceed over a metered network connection. By default, metered networks are allowed |
+| `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show an upload notification or not |
+| `notificationTitle`     | String   |          |  Android  | Title of the upload notification |
+
+**returns**
+
+`UploadTask` - The upload task to control and monitor this upload. Call `task.start()` to begin the upload.
+
+### `getExistingUploadTasks()`
+
+> **⚠️ Note**: Native implementation in progress.
+
+Checks for uploads that ran in background while your app was terminated.
+
+Recommended to run at the init stage of the app.
+
+**returns**
+
+`Promise<UploadTask[]>` - A promise that resolves to an array of upload tasks that were running in the background so you can re-attach callbacks to them
 
 ### `setConfig(config)`
 
@@ -591,6 +712,39 @@ setConfig({
 ### DownloadTask
 
 A class representing a download task created by `createDownloadTask()`. Note: You must call `task.start()` to begin the download after setting up event handlers.
+
+### UploadTask
+
+> **⚠️ Note**: Native implementation in progress. JavaScript API is complete.
+
+A class representing an upload task created by `createUploadTask()`. Note: You must call `task.start()` to begin the upload after setting up event handlers.
+
+**Members** (same structure as DownloadTask with upload-specific properties)
+
+| Name           | Type   | Info                                                                                                 |
+| -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| `id`           | String | The id you gave the task when calling `createUploadTask`                              |
+| `metadata`     | Record<string, unknown> | The metadata you gave the task when calling `createUploadTask`                        |
+| `state`        | 'PENDING' \| 'UPLOADING' \| 'PAUSED' \| 'DONE' \| 'FAILED' \| 'STOPPED' | Current state of the upload task |
+| `bytesUploaded` | Number | The number of bytes currently uploaded by the task                                                    |
+| `bytesTotal`   | Number | The total number bytes to be uploaded by this task |
+| `uploadParams` | UploadParams | The upload parameters set for this task |
+
+**Callback Methods**
+
+| Function   | Callback Arguments                | Info|
+| ---------- | --------------------------------- | ---- |
+| `begin`    | `{ expectedBytes: number }` | Called when upload starts |
+| `progress` | `{ bytesUploaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly |
+| `done`     | `{ responseCode: number, responseBody: string, bytesUploaded: number, bytesTotal: number }` | Called when the upload is done. Includes server response code and body |
+| `error`    | `{ error: string, errorCode: number }` | Called when the upload stops due to an error |
+
+**Methods**
+
+- `pause(): Promise<void>` - Pauses the upload (platform support may vary)
+- `resume(): Promise<void>` - Resumes a paused upload
+- `stop(): Promise<void>` - Stops the upload and removes temporary data
+- `start(): void` - Starts the upload
 
 ### `Members`
 | Name           | Type   | Info                                                                                                 |
@@ -711,6 +865,27 @@ The library now provides enhanced error handling for this specific case with det
 ## TODO
 
 - [ ] Write better API for downloads - current kinda boilerplate
+- [ ] Complete native iOS upload implementation
+- [ ] Complete native Android upload implementation
+
+## Upload Feature Status
+
+The upload API is fully implemented in JavaScript/TypeScript and ready to use. Native implementations for iOS and Android are in progress.
+
+**What's Complete:**
+- ✅ Full TypeScript API (`createUploadTask`, `getExistingUploadTasks`)
+- ✅ Upload event handlers (begin, progress, done, error)
+- ✅ Upload task state management
+- ✅ Integration with existing config system
+- ✅ Comprehensive test suite
+
+**What's Pending:**
+- ⏳ iOS native implementation using NSURLSessionUploadTask
+- ⏳ Android native implementation using OkHttp or WorkManager
+- ⏳ Background upload session management
+- ⏳ State persistence across app restarts for uploads
+
+See [UPLOAD_IMPLEMENTATION.md](./UPLOAD_IMPLEMENTATION.md) for detailed implementation guide and architecture design.
 
 ## Authors
 

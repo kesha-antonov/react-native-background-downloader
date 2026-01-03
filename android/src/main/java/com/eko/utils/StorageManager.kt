@@ -158,4 +158,39 @@ class StorageManager(context: Context, private val name: String) {
             return Pair(0L, 0L)
         }
     }
+
+    /**
+     * Save a boolean value synchronously.
+     */
+    fun saveBooleanSync(key: String, value: Boolean) {
+        try {
+            if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.encode("$name$key", value)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved boolean $key=$value to MMKV")
+            } else {
+                sharedPreferences.edit()
+                    .putBoolean("$name$key", value)
+                    .apply()
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved boolean $key=$value to SharedPreferences fallback")
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save boolean $key: ${e.message}")
+        }
+    }
+
+    /**
+     * Get a boolean value synchronously.
+     */
+    fun getBooleanSync(key: String, defaultValue: Boolean): Boolean {
+        return try {
+            if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.decodeBool("$name$key", defaultValue)
+            } else {
+                sharedPreferences.getBoolean("$name$key", defaultValue)
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to get boolean $key: ${e.message}")
+            defaultValue
+        }
+    }
 }

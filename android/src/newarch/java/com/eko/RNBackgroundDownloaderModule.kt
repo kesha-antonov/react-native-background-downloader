@@ -95,4 +95,45 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     fun removeListeners(count: Double) {
         impl.removeListeners(count.toInt())
     }
+
+    // ============= Upload methods =============
+
+    override fun upload(options: com.facebook.react.bridge.ReadableMap) {
+        impl.upload(options)
+    }
+
+    override fun pauseUploadTask(id: String, promise: com.facebook.react.bridge.Promise) {
+        try {
+            impl.pauseUploadTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_PAUSE_UPLOAD_TASK", e.message, e)
+        }
+    }
+
+    override fun resumeUploadTask(id: String, promise: com.facebook.react.bridge.Promise) {
+        try {
+            impl.resumeUploadTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_RESUME_UPLOAD_TASK", e.message, e)
+        }
+    }
+
+    override fun stopUploadTask(id: String, promise: com.facebook.react.bridge.Promise) {
+        try {
+            impl.stopUploadTask(id)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_STOP_UPLOAD_TASK", e.message, e)
+        }
+    }
+
+    override fun getExistingUploadTasks(promise: com.facebook.react.bridge.Promise) {
+        try {
+            impl.getExistingUploadTasks(promise)
+        } catch (e: Exception) {
+            promise.reject("ERR_GET_EXISTING_UPLOAD_TASKS", e.message, e)
+        }
+    }
 }
