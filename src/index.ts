@@ -277,7 +277,8 @@ export function setConfig ({
     }
     if (nativeModule.setLogsEnabled)
       nativeModule.setLogsEnabled(isLogsEnabled)
-    if (nativeModule.setMaxParallelDownloads && maxParallelDownloads !== undefined)
+    // Only call native methods if config was successfully updated
+    if (nativeModule.setMaxParallelDownloads && maxParallelDownloads !== undefined && maxParallelDownloads >= 1)
       nativeModule.setMaxParallelDownloads(config.maxParallelDownloads)
     if (nativeModule.setAllowsCellularAccess && allowsCellularAccess !== undefined)
       nativeModule.setAllowsCellularAccess(config.allowsCellularAccess)
