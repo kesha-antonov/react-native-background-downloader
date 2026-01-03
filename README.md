@@ -687,16 +687,22 @@ import { createDownloadTask, directories } from '@kesha-antonov/react-native-bac
 const veryIntensiveTask = async (taskDataArguments) => {
   const { downloads } = taskDataArguments
   
-  // Start all downloads
+  // Start all downloads and collect promises
   const downloadPromises = downloads.map(downloadInfo => {
     return new Promise((resolve, reject) => {
       createDownloadTask(downloadInfo)
+        .begin(({ expectedBytes }) => {
+          console.log(`Starting download: ${downloadInfo.id}, ${expectedBytes} bytes`)
+        })
+        .progress(({ bytesDownloaded, bytesTotal }) => {
+          console.log(`Progress: ${downloadInfo.id}, ${bytesDownloaded}/${bytesTotal}`)
+        })
         .done(() => {
           console.log('Download complete:', downloadInfo.id)
           resolve()
         })
-        .error(({ error }) => {
-          console.error('Download failed:', downloadInfo.id, error)
+        .error(({ error, errorCode }) => {
+          console.error('Download failed:', downloadInfo.id, error, errorCode)
           reject(error)
         })
         .start()
