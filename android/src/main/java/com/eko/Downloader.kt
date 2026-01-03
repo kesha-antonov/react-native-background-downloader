@@ -9,9 +9,9 @@ import android.database.Cursor
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import com.eko.utils.TempFileUtils
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -133,7 +133,15 @@ class Downloader(private val context: Context) {
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Cleaned up stale paused state for: $configId")
-      TempFileUtils.deleteTempFile(pausedInfo.destination)
+      // Clean up partially downloaded destination file if it exists
+      val destFile = File(pausedInfo.destination)
+      if (destFile.exists()) {
+        if (!destFile.delete()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
+        } else {
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        }
+      }
     }
   }
 
@@ -302,13 +310,20 @@ class Downloader(private val context: Context) {
   }
 
   /**
-   * Cancel a resumable download and clean up all temp files.
+   * Cancel a resumable download and clean up partially downloaded files.
    */
   fun cancelResumable(configId: String): Boolean {
-    // Clean up paused download state and temp file
+    // Clean up paused download state and partially downloaded file
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
-      TempFileUtils.deleteTempFile(pausedInfo.destination)
+      val destFile = File(pausedInfo.destination)
+      if (destFile.exists()) {
+        if (!destFile.delete()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
+        } else {
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        }
+      }
     }
 
     return downloadService?.cancelDownload(configId) ?: false
@@ -334,12 +349,19 @@ class Downloader(private val context: Context) {
   }
 
   /**
-   * Remove paused state for a config ID and clean up temp files.
+   * Remove paused state for a config ID and clean up partially downloaded files.
    */
   fun removePausedState(configId: String) {
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
-      TempFileUtils.deleteTempFile(pausedInfo.destination)
+      val destFile = File(pausedInfo.destination)
+      if (destFile.exists()) {
+        if (!destFile.delete()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
+        } else {
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        }
+      }
     }
   }
 

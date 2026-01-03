@@ -1,7 +1,6 @@
 package com.eko
 
 import com.eko.utils.HeaderUtils
-import com.eko.utils.TempFileUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -25,7 +24,6 @@ class ResumableDownloader {
     val id: String,
     val url: String,
     val destination: String,
-    val tempFile: String,
     val headers: Map<String, String>,
     val isPaused: AtomicBoolean = AtomicBoolean(false),
     val isCancelled: AtomicBoolean = AtomicBoolean(false),
@@ -78,18 +76,22 @@ class ResumableDownloader {
       activeDownloads.remove(id)
     }
 
-    val tempFile = TempFileUtils.getTempPath(destination)
+    // Download directly to destination file
+    val destFile = File(destination)
 
-    // Clean up any existing temp file if starting fresh (startByte == 0)
-    if (startByte == 0L) {
-      TempFileUtils.deleteTempFile(destination)
+    // Clean up any existing destination file if starting fresh (startByte == 0)
+    if (startByte == 0L && destFile.exists()) {
+      if (!destFile.delete()) {
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete existing destination file: $destination")
+      } else {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted existing destination file: $destination")
+      }
     }
 
     val state = DownloadState(
       id = id,
       url = url,
       destination = destination,
-      tempFile = tempFile,
       headers = headers,
       bytesTotal = totalBytes
     )
@@ -99,10 +101,14 @@ class ResumableDownloader {
       state.bytesDownloaded.set(startByte)
       state.hasReportedBegin = true // Don't report begin again for resumed downloads
 
-      // Create temp file with the expected size marker
-      val tempFileObj = File(tempFile)
-      tempFileObj.parentFile?.mkdirs()
-      // We'll append to temp file at the start position
+      // Ensure parent directories exist
+      val parentDir = destFile.parentFile
+      if (parentDir != null && !parentDir.exists()) {
+        if (!parentDir.mkdirs()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories: ${parentDir.absolutePath}")
+        }
+      }
+      // We'll append to destination file at the start position
     }
 
     activeDownloads[id] = state
@@ -194,8 +200,15 @@ class ResumableDownloader {
     // Interrupt the download thread to stop blocking I/O operations
     state.thread?.interrupt()
 
-    // Clean up temp file
-    TempFileUtils.deleteTempFile(state.destination)
+    // Clean up partially downloaded destination file
+    val destFile = File(state.destination)
+    if (destFile.exists()) {
+      if (!destFile.delete()) {
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${state.destination}")
+      } else {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${state.destination}")
+      }
+    }
 
     // Remove from active downloads after setting cancelled flag
     activeDownloads.remove(id)
@@ -355,16 +368,12 @@ class ResumableDownloader {
           RNBackgroundDownloaderModuleImpl.logW(TAG, "Range not satisfiable for ${state.id}, checking if complete")
 
           // The download might already be complete
-          val tempFile = File(state.tempFile)
-          if (tempFile.exists() && state.bytesTotal > 0 && tempFile.length() >= state.bytesTotal) {
-            // File is complete, move it
-            val destFile = File(state.destination)
-            destFile.parentFile?.mkdirs()
-            if (tempFile.renameTo(destFile)) {
-              activeDownloads.remove(state.id)
-              listener.onComplete(state.id, state.destination, state.bytesTotal, state.bytesTotal)
-              return DownloadResult.Success(state.id, state.destination, state.bytesTotal, state.bytesTotal)
-            }
+          val destFile = File(state.destination)
+          if (destFile.exists() && state.bytesTotal > 0 && destFile.length() >= state.bytesTotal) {
+            // File is complete
+            activeDownloads.remove(state.id)
+            listener.onComplete(state.id, state.destination, state.bytesTotal, state.bytesTotal)
+            return DownloadResult.Success(state.id, state.destination, state.bytesTotal, state.bytesTotal)
           }
 
           val error = DownloadResult.httpError(state.id, responseCode, "Range not satisfiable")
@@ -391,14 +400,19 @@ class ResumableDownloader {
         return DownloadResult.Cancelled(state.id)
       }
 
-      val tempFile = File(state.tempFile)
+      val destFile = File(state.destination)
 
       // Create parent directories if needed
-      tempFile.parentFile?.mkdirs()
+      val parentDir = destFile.parentFile
+      if (parentDir != null && !parentDir.exists()) {
+        if (!parentDir.mkdirs()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories: ${parentDir.absolutePath}")
+        }
+      }
 
       // Open in append mode if resuming
       val shouldAppend = startByte > 0 && responseCode == HttpURLConnection.HTTP_PARTIAL
-      outputStream = FileOutputStream(tempFile, shouldAppend)
+      outputStream = FileOutputStream(destFile, shouldAppend)
 
       val buffer = ByteArray(DownloadConstants.BUFFER_SIZE)
       var bytesRead: Int
@@ -454,22 +468,13 @@ class ResumableDownloader {
 
       outputStream.flush()
 
-      // Download complete - move temp file to destination
-      val destFile = File(state.destination)
-
+      // Download complete - file is already at destination
       val bytesDownloaded = state.bytesDownloaded.get()
       val bytesTotal = state.bytesTotal
 
-      if (TempFileUtils.moveToDestination(tempFile, destFile)) {
-        activeDownloads.remove(state.id)
-        listener.onComplete(state.id, state.destination, bytesDownloaded, bytesTotal)
-        return DownloadResult.Success(state.id, state.destination, bytesDownloaded, bytesTotal)
-      } else {
-        // Move failed - this is an error
-        val error = DownloadResult.Error(state.id, "Failed to move temp file to destination", -1)
-        listener.onError(state.id, error.message, error.errorCode)
-        return error
-      }
+      activeDownloads.remove(state.id)
+      listener.onComplete(state.id, state.destination, bytesDownloaded, bytesTotal)
+      return DownloadResult.Success(state.id, state.destination, bytesDownloaded, bytesTotal)
 
     } catch (e: InterruptedException) {
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Download interrupted: ${state.id}")
@@ -528,7 +533,6 @@ class ResumableDownloader {
       id = this.id,
       url = url,
       destination = this.destination,
-      tempFile = this.tempFile,
       headers = this.headers,
       isPaused = this.isPaused,
       isCancelled = this.isCancelled,
