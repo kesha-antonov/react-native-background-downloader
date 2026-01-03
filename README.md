@@ -662,7 +662,11 @@ import { createDownloadTask, directories } from '@kesha-antonov/react-native-bac
 module.exports = async function() {
   TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async (event) => {
     // This code runs in the background, even when screen is locked
-    const nextTrack = getNextTrack()
+    
+    // Example: Get the next track from your queue/playlist
+    // You need to implement this based on your app's logic
+    const nextTrack = getNextTrack() // Your implementation
+    
     if (nextTrack && !nextTrack.isDownloaded) {
       // Start download from background context
       createDownloadTask({
@@ -682,16 +686,25 @@ import { createDownloadTask, directories } from '@kesha-antonov/react-native-bac
 
 const veryIntensiveTask = async (taskDataArguments) => {
   const { downloads } = taskDataArguments
-  await new Promise(async (resolve) => {
-    // Process downloads while BackgroundService is running
-    for (const downloadInfo of downloads) {
+  
+  // Start all downloads
+  const downloadPromises = downloads.map(downloadInfo => {
+    return new Promise((resolve, reject) => {
       createDownloadTask(downloadInfo)
         .done(() => {
-          console.log('Download complete')
+          console.log('Download complete:', downloadInfo.id)
+          resolve()
+        })
+        .error(({ error }) => {
+          console.error('Download failed:', downloadInfo.id, error)
+          reject(error)
         })
         .start()
-    }
+    })
   })
+  
+  // Wait for all downloads to complete
+  await Promise.allSettled(downloadPromises)
 }
 
 const options = {
