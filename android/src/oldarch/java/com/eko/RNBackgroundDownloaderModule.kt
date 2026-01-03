@@ -87,6 +87,16 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun setMaxParallelDownloads(max: Int) {
+        impl.setMaxParallelDownloads(max)
+    }
+
+    @ReactMethod
+    fun setAllowsCellularAccess(allows: Boolean) {
+        impl.setAllowsCellularAccess(allows)
+    }
+
+    @ReactMethod
     fun addListener(eventName: String) {
         impl.addListener(eventName)
     }

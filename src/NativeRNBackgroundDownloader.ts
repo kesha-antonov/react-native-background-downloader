@@ -89,6 +89,8 @@ export interface Spec extends TurboModule {
   completeHandler(jobId: string): Promise<void>
 
   setLogsEnabled(enabled: boolean): void
+  setMaxParallelDownloads(max: number): void
+  setAllowsCellularAccess(allows: boolean): void
 
   getExistingDownloadTasks(): Promise<Array<{
     id: string

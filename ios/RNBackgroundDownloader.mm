@@ -400,6 +400,52 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
 }
 #endif
 
+- (void)_setMaxParallelDownloadsInternal:(NSInteger)max {
+    DLog(nil, @"[RNBackgroundDownloader] - [setMaxParallelDownloads:%ld]", (long)max);
+    @synchronized (sharedLock) {
+        if (max >= 1) {
+            sessionConfig.HTTPMaximumConnectionsPerHost = max;
+            // Recreate session with new config if it's already initialized
+            if (urlSession != nil) {
+                [self unregisterSession];
+                [self lazyRegisterSession];
+            }
+        }
+    }
+}
+
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)setMaxParallelDownloads:(double)max {
+    [self _setMaxParallelDownloadsInternal:(NSInteger)max];
+}
+#else
+RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
+    [self _setMaxParallelDownloadsInternal:max];
+}
+#endif
+
+- (void)_setAllowsCellularAccessInternal:(BOOL)allows {
+    DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess:%@]", allows ? @"YES" : @"NO");
+    @synchronized (sharedLock) {
+        sessionConfig.allowsCellularAccess = allows;
+        // Recreate session with new config if it's already initialized
+        if (urlSession != nil) {
+            [self unregisterSession];
+            [self lazyRegisterSession];
+        }
+    }
+}
+
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)setAllowsCellularAccess:(BOOL)allows {
+    [self _setAllowsCellularAccessInternal:allows];
+}
+#else
+RCT_EXPORT_METHOD(setAllowsCellularAccess:(BOOL)allows) {
+    [self _setAllowsCellularAccessInternal:allows];
+}
+#endif
+
 #ifdef RCT_NEW_ARCH_ENABLED
 - (void)download:(JS::NativeRNBackgroundDownloader::SpecDownloadOptions &)options {
     NSString *identifier = options.id_();

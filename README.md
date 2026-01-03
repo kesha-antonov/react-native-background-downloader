@@ -432,6 +432,58 @@ task.start()
 ```
 Headers given in `createDownloadTask()` are **merged** with the ones given in `setConfig({ headers: { ... } })`.
 
+### Configuring Parallel Downloads and Network Types
+
+You can configure global settings for download behavior using `setConfig()`:
+
+#### Max Parallel Downloads (iOS only)
+
+Control how many simultaneous downloads can occur per host. This is useful for managing bandwidth and server load.
+
+```javascript
+import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+// Set maximum parallel downloads to 8 (default is 4)
+setConfig({
+  maxParallelDownloads: 8
+})
+```
+
+**Note:** This setting only affects iOS. Android's `DownloadManager` manages parallel downloads automatically and does not expose this configuration.
+
+#### Cellular/WiFi Restrictions
+
+Control whether downloads are allowed over cellular (metered) networks:
+
+```javascript
+import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+// Only allow downloads over WiFi (disable cellular data)
+setConfig({
+  allowsCellularAccess: false
+})
+
+// Allow downloads over both WiFi and cellular (default)
+setConfig({
+  allowsCellularAccess: true
+})
+```
+
+This is a cross-platform setting that works on both iOS and Android:
+- **iOS**: Sets the `allowsCellularAccess` property on the NSURLSession configuration
+- **Android**: Sets the `isAllowedOverMetered` flag on DownloadManager requests
+
+**Per-download override (Android only):** On Android, you can override the global cellular setting for individual downloads using the `isAllowedOverMetered` option in `createDownloadTask()`:
+
+```javascript
+const task = createDownloadTask({
+  id: 'file123',
+  url: 'https://link-to-very.large/file.zip',
+  destination: `${directories.documents}/file.zip`,
+  isAllowedOverMetered: true  // This download can use cellular even if global setting is false
+})
+```
+
 ### Enabling Debug Logs
 
 The library includes verbose debug logging that can help diagnose download issues. Logging is disabled by default but can be enabled at runtime using `setConfig()`. **Logging works in both debug and production/release builds.**
@@ -629,11 +681,19 @@ An object containing configuration properties
 | `progressMinBytes` | Number | Minimum number of bytes that must be downloaded before a progress event is emitted. When set to 0, only the percentage threshold (1% change) triggers progress updates. Default is 1048576 (1MB) |
 | `isLogsEnabled`   | Boolean | Enables/disables verbose debug logs in native code (iOS and Android). Works in both debug and release builds. Default is false |
 | `logCallback`   | (log: { message: string, taskId?: string }) => void | Optional callback function to receive native debug logs in JavaScript. Only called when `isLogsEnabled` is true |
+| `maxParallelDownloads` | Number | **iOS only**. Sets the maximum number of simultaneous connections per host for the download session. Must be >= 1. Default is 4. Note: Android's DownloadManager does not support this configuration |
+| `allowsCellularAccess` | Boolean | Controls whether downloads are allowed over cellular (metered) connections. When set to `false`, downloads will only occur over WiFi. Default is `true`. This is a cross-platform abstraction - on iOS it sets `allowsCellularAccess`, on Android it sets `isAllowedOverMetered` |
 
 **Example:**
 
 ```javascript
 import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+// Configure parallel downloads (iOS only) and cellular access
+setConfig({
+  maxParallelDownloads: 8,  // iOS only - max simultaneous connections per host
+  allowsCellularAccess: false,  // Only download over WiFi
+})
 
 // Enable verbose logging with callback
 setConfig({

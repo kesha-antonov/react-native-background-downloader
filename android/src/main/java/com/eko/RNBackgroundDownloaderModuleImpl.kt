@@ -13,7 +13,6 @@ import android.webkit.MimeTypeMap
 import com.eko.handlers.OnBegin
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
-import com.eko.utils.FileUtils
 import com.eko.utils.HeaderUtils
 import com.eko.utils.StorageManager
 import com.facebook.react.bridge.Arguments
@@ -218,6 +217,19 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
   fun setLogsEnabled(enabled: Boolean) {
     isLogsEnabled = enabled
+  }
+
+  fun setMaxParallelDownloads(max: Int) {
+    // Android DownloadManager doesn't support setting max parallel downloads
+    // This is a no-op on Android, but we keep the method for API consistency
+    logD(NAME, "setMaxParallelDownloads called with $max (no-op on Android)")
+  }
+
+  fun setAllowsCellularAccess(allows: Boolean) {
+    // Store the setting for future downloads
+    // This will be used in the download() method to set isAllowedOverMetered
+    storageManager.saveBooleanSync("allowsCellularAccess", allows)
+    logD(NAME, "setAllowsCellularAccess: $allows")
   }
 
   fun initialize() {
@@ -530,7 +542,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     val isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming")
-    val isAllowedOverMetered = options.getBoolean("isAllowedOverMetered")
+    // Use per-download setting if provided, otherwise fall back to global setting
+    val isAllowedOverMetered = if (options.hasKey("isAllowedOverMetered")) {
+      options.getBoolean("isAllowedOverMetered")
+    } else {
+      // Fall back to global allowsCellularAccess setting
+      storageManager.getBooleanSync("allowsCellularAccess", true)
+    }
     val isNotificationVisible = options.getBoolean("isNotificationVisible")
 
     // Get maxRedirects parameter
@@ -639,11 +657,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     if (isValidExternalPath) {
       // Use DownloadManager with valid external storage path
-      if (!externalFilesDir!!.exists()) {
-        externalFilesDir.mkdirs()
+      // Download directly to final destination to avoid file duplication
+      val destFile = File(destination)
+      val parentDir = destFile.parentFile
+      if (parentDir != null && !parentDir.exists()) {
+        parentDir.mkdirs()
       }
-      val tempFile = File(externalFilesDir, filename)
-      request.setDestinationUri(Uri.fromFile(tempFile))
+      request.setDestinationUri(Uri.fromFile(destFile))
       startDownloadManagerDownload(downloader.download(request))
     } else {
       // External files directory path is invalid or null
@@ -793,16 +813,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
                 if (config != null) {
                   val status = downloadStatus.getInt("status")
-                  // Handle completed downloads that weren't processed
+                  // Handle completed downloads - file is already at final destination
                   if (status == DownloadManager.STATUS_SUCCESSFUL) {
                     val localUri = downloadStatus.getString("localUri")
                     if (localUri != null) {
-                      try {
-                        val future = setFileChangesBeforeCompletion(localUri, config.destination)
-                        future.get()
-                      } catch (e: Exception) {
-                        logE(NAME, "Error moving completed download file: ${e.message}")
-                        // Continue with normal processing even if file move fails
+                      // Verify the file exists at the destination
+                      val destFile = File(config.destination)
+                      if (!destFile.exists()) {
+                        logE(NAME, "Completed download file not found at destination: ${config.destination}")
                       }
                     }
                   }
@@ -838,9 +856,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     promise.resolve(foundTasks)
   }
 
+  @Suppress("UNUSED_PARAMETER")
   fun addListener(eventName: String) {
   }
 
+  @Suppress("UNUSED_PARAMETER")
   fun removeListeners(count: Int) {
   }
 
@@ -855,20 +875,19 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   private fun onSuccessfulDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
+    @Suppress("UNUSED_VARIABLE")
     val localUri = downloadStatus.getString("localUri")
 
-    // TODO: We need to move it to a more suitable location.
-    //     Maybe somewhere in downloadReceiver?
-    // Feedback if any error occurs after downloading the file.
-    try {
-      val future = setFileChangesBeforeCompletion(localUri!!, config.destination)
-      future.get()
-    } catch (e: Exception) {
+    // File is already at the final destination - no need to move it
+    // Verify it exists at the expected location
+    val destinationFile = File(config.destination)
+    if (!destinationFile.exists()) {
+      logE(NAME, "Downloaded file not found at destination: ${config.destination}")
       val newDownloadStatus = Arguments.createMap()
       newDownloadStatus.putString("downloadId", downloadStatus.getString("downloadId"))
       newDownloadStatus.putInt("status", DownloadManager.STATUS_FAILED)
-      newDownloadStatus.putInt("reason", DownloadManager.ERROR_UNKNOWN)
-      newDownloadStatus.putString("reasonText", e.message)
+      newDownloadStatus.putInt("reason", DownloadManager.ERROR_FILE_ERROR)
+      newDownloadStatus.putString("reasonText", "Downloaded file not found at destination")
       onFailedDownload(config, newDownloadStatus)
       return
     }
@@ -950,28 +969,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Clear any batched progress report to prevent stale data from being emitted
     // when a new download starts with the same configId
     progressReporter.clearPendingReport(configId)
-  }
-
-  private fun setFileChangesBeforeCompletion(targetSrc: String, destinationSrc: String): Future<Boolean> {
-    return fixedExecutorPool.submit<Boolean> {
-      val file = File(targetSrc)
-      val destination = File(destinationSrc)
-      var destinationParent: File? = null
-      try {
-        if (file.exists()) {
-          FileUtils.rm(destination)
-          destinationParent = FileUtils.mkdirParent(destination)
-          FileUtils.mv(file, destination)
-        }
-      } catch (e: Exception) {
-        FileUtils.rm(file)
-        FileUtils.rm(destination)
-        FileUtils.rm(destinationParent)
-        throw Exception(e)
-      }
-
-      true
-    }
   }
 
   // ============= Upload methods =============
