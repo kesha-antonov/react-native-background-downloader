@@ -1,5 +1,21 @@
 # Changelog
 
+## v4.3.9 (Unreleased)
+
+### ✨ New Features
+
+- **Android 16 UIDT Support:** Downloads are now automatically marked as User-Initiated Data Transfers on Android 16+ (API 36) to prevent thermal throttling and job quota restrictions. Downloads will continue reliably even under moderate thermal conditions (~40°C).
+
+### 📦 Dependencies & Infrastructure
+
+- **New Android Permission:** Added `RUN_USER_INITIATED_JOBS` permission for Android 16+ UIDT support
+
+### 📚 Documentation
+
+- Added documentation about Android 16+ UIDT support in README
+
+---
+
 ## v4.2.0
 
 > 📖 **Upgrading from v4.1.x?** See the [Migration Guide](./MIGRATION.md) for details on the new Android pause/resume functionality.
