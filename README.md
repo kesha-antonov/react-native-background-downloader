@@ -29,8 +29,6 @@ If you need the previous stable version: [3.2.6 readme](https://github.com/kesha
 
 A library for React-Native to help you download and upload large files on iOS and Android both in the foreground and most importantly in the background.
 
-> **📢 Upload Feature Status**: The upload API is available in JavaScript/TypeScript but native implementation (iOS/Android) is in progress. See [UPLOAD_IMPLEMENTATION.md](./UPLOAD_IMPLEMENTATION.md) for details and implementation guide.
-
 ### Why?
 
 On iOS, if you want to download big files no matter the state of your app, wether it's in the background or terminated by the OS, you have to use a system API called `NSURLSession`.
@@ -322,8 +320,6 @@ for (let task of lostTasks) {
 
 ### Uploading a file
 
-> **⚠️ Status**: The upload API is complete in JavaScript/TypeScript, but native iOS and Android implementations are in progress. See [UPLOAD_IMPLEMENTATION.md](./UPLOAD_IMPLEMENTATION.md) for implementation details.
-
 ```javascript
 import { Platform } from 'react-native'
 import { createUploadTask, completeHandler, directories } from '@kesha-antonov/react-native-background-downloader'
@@ -348,9 +344,9 @@ let task = createUploadTask({
   console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
 }).done(({ responseCode, responseBody, bytesUploaded, bytesTotal }) => {
   console.log('Upload is done!', { responseCode, responseBody })
-  
+
   // PROCESS YOUR STUFF
-  
+
   // FINISH UPLOAD JOB
   completeHandler(jobId)
 }).error(({ error, errorCode }) => {
@@ -626,8 +622,6 @@ Recommended to run at the init stage of the app.
 
 ### `createUploadTask(options)`
 
-> **⚠️ Note**: Native implementation in progress. JavaScript API is complete and ready to use.
-
 Upload a file to a server
 
 **options**
@@ -655,8 +649,6 @@ An object containing options properties
 `UploadTask` - The upload task to control and monitor this upload. Call `task.start()` to begin the upload.
 
 ### `getExistingUploadTasks()`
-
-> **⚠️ Note**: Native implementation in progress.
 
 Checks for uploads that ran in background while your app was terminated.
 
@@ -714,8 +706,6 @@ setConfig({
 A class representing a download task created by `createDownloadTask()`. Note: You must call `task.start()` to begin the download after setting up event handlers.
 
 ### UploadTask
-
-> **⚠️ Note**: Native implementation in progress. JavaScript API is complete.
 
 A class representing an upload task created by `createUploadTask()`. Note: You must call `task.start()` to begin the upload after setting up event handlers.
 
@@ -865,27 +855,6 @@ The library now provides enhanced error handling for this specific case with det
 ## TODO
 
 - [ ] Write better API for downloads - current kinda boilerplate
-- [ ] Complete native iOS upload implementation
-- [ ] Complete native Android upload implementation
-
-## Upload Feature Status
-
-The upload API is fully implemented in JavaScript/TypeScript and ready to use. Native implementations for iOS and Android are in progress.
-
-**What's Complete:**
-- ✅ Full TypeScript API (`createUploadTask`, `getExistingUploadTasks`)
-- ✅ Upload event handlers (begin, progress, done, error)
-- ✅ Upload task state management
-- ✅ Integration with existing config system
-- ✅ Comprehensive test suite
-
-**What's Pending:**
-- ⏳ iOS native implementation using NSURLSessionUploadTask
-- ⏳ Android native implementation using OkHttp or WorkManager
-- ⏳ Background upload session management
-- ⏳ State persistence across app restarts for uploads
-
-See [UPLOAD_IMPLEMENTATION.md](./UPLOAD_IMPLEMENTATION.md) for detailed implementation guide and architecture design.
 
 ## Authors
 
