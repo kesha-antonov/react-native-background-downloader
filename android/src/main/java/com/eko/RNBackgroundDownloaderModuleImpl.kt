@@ -13,7 +13,6 @@ import android.webkit.MimeTypeMap
 import com.eko.handlers.OnBegin
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
-import com.eko.utils.FileUtils
 import com.eko.utils.HeaderUtils
 import com.eko.utils.StorageManager
 import com.facebook.react.bridge.Arguments
@@ -608,11 +607,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     if (isValidExternalPath) {
       // Use DownloadManager with valid external storage path
-      if (!externalFilesDir!!.exists()) {
-        externalFilesDir.mkdirs()
+      // Download directly to final destination to avoid file duplication
+      val destFile = File(destination)
+      if (!destFile.parentFile!!.exists()) {
+        destFile.parentFile!!.mkdirs()
       }
-      val tempFile = File(externalFilesDir, filename)
-      request.setDestinationUri(Uri.fromFile(tempFile))
+      request.setDestinationUri(Uri.fromFile(destFile))
       startDownloadManagerDownload(downloader.download(request))
     } else {
       // External files directory path is invalid or null
@@ -762,16 +762,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
                 if (config != null) {
                   val status = downloadStatus.getInt("status")
-                  // Handle completed downloads that weren't processed
+                  // Handle completed downloads - file is already at final destination
                   if (status == DownloadManager.STATUS_SUCCESSFUL) {
                     val localUri = downloadStatus.getString("localUri")
                     if (localUri != null) {
-                      try {
-                        val future = setFileChangesBeforeCompletion(localUri, config.destination)
-                        future.get()
-                      } catch (e: Exception) {
-                        logE(NAME, "Error moving completed download file: ${e.message}")
-                        // Continue with normal processing even if file move fails
+                      // Verify the file exists at the destination
+                      val destFile = File(config.destination)
+                      if (!destFile.exists()) {
+                        logE(NAME, "Completed download file not found at destination: ${config.destination}")
                       }
                     }
                   }
@@ -826,18 +824,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   private fun onSuccessfulDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
     val localUri = downloadStatus.getString("localUri")
 
-    // TODO: We need to move it to a more suitable location.
-    //     Maybe somewhere in downloadReceiver?
-    // Feedback if any error occurs after downloading the file.
-    try {
-      val future = setFileChangesBeforeCompletion(localUri!!, config.destination)
-      future.get()
-    } catch (e: Exception) {
+    // File is already at the final destination - no need to move it
+    // Verify it exists at the expected location
+    val destinationFile = File(config.destination)
+    if (!destinationFile.exists()) {
+      logE(NAME, "Downloaded file not found at destination: ${config.destination}")
       val newDownloadStatus = Arguments.createMap()
       newDownloadStatus.putString("downloadId", downloadStatus.getString("downloadId"))
       newDownloadStatus.putInt("status", DownloadManager.STATUS_FAILED)
-      newDownloadStatus.putInt("reason", DownloadManager.ERROR_UNKNOWN)
-      newDownloadStatus.putString("reasonText", e.message)
+      newDownloadStatus.putInt("reason", DownloadManager.ERROR_FILE_ERROR)
+      newDownloadStatus.putString("reasonText", "Downloaded file not found at destination")
       onFailedDownload(config, newDownloadStatus)
       return
     }
@@ -921,25 +917,5 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     progressReporter.clearPendingReport(configId)
   }
 
-  private fun setFileChangesBeforeCompletion(targetSrc: String, destinationSrc: String): Future<Boolean> {
-    return fixedExecutorPool.submit<Boolean> {
-      val file = File(targetSrc)
-      val destination = File(destinationSrc)
-      var destinationParent: File? = null
-      try {
-        if (file.exists()) {
-          FileUtils.rm(destination)
-          destinationParent = FileUtils.mkdirParent(destination)
-          FileUtils.mv(file, destination)
-        }
-      } catch (e: Exception) {
-        FileUtils.rm(file)
-        FileUtils.rm(destination)
-        FileUtils.rm(destinationParent)
-        throw Exception(e)
-      }
 
-      true
-    }
-  }
 }
