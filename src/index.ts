@@ -197,7 +197,7 @@ function initializeEventListeners () {
 
     // Upload events for new architecture (optional - may not exist in all versions)
     if (typeof turboModule.onUploadBegin === 'function') {
-      turboModule.onUploadBegin((data: UploadBeginEvent) => {
+      turboModule.onUploadBegin?.((data: UploadBeginEvent) => {
         const { id, ...rest } = data
         log('uploadBegin', id, rest)
         const task = uploadTasksMap.get(id)
@@ -208,7 +208,7 @@ function initializeEventListeners () {
         task.onBegin(rest)
       })
 
-      turboModule.onUploadProgress((events: UploadProgressEvent[]) => {
+      turboModule.onUploadProgress?.((events: UploadProgressEvent[]) => {
         log('uploadProgress', events)
         for (const event of events) {
           const { id, ...rest } = event
@@ -218,7 +218,7 @@ function initializeEventListeners () {
         }
       })
 
-      turboModule.onUploadComplete((data: UploadCompleteEvent) => {
+      turboModule.onUploadComplete?.((data: UploadCompleteEvent) => {
         const { id, ...rest } = data
         log('uploadComplete', id, rest)
         const task = uploadTasksMap.get(id)
@@ -229,7 +229,7 @@ function initializeEventListeners () {
         uploadTasksMap.delete(id)
       })
 
-      turboModule.onUploadFailed((data: UploadFailedEvent) => {
+      turboModule.onUploadFailed?.((data: UploadFailedEvent) => {
         const { id, ...rest } = data
         log('uploadFailed', id, rest)
         const task = uploadTasksMap.get(id)
