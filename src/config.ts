@@ -2,6 +2,8 @@ import { Headers } from './types'
 
 export const DEFAULT_PROGRESS_INTERVAL = 1000
 export const DEFAULT_PROGRESS_MIN_BYTES = 1024 * 1024 // 1MB
+export const DEFAULT_MAX_PARALLEL_DOWNLOADS = 4
+export const DEFAULT_ALLOWS_CELLULAR_ACCESS = true
 
 // External log callback for capturing logs in parent app
 type LogCallback = (tag: string, message: string, ...args: unknown[]) => void
@@ -12,6 +14,8 @@ interface ConfigState {
   progressMinBytes: number
   isLogsEnabled: boolean
   logCallback?: LogCallback
+  maxParallelDownloads: number
+  allowsCellularAccess: boolean
 }
 
 export const config: ConfigState = {
@@ -20,6 +24,8 @@ export const config: ConfigState = {
   progressMinBytes: DEFAULT_PROGRESS_MIN_BYTES,
   isLogsEnabled: false,
   logCallback: undefined,
+  maxParallelDownloads: DEFAULT_MAX_PARALLEL_DOWNLOADS,
+  allowsCellularAccess: DEFAULT_ALLOWS_CELLULAR_ACCESS,
 }
 
 export const log = (...args: unknown[]): void => {

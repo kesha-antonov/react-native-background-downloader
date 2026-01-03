@@ -78,6 +78,14 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
         impl.setLogsEnabled(enabled)
     }
 
+    override fun setMaxParallelDownloads(max: Double) {
+        impl.setMaxParallelDownloads(max.toInt())
+    }
+
+    override fun setAllowsCellularAccess(allows: Boolean) {
+        impl.setAllowsCellularAccess(allows)
+    }
+
     @ReactMethod
     fun addListener(eventName: String) {
         impl.addListener(eventName)
