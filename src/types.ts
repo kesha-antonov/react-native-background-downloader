@@ -12,6 +12,8 @@ export interface Config {
   progressMinBytes?: number
   isLogsEnabled?: boolean
   logCallback?: LogCallback
+  maxParallelDownloads?: number
+  allowsCellularAccess?: boolean
 }
 
 export type SetConfig = (config: Partial<Config>) => void

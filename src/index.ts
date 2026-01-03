@@ -241,6 +241,8 @@ export function setConfig ({
   progressMinBytes = DEFAULT_PROGRESS_MIN_BYTES,
   isLogsEnabled = false,
   logCallback,
+  maxParallelDownloads,
+  allowsCellularAccess,
 }: Config) {
   config.headers = headers
 
@@ -254,14 +256,32 @@ export function setConfig ({
   else
     console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
 
+  if (maxParallelDownloads !== undefined)
+    if (maxParallelDownloads >= 1)
+      config.maxParallelDownloads = maxParallelDownloads
+    else
+      console.warn(`[RNBackgroundDownloader] maxParallelDownloads must be a number >= 1. You passed ${maxParallelDownloads}`)
+
+  if (allowsCellularAccess !== undefined)
+    config.allowsCellularAccess = allowsCellularAccess
+
   config.isLogsEnabled = isLogsEnabled
   config.logCallback = logCallback
 
-  // Notify native side about logging state
+  // Notify native side about configuration changes
   try {
-    const nativeModule = ensureNativeModuleInitialized() as RNBackgroundDownloaderModule & NativeModule & { setLogsEnabled?: (enabled: boolean) => void }
+    const nativeModule = ensureNativeModuleInitialized() as RNBackgroundDownloaderModule & NativeModule & {
+      setLogsEnabled?: (enabled: boolean) => void
+      setMaxParallelDownloads?: (max: number) => void
+      setAllowsCellularAccess?: (allows: boolean) => void
+    }
     if (nativeModule.setLogsEnabled)
       nativeModule.setLogsEnabled(isLogsEnabled)
+    // Only call native methods if config was successfully updated
+    if (nativeModule.setMaxParallelDownloads && maxParallelDownloads !== undefined && maxParallelDownloads >= 1)
+      nativeModule.setMaxParallelDownloads(config.maxParallelDownloads)
+    if (nativeModule.setAllowsCellularAccess && allowsCellularAccess !== undefined)
+      nativeModule.setAllowsCellularAccess(config.allowsCellularAccess)
   } catch {
     // Ignore if native module is not available yet
   }

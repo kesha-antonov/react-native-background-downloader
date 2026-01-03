@@ -204,6 +204,19 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     isLogsEnabled = enabled
   }
 
+  fun setMaxParallelDownloads(max: Int) {
+    // Android DownloadManager doesn't support setting max parallel downloads
+    // This is a no-op on Android, but we keep the method for API consistency
+    logD(NAME, "setMaxParallelDownloads called with $max (no-op on Android)")
+  }
+
+  fun setAllowsCellularAccess(allows: Boolean) {
+    // Store the setting for future downloads
+    // This will be used in the download() method to set isAllowedOverMetered
+    storageManager.saveBooleanSync("allowsCellularAccess", allows)
+    logD(NAME, "setAllowsCellularAccess: $allows")
+  }
+
   fun initialize() {
     ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
     isInitialized = true
@@ -514,7 +527,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     val isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming")
-    val isAllowedOverMetered = options.getBoolean("isAllowedOverMetered")
+    // Use per-download setting if provided, otherwise fall back to global setting
+    val isAllowedOverMetered = if (options.hasKey("isAllowedOverMetered")) {
+      options.getBoolean("isAllowedOverMetered")
+    } else {
+      // Fall back to global allowsCellularAccess setting
+      storageManager.getBooleanSync("allowsCellularAccess", true)
+    }
     val isNotificationVisible = options.getBoolean("isNotificationVisible")
 
     // Get maxRedirects parameter
