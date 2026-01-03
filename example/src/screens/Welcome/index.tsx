@@ -8,8 +8,13 @@ const WelcomeScreen = ({ navigation }: any) => {
       <Text style={styles.title}>React Native Background Downloader</Text>
 
       <ExButton
-        title={'1- Basic Example'}
+        title={'1- Download Example'}
         onPress={() => navigation.navigate('root.basic_example')}
+      />
+
+      <ExButton
+        title={'2- Upload Example'}
+        onPress={() => navigation.navigate('root.upload_example')}
       />
     </ExWrapper>
   )

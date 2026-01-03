@@ -87,6 +87,22 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     DownloadEventEmitter { getEventEmitter()!! }
   }
 
+  // Uploader for handling file uploads
+  private val uploader: Uploader by lazy { Uploader(reactContext) }
+
+  // Centralized event emitter for upload events
+  private val uploadEventEmitter by lazy {
+    UploadEventEmitter { getEventEmitter()!! }
+  }
+
+  // Centralized progress reporting for uploads
+  private val uploadProgressReporter = ProgressReporter { reportsArray ->
+    getEventEmitter()?.emit("uploadProgress", reportsArray)
+  }
+
+  // Upload task configs mapping configId -> config
+  private val uploadConfigs = mutableMapOf<String, RNBGDUploadTaskConfig>()
+
   // Flag to track if module is fully initialized
   @Volatile
   private var isInitialized = false
@@ -956,5 +972,176 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
       true
     }
+  }
+
+  // ============= Upload methods =============
+
+  // Listener for upload events
+  private val uploadListener = object : Uploader.UploadListener {
+    override fun onBegin(id: String, expectedBytes: Long) {
+      synchronized(sharedLock) {
+        uploadConfigs[id]?.let { config ->
+          config.reportedBegin = true
+          config.bytesTotal = expectedBytes
+        }
+      }
+      uploadEventEmitter.emitBegin(id, expectedBytes)
+    }
+
+    override fun onProgress(id: String, bytesUploaded: Long, bytesTotal: Long) {
+      synchronized(sharedLock) {
+        uploadConfigs[id]?.let { config ->
+          config.bytesUploaded = bytesUploaded
+          config.bytesTotal = bytesTotal
+        }
+      }
+      // Use progress reporter for batching
+      uploadProgressReporter.reportProgress(id, bytesUploaded, bytesTotal)
+    }
+
+    override fun onComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long) {
+      synchronized(sharedLock) {
+        uploadConfigs[id]?.state = DownloadConstants.TASK_COMPLETED
+        uploadConfigs.remove(id)
+      }
+      uploadEventEmitter.emitComplete(id, responseCode, responseBody, bytesUploaded, bytesTotal)
+    }
+
+    override fun onError(id: String, error: String, errorCode: Int) {
+      synchronized(sharedLock) {
+        uploadConfigs[id]?.state = DownloadConstants.TASK_CANCELING
+        uploadConfigs.remove(id)
+      }
+      uploadEventEmitter.emitFailed(id, error, errorCode)
+    }
+  }
+
+  fun upload(options: ReadableMap) {
+    // Ensure event emitter is initialized
+    ensureEventEmitterInitialized()
+
+    val id = options.getString("id")
+    val url = options.getString("url")
+    val source = options.getString("source")
+    val method = if (options.hasKey("method")) options.getString("method") else "POST"
+    val metadata = if (options.hasKey("metadata")) {
+      when (options.getType("metadata")) {
+        ReadableType.String -> options.getString("metadata")
+        ReadableType.Map -> {
+          try {
+            val map = options.getMap("metadata")
+            Arguments.toBundle(map)?.let {
+              JSONObject(it.toString()).toString()
+            } ?: "{}"
+          } catch (e: Exception) {
+            logW(NAME, "Failed to convert metadata map to string: ${e.message}")
+            "{}"
+          }
+        }
+        else -> null
+      }
+    } else null
+
+    val fieldName = if (options.hasKey("fieldName")) options.getString("fieldName") else null
+    val mimeType = if (options.hasKey("mimeType")) options.getString("mimeType") else null
+    val parameters = if (options.hasKey("parameters")) {
+      val paramsMap = options.getMap("parameters")
+      val result = mutableMapOf<String, String>()
+      if (paramsMap != null) {
+        val iterator = paramsMap.keySetIterator()
+        while (iterator.hasNextKey()) {
+          val key = iterator.nextKey()
+          result[key] = paramsMap.getString(key) ?: ""
+        }
+      }
+      result
+    } else null
+
+    // Progress settings
+    val progressIntervalScope = options.getInt("progressInterval")
+    val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
+    if (progressIntervalScope > 0 || progressMinBytesScope > 0) {
+      val newInterval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else uploadProgressReporter.getProgressInterval()
+      val newMinBytes = if (progressMinBytesScope > 0) progressMinBytesScope else uploadProgressReporter.getProgressMinBytes()
+      uploadProgressReporter.configure(newInterval, newMinBytes)
+    }
+
+    if (id == null || url == null || source == null) {
+      logE(NAME, "upload: id, url and source must be set.")
+      return
+    }
+
+    val config = RNBGDUploadTaskConfig(
+      id = id,
+      url = url,
+      source = source,
+      metadata = metadata ?: "{}",
+      method = method ?: "POST",
+      fieldName = fieldName,
+      mimeType = mimeType,
+      parameters = parameters
+    )
+
+    synchronized(sharedLock) {
+      uploadConfigs[id] = config
+      uploadProgressReporter.initializeDownload(id)
+    }
+
+    uploader.startUpload(config, uploadListener)
+  }
+
+  fun pauseUploadTask(configId: String) {
+    synchronized(sharedLock) {
+      uploadConfigs[configId]?.state = DownloadConstants.TASK_SUSPENDED
+    }
+    uploader.pause(configId)
+    logD(NAME, "Paused upload: $configId")
+  }
+
+  fun resumeUploadTask(configId: String) {
+    synchronized(sharedLock) {
+      uploadConfigs[configId]?.state = DownloadConstants.TASK_RUNNING
+    }
+    uploader.resume(configId, uploadListener)
+    logD(NAME, "Resumed upload: $configId")
+  }
+
+  fun stopUploadTask(configId: String) {
+    synchronized(sharedLock) {
+      uploadConfigs.remove(configId)
+      uploadProgressReporter.clearDownloadState(configId)
+    }
+    uploader.cancel(configId)
+    logD(NAME, "Stopped upload: $configId")
+  }
+
+  fun getExistingUploadTasks(promise: Promise) {
+    val foundTasks = Arguments.createArray()
+
+    synchronized(sharedLock) {
+      for ((id, config) in uploadConfigs) {
+        val uploadState = uploader.getState(id)
+        val params = Arguments.createMap()
+        params.putString("id", config.id)
+        params.putString("metadata", config.metadata)
+
+        val state = when {
+          uploadState?.isPaused?.get() == true -> DownloadConstants.TASK_SUSPENDED
+          uploadState?.isCancelled?.get() == true -> DownloadConstants.TASK_CANCELING
+          uploadState != null -> DownloadConstants.TASK_RUNNING
+          else -> config.state
+        }
+        params.putInt("state", state)
+
+        val bytesUploaded = uploadState?.bytesUploaded?.get() ?: config.bytesUploaded
+        val bytesTotal = uploadState?.bytesTotal ?: config.bytesTotal
+        params.putDouble("bytesUploaded", bytesUploaded.toDouble())
+        params.putDouble("bytesTotal", bytesTotal.toDouble())
+
+        foundTasks.pushMap(params)
+      }
+    }
+
+    promise.resolve(foundTasks)
   }
 }

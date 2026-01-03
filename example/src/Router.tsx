@@ -2,6 +2,7 @@ import React from 'react'
 import { createStackNavigator } from '@react-navigation/stack'
 import WelcomeScreen from './screens/Welcome'
 import BasicExampleScreen from './screens/BasicExample'
+import UploadExampleScreen from './screens/UploadExample'
 
 const RootStack = createStackNavigator()
 
@@ -21,11 +22,21 @@ const Router = () => {
       <RootStack.Screen
         name={'root.basic_example'}
         options={{
-          headerTitle: 'Basic Example',
+          headerTitle: 'Download Example',
           headerTitleAlign: 'center',
           headerBackButtonDisplayMode: 'minimal',
         }}
         component={BasicExampleScreen}
+      />
+
+      <RootStack.Screen
+        name={'root.upload_example'}
+        options={{
+          headerTitle: 'Upload Example',
+          headerTitleAlign: 'center',
+          headerBackButtonDisplayMode: 'minimal',
+        }}
+        component={UploadExampleScreen}
       />
     </RootStack.Navigator>
   )

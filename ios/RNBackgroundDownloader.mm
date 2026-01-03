@@ -1,5 +1,6 @@
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
+#import "RNBGDUploadTaskConfig.h"
 #import <MMKV/MMKV.h>
 #import <React/RCTBridge.h>
 
@@ -9,6 +10,7 @@
 #endif
 
 #define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
+#define ID_TO_UPLOAD_CONFIG_MAP_KEY @"com.eko.bguploadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
 #define PROGRESS_MIN_BYTES_KEY @"progressMinBytes"
 
@@ -64,6 +66,15 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     NSMutableArray<dispatch_block_t> *pendingDownloads;
     // Controls whether debug logs are sent to JS
     BOOL isLogsEnabled;
+
+    // Upload-specific instance variables
+    NSMutableDictionary<NSNumber *, RNBGDUploadTaskConfig *> *uploadTaskToConfigMap;
+    NSMutableDictionary<NSString *, NSURLSessionUploadTask *> *idToUploadTaskMap;
+    NSMutableDictionary<NSString *, NSNumber *> *idToUploadPercentMap;
+    NSMutableDictionary<NSString *, NSDictionary *> *uploadProgressReports;
+    NSMutableDictionary<NSString *, NSNumber *> *idToUploadLastBytesMap;
+    NSMutableSet<NSString *> *idsToUploadPauseSet;
+    NSDate *lastUploadProgressReportedAt;
 }
 
 RCT_EXPORT_MODULE();
@@ -80,6 +91,10 @@ RCT_EXPORT_MODULE();
     return taskToConfigMap[@(task.taskIdentifier)];
 }
 
+- (RNBGDUploadTaskConfig *)uploadConfigForTask:(NSURLSessionTask *)task {
+    return uploadTaskToConfigMap[@(task.taskIdentifier)];
+}
+
 - (dispatch_queue_t)methodQueue
 {
     return dispatch_queue_create("com.eko.backgrounddownloader", DISPATCH_QUEUE_SERIAL);
@@ -92,6 +107,10 @@ RCT_EXPORT_MODULE();
         @"downloadProgress",
         @"downloadComplete",
         @"downloadFailed",
+        @"uploadBegin",
+        @"uploadProgress",
+        @"uploadComplete",
+        @"uploadFailed",
         @"nativeDebugLog"
     ];
 }
@@ -212,6 +231,18 @@ RCT_EXPORT_MODULE();
         decodeErrorRetriedIds = [[NSMutableSet alloc] init];
         isSessionActivated = NO;
         pendingDownloads = [[NSMutableArray alloc] init];
+
+        // Initialize upload-specific data structures
+        NSData *uploadTaskToConfigMapData = [mmkv getDataForKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
+        NSMutableDictionary *uploadTaskToConfigMapDataDefault = [[NSMutableDictionary alloc] init];
+        NSMutableDictionary *uploadTaskToConfigMapDataDecoded = uploadTaskToConfigMapData != nil ? [self deserializeUploadConfig:uploadTaskToConfigMapData] : nil;
+        uploadTaskToConfigMap = uploadTaskToConfigMapDataDecoded != nil ? uploadTaskToConfigMapDataDecoded : uploadTaskToConfigMapDataDefault;
+        idToUploadTaskMap = [[NSMutableDictionary alloc] init];
+        idToUploadPercentMap = [[NSMutableDictionary alloc] init];
+        uploadProgressReports = [[NSMutableDictionary alloc] init];
+        idToUploadLastBytesMap = [[NSMutableDictionary alloc] init];
+        idsToUploadPauseSet = [[NSMutableSet alloc] init];
+        lastUploadProgressReportedAt = [[NSDate alloc] init];
 
         [self registerBridgeListener];
 
@@ -986,6 +1017,13 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
     @synchronized (sharedLock) {
+        // Check if this is an upload task first
+        RNBGDUploadTaskConfig *uploadTaskConfig = [self uploadConfigForTask:task];
+        if (uploadTaskConfig) {
+            [self handleUploadCompletion:task error:error];
+            return;
+        }
+
         RNBGDTaskConfig *taskConfig = [self configForTask:task];
 
         if (!error || !taskConfig) {
@@ -1083,6 +1121,469 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     DLog(nil, @"[RNBackgroundDownloader] - [URLSessionDidFinishEventsForBackgroundURLSession]");
 }
 
+#pragma mark - Upload methods
+
+- (void)removeUploadTaskFromMap:(NSURLSessionTask *)task {
+    @synchronized (sharedLock) {
+        NSNumber *taskId = @(task.taskIdentifier);
+        RNBGDUploadTaskConfig *taskConfig = uploadTaskToConfigMap[taskId];
+        DLog(taskConfig.id, @"[RNBackgroundDownloader] - [removeUploadTaskFromMap]");
+
+        [uploadTaskToConfigMap removeObjectForKey:taskId];
+        [mmkv setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
+
+        if (taskConfig) {
+            [idToUploadTaskMap removeObjectForKey:taskConfig.id];
+            [idToUploadPercentMap removeObjectForKey:taskConfig.id];
+            [idToUploadLastBytesMap removeObjectForKey:taskConfig.id];
+        }
+    }
+}
+
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)upload:(JS::NativeRNBackgroundDownloader::SpecUploadOptions &)options {
+    NSString *identifier = options.id_();
+    DLog(identifier, @"[RNBackgroundDownloader] - [upload]");
+    NSString *url = options.url();
+    NSString *source = options.source();
+    NSString *method = options.method() ? options.method() : @"POST";
+    NSString *metadata = options.metadata() ? options.metadata() : @"";
+    NSDictionary *headers = options.headers() ? (NSDictionary *)options.headers() : nil;
+    NSString *fieldName = options.fieldName() ? options.fieldName() : @"file";
+    NSString *mimeType = options.mimeType() ? options.mimeType() : nil;
+    NSDictionary *parameters = options.parameters() ? (NSDictionary *)options.parameters() : nil;
+
+    if (options.progressInterval().has_value()) {
+        progressInterval = options.progressInterval().value() / 1000.0;
+        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+    }
+
+    if (options.progressMinBytes().has_value()) {
+        progressMinBytes = (int64_t)options.progressMinBytes().value();
+        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+    }
+#else
+RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
+    NSString *identifier = options[@"id"];
+    DLog(identifier, @"[RNBackgroundDownloader] - [upload]");
+    NSString *url = options[@"url"];
+    NSString *source = options[@"source"];
+    NSString *method = options[@"method"] ?: @"POST";
+    NSString *metadata = options[@"metadata"] ?: @"";
+    NSDictionary *headers = options[@"headers"];
+    NSString *fieldName = options[@"fieldName"] ?: @"file";
+    NSString *mimeType = options[@"mimeType"];
+    NSDictionary *parameters = options[@"parameters"];
+
+    NSNumber *progressIntervalScope = options[@"progressInterval"];
+    if (progressIntervalScope) {
+        progressInterval = [progressIntervalScope intValue] / 1000.0;
+        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+    }
+
+    NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
+    if (progressMinBytesScope) {
+        progressMinBytes = [progressMinBytesScope longLongValue];
+        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+    }
+#endif
+
+    DLog(identifier, @"[RNBackgroundDownloader] - [upload] url %@ source %@ method %@", url, source, method);
+    if (identifier == nil || url == nil || source == nil) {
+        DLog(identifier, @"[RNBackgroundDownloader] - [Error] id, url and source must be set");
+        return;
+    }
+
+    @synchronized (sharedLock) {
+        [self sendDebugLog:@"upload: calling lazyRegisterSession" taskId:identifier];
+        [self lazyRegisterSession];
+
+        // Get file info
+        NSURL *fileURL = [NSURL fileURLWithPath:source];
+        NSError *fileError;
+        NSDictionary *fileAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:source error:&fileError];
+        if (fileError) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [Error] Could not read file: %@", fileError.localizedDescription);
+            return;
+        }
+        unsigned long long fileSize = [fileAttrs fileSize];
+
+        // Create request
+        NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:url]];
+        request.HTTPMethod = method;
+        [request setValue:identifier forHTTPHeaderField:@"uploadConfigId"];
+
+        // Add custom headers
+        if (headers != nil) {
+            for (NSString *headerKey in headers) {
+                [request setValue:[headers valueForKey:headerKey] forHTTPHeaderField:headerKey];
+            }
+        }
+
+        // Determine if we need multipart
+        BOOL useMultipart = (parameters != nil && parameters.count > 0) || fieldName != nil;
+
+        RNBGDUploadTaskConfig *taskConfig = [[RNBGDUploadTaskConfig alloc] initWithDictionary:@{
+            @"id": identifier,
+            @"url": url,
+            @"source": source,
+            @"method": method,
+            @"metadata": metadata,
+            @"fieldName": fieldName ?: [NSNull null],
+            @"mimeType": mimeType ?: [NSNull null],
+            @"parameters": parameters ?: [NSNull null]
+        }];
+        taskConfig.bytesTotal = fileSize;
+
+        NSURLSessionUploadTask *uploadTask;
+
+        if (useMultipart) {
+            // Create multipart form data
+            NSString *boundary = [[NSUUID UUID] UUIDString];
+            [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
+
+            // Build multipart body
+            NSMutableData *body = [NSMutableData data];
+
+            // Add parameters
+            if (parameters != nil) {
+                for (NSString *key in parameters) {
+                    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+                    [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"\r\n\r\n", key] dataUsingEncoding:NSUTF8StringEncoding]];
+                    [body appendData:[[NSString stringWithFormat:@"%@\r\n", parameters[key]] dataUsingEncoding:NSUTF8StringEncoding]];
+                }
+            }
+
+            // Add file
+            NSString *filename = [source lastPathComponent];
+            NSString *contentType = mimeType ?: @"application/octet-stream";
+
+            [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+            [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", fieldName, filename] dataUsingEncoding:NSUTF8StringEncoding]];
+            [body appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", contentType] dataUsingEncoding:NSUTF8StringEncoding]];
+
+            NSData *fileData = [NSData dataWithContentsOfFile:source];
+            [body appendData:fileData];
+            [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+
+            // End boundary
+            [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+
+            // Write body to temp file for background upload
+            NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+            [body writeToFile:tempPath atomically:YES];
+            NSURL *tempFileURL = [NSURL fileURLWithPath:tempPath];
+
+            taskConfig.bytesTotal = body.length;
+            uploadTask = [urlSession uploadTaskWithRequest:request fromFile:tempFileURL];
+        } else {
+            // Simple file upload
+            if (mimeType) {
+                [request setValue:mimeType forHTTPHeaderField:@"Content-Type"];
+            }
+            uploadTask = [urlSession uploadTaskWithRequest:request fromFile:fileURL];
+        }
+
+        if (uploadTask == nil) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create upload task");
+            return;
+        }
+
+        uploadTaskToConfigMap[@(uploadTask.taskIdentifier)] = taskConfig;
+        [mmkv setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
+
+        idToUploadTaskMap[identifier] = uploadTask;
+        idToUploadPercentMap[identifier] = @0.0;
+        idToUploadLastBytesMap[identifier] = @0;
+
+        [uploadTask resume];
+        lastUploadProgressReportedAt = [[NSDate alloc] init];
+    }
+}
+
+- (void)pauseUploadTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    DLog(identifier, @"[RNBackgroundDownloader] - [pauseUploadTask]");
+    @try {
+        @synchronized (sharedLock) {
+            NSURLSessionUploadTask *task = idToUploadTaskMap[identifier];
+            if (task != nil) {
+                [idsToUploadPauseSet addObject:identifier];
+                [task suspend];
+                DLog(identifier, @"[RNBackgroundDownloader] - [pauseUploadTask] suspended upload task: %@", identifier);
+            }
+        }
+        resolve(nil);
+    } @catch (NSException *exception) {
+        reject(@"ERR_PAUSE_UPLOAD_TASK", exception.reason, nil);
+    }
+}
+
+- (void)pauseUploadTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    [self pauseUploadTaskInternal:identifier resolve:resolve reject:reject];
+}
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(pauseUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self pauseUploadTaskInternal:id resolve:resolve reject:reject];
+}
+#endif
+
+- (void)resumeUploadTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    DLog(identifier, @"[RNBackgroundDownloader] - [resumeUploadTask]");
+    @try {
+        @synchronized (sharedLock) {
+            [self lazyRegisterSession];
+            [idsToUploadPauseSet removeObject:identifier];
+
+            NSURLSessionUploadTask *task = idToUploadTaskMap[identifier];
+            if (task != nil && task.state == NSURLSessionTaskStateSuspended) {
+                [task resume];
+                DLog(identifier, @"[RNBackgroundDownloader] - [resumeUploadTask] resumed upload task: %@", identifier);
+            } else {
+                DLog(identifier, @"[RNBackgroundDownloader] - [resumeUploadTask] no suspended upload task found for %@", identifier);
+            }
+        }
+        resolve(nil);
+    } @catch (NSException *exception) {
+        reject(@"ERR_RESUME_UPLOAD_TASK", exception.reason, nil);
+    }
+}
+
+- (void)resumeUploadTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    [self resumeUploadTaskInternal:identifier resolve:resolve reject:reject];
+}
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(resumeUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self resumeUploadTaskInternal:id resolve:resolve reject:reject];
+}
+#endif
+
+- (void)stopUploadTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    DLog(identifier, @"[RNBackgroundDownloader] - [stopUploadTask]");
+    @try {
+        @synchronized (sharedLock) {
+            NSURLSessionUploadTask *task = idToUploadTaskMap[identifier];
+            if (task != nil) {
+                [task cancel];
+                [self removeUploadTaskFromMap:task];
+            }
+            [idsToUploadPauseSet removeObject:identifier];
+        }
+        resolve(nil);
+    } @catch (NSException *exception) {
+        reject(@"ERR_STOP_UPLOAD_TASK", exception.reason, nil);
+    }
+}
+
+- (void)stopUploadTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    [self stopUploadTaskInternal:identifier resolve:resolve reject:reject];
+}
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(stopUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self stopUploadTaskInternal:id resolve:resolve reject:reject];
+}
+#endif
+
+- (void)getExistingUploadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    DLog(nil, @"[RNBackgroundDownloader] - [getExistingUploadTasks]");
+    [self lazyRegisterSession];
+
+    if (urlSession == nil) {
+        reject(@"ERR_SESSION_NIL", @"URL session could not be initialized", nil);
+        return;
+    }
+
+    [urlSession getTasksWithCompletionHandler:^(NSArray<NSURLSessionDataTask *> * _Nonnull dataTasks, NSArray<NSURLSessionUploadTask *> * _Nonnull uploadTasks, NSArray<NSURLSessionDownloadTask *> * _Nonnull downloadTasks) {
+        @synchronized (self->sharedLock) {
+            @try {
+                NSMutableArray *foundTasks = [[NSMutableArray alloc] init];
+
+                for (NSURLSessionUploadTask *task in uploadTasks) {
+                    RNBGDUploadTaskConfig *taskConfig = [self uploadConfigForTask:task];
+
+                    if (taskConfig) {
+                        taskConfig.state = task.state;
+                        taskConfig.bytesUploaded = task.countOfBytesSent;
+                        taskConfig.bytesTotal = task.countOfBytesExpectedToSend;
+
+                        NSDictionary *taskInfo = @{
+                            @"id": taskConfig.id,
+                            @"metadata": taskConfig.metadata,
+                            @"state": @(taskConfig.state),
+                            @"bytesUploaded": @(taskConfig.bytesUploaded),
+                            @"bytesTotal": @(taskConfig.bytesTotal),
+                            @"errorCode": taskConfig.errorCode ? @(taskConfig.errorCode) : [NSNull null]
+                        };
+                        [foundTasks addObject:taskInfo];
+                        self->idToUploadTaskMap[taskConfig.id] = task;
+                    } else {
+                        [task cancel];
+                    }
+                }
+
+                resolve(foundTasks);
+            } @catch (NSException *exception) {
+                reject(@"ERR_GET_EXISTING_UPLOAD_TASKS", exception.reason, nil);
+            }
+        }
+    }];
+}
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self getExistingUploadTasks:resolve reject:reject];
+}
+#endif
+
+#pragma mark - NSURLSessionTaskDelegate for uploads
+
+// Progress tracking for uploads
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didSendBodyData:(int64_t)bytesSent totalBytesSent:(int64_t)totalBytesSent totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
+    @synchronized (sharedLock) {
+        RNBGDUploadTaskConfig *taskConfig = [self uploadConfigForTask:task];
+        if (!taskConfig) {
+            return;
+        }
+
+        DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didSendBodyData] %lld/%lld", totalBytesSent, totalBytesExpectedToSend);
+
+        // Report begin if needed
+        if (!taskConfig.reportedBegin) {
+            taskConfig.reportedBegin = YES;
+#ifdef RCT_NEW_ARCH_ENABLED
+            [self emitOnUploadBegin:@{
+                @"id": taskConfig.id,
+                @"expectedBytes": @(totalBytesExpectedToSend)
+            }];
+#else
+            [self sendEventWithName:@"uploadBegin" body:@{
+                @"id": taskConfig.id,
+                @"expectedBytes": @(totalBytesExpectedToSend)
+            }];
+#endif
+        }
+
+        // Update progress
+        NSNumber *prevPercent = idToUploadPercentMap[taskConfig.id] ?: @0.0;
+        NSNumber *prevBytes = idToUploadLastBytesMap[taskConfig.id] ?: @0;
+        float currentPercent = totalBytesExpectedToSend > 0 ? (float)totalBytesSent / (float)totalBytesExpectedToSend : 0.0;
+
+        BOOL percentThresholdMet = currentPercent - [prevPercent floatValue] > kProgressReportThreshold;
+        BOOL bytesThresholdMet = progressMinBytes > 0 && (totalBytesSent - [prevBytes longLongValue] >= progressMinBytes);
+
+        if (percentThresholdMet || bytesThresholdMet || totalBytesExpectedToSend <= 0) {
+            uploadProgressReports[taskConfig.id] = @{
+                @"id": taskConfig.id,
+                @"bytesUploaded": @(totalBytesSent),
+                @"bytesTotal": @(totalBytesExpectedToSend)
+            };
+            idToUploadPercentMap[taskConfig.id] = @(currentPercent);
+            idToUploadLastBytesMap[taskConfig.id] = @(totalBytesSent);
+            taskConfig.bytesUploaded = totalBytesSent;
+            taskConfig.bytesTotal = totalBytesExpectedToSend;
+        }
+
+        // Flush progress reports if needed
+        if (uploadProgressReports.count > 0) {
+            NSDate *now = [NSDate date];
+            if ([now timeIntervalSinceDate:lastUploadProgressReportedAt] > progressInterval) {
+#ifdef RCT_NEW_ARCH_ENABLED
+                [self emitOnUploadProgress:[uploadProgressReports allValues]];
+#else
+                [self sendEventWithName:@"uploadProgress" body:[uploadProgressReports allValues]];
+#endif
+                lastUploadProgressReportedAt = now;
+                [uploadProgressReports removeAllObjects];
+            }
+        }
+    }
+}
+
+#pragma mark - NSURLSessionDataDelegate for upload response
+
+// Handle response data for uploads
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+    @synchronized (sharedLock) {
+        // Upload tasks are also data tasks when receiving response
+        RNBGDUploadTaskConfig *taskConfig = [self uploadConfigForTask:dataTask];
+        if (!taskConfig) {
+            return;
+        }
+
+        if (taskConfig.responseData == nil) {
+            taskConfig.responseData = [[NSMutableData alloc] init];
+        }
+        [taskConfig.responseData appendData:data];
+    }
+}
+
+// Handle upload completion (override the existing method to also handle uploads)
+- (void)handleUploadCompletion:(NSURLSessionTask *)task error:(NSError *)error {
+    @synchronized (sharedLock) {
+        RNBGDUploadTaskConfig *taskConfig = [self uploadConfigForTask:task];
+        if (!taskConfig) {
+            return;
+        }
+
+        if (error) {
+            // Check if intentionally paused
+            if (error.code == NSURLErrorCancelled && [idsToUploadPauseSet containsObject:taskConfig.id]) {
+                DLog(taskConfig.id, @"[RNBackgroundDownloader] - upload was paused, ignoring error");
+                return;
+            }
+
+            DLog(taskConfig.id, @"[RNBackgroundDownloader] - [handleUploadCompletion] error: %@", error);
+#ifdef RCT_NEW_ARCH_ENABLED
+            [self emitOnUploadFailed:@{
+                @"id": taskConfig.id,
+                @"error": [error localizedDescription],
+                @"errorCode": @(error.code)
+            }];
+#else
+            [self sendEventWithName:@"uploadFailed" body:@{
+                @"id": taskConfig.id,
+                @"error": [error localizedDescription],
+                @"errorCode": @(error.code)
+            }];
+#endif
+        } else {
+            // Upload succeeded
+            NSInteger responseCode = 0;
+            if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
+                responseCode = ((NSHTTPURLResponse *)task.response).statusCode;
+            }
+
+            NSString *responseBody = @"";
+            if (taskConfig.responseData) {
+                responseBody = [[NSString alloc] initWithData:taskConfig.responseData encoding:NSUTF8StringEncoding] ?: @"";
+            }
+
+            DLog(taskConfig.id, @"[RNBackgroundDownloader] - [handleUploadCompletion] success, responseCode: %ld", (long)responseCode);
+#ifdef RCT_NEW_ARCH_ENABLED
+            [self emitOnUploadComplete:@{
+                @"id": taskConfig.id,
+                @"responseCode": @(responseCode),
+                @"responseBody": responseBody,
+                @"bytesUploaded": @(task.countOfBytesSent),
+                @"bytesTotal": @(task.countOfBytesExpectedToSend)
+            }];
+#else
+            [self sendEventWithName:@"uploadComplete" body:@{
+                @"id": taskConfig.id,
+                @"responseCode": @(responseCode),
+                @"responseBody": responseBody,
+                @"bytesUploaded": @(task.countOfBytesSent),
+                @"bytesTotal": @(task.countOfBytesExpectedToSend)
+            }];
+#endif
+        }
+
+        [self removeUploadTaskFromMap:task];
+    }
+}
+
 + (void)setCompletionHandlerWithIdentifier:(NSString *)identifier completionHandler: (CompletionHandler)completionHandler {
   DLogStatic(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier]");
   NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
@@ -1175,6 +1676,34 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
     if (error) {
         DLog(nil, @"[RNBackgroundDownloader] Deserialization error: %@", error);
+        return nil;
+    }
+
+    return taskMap;
+}
+
+#pragma mark - Upload serialization
+
+- (NSData *)serializeUploadConfig:(NSMutableDictionary<NSNumber *, RNBGDUploadTaskConfig *> *)taskMap {
+    NSError *error = nil;
+    NSData *taskMapRaw = [NSKeyedArchiver archivedDataWithRootObject:taskMap requiringSecureCoding:YES error:&error];
+
+    if (error) {
+        DLog(nil, @"[RNBackgroundDownloader] Upload serialization error: %@", error);
+        return nil;
+    }
+
+    return taskMapRaw;
+}
+
+- (NSMutableDictionary<NSNumber *, RNBGDUploadTaskConfig *> *)deserializeUploadConfig:(NSData *)taskMapRaw {
+    NSError *error = nil;
+    // Creates a list of classes that can be stored.
+    NSSet *classes = [NSSet setWithObjects:[RNBGDUploadTaskConfig class], [NSMutableDictionary class], [NSNumber class], [NSString class], [NSDictionary class], nil];
+    NSMutableDictionary<NSNumber *, RNBGDUploadTaskConfig *> *taskMap = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:taskMapRaw error:&error];
+
+    if (error) {
+        DLog(nil, @"[RNBackgroundDownloader] Upload deserialization error: %@", error);
         return nil;
     }
 
