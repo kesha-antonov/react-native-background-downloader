@@ -672,8 +672,9 @@ module.exports = async function() {
   TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async (event) => {
     // This code runs in the background, even when screen is locked
     
-    // Example: Get the next track from your queue/playlist
-    // Implement this function to return the next track object: { id, url, isDownloaded }
+    // Get the next track from your queue/playlist
+    // NOTE: You need to implement getNextTrackFromQueue() based on your app's logic
+    // It should return a track object like: { id: 'track1', url: 'https://...', isDownloaded: false }
     const nextTrack = await getNextTrackFromQueue()
     
     if (nextTrack && !nextTrack.isDownloaded) {
@@ -771,6 +772,8 @@ When testing background download behavior:
 
 3. **Check logs**: Enable debug logging to see what's happening:
    ```javascript
+   import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+   
    setConfig({ isLogsEnabled: true })
    ```
 
