@@ -654,32 +654,36 @@ function MyComponent() {
 
 **✅ Correct:** Start downloads from the audio player's background service
 ```javascript
-// In your track player service/background task
+// In your track player service/background task (service.js)
 import TrackPlayer, { Event } from 'react-native-track-player'
-import { createDownloadTask } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
 
-TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async ({ track, position }) => {
-  // This code runs in the background, even when screen is locked
-  const nextTrack = getNextTrack()
-  if (nextTrack && !nextTrack.isDownloaded) {
-    // Start download from background context
-    createDownloadTask({
-      id: nextTrack.id,
-      url: nextTrack.url,
-      destination: `${directories.documents}/${nextTrack.id}.mp3`
-    }).start()
-  }
-})
+// Register this service in your index.js: TrackPlayer.registerPlaybackService(() => require('./service'))
+module.exports = async function() {
+  TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async (event) => {
+    // This code runs in the background, even when screen is locked
+    const nextTrack = getNextTrack()
+    if (nextTrack && !nextTrack.isDownloaded) {
+      // Start download from background context
+      createDownloadTask({
+        id: nextTrack.id,
+        url: nextTrack.url,
+        destination: `${directories.documents}/${nextTrack.id}.mp3`
+      }).start()
+    }
+  })
+}
 ```
 
 **Alternative:** Use react-native-background-actions to keep your app active
 ```javascript
 import BackgroundService from 'react-native-background-actions'
-import { createDownloadTask } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
 
-const downloadTask = async (taskDataArguments) => {
+const veryIntensiveTask = async (taskDataArguments) => {
   const { downloads } = taskDataArguments
   await new Promise(async (resolve) => {
+    // Process downloads while BackgroundService is running
     for (const downloadInfo of downloads) {
       createDownloadTask(downloadInfo)
         .done(() => {
@@ -690,14 +694,24 @@ const downloadTask = async (taskDataArguments) => {
   })
 }
 
-// Start background service to keep app active
-await BackgroundService.start(downloadTask, {
+const options = {
   taskName: 'Download Service',
   taskTitle: 'Downloading files',
   taskDesc: 'Downloading audio files in background',
   taskIcon: { name: 'ic_launcher', type: 'mipmap' },
-  parameters: { downloads: [...] }
-})
+  parameters: { 
+    downloads: [
+      {
+        id: 'file1',
+        url: 'https://example.com/file1.mp3',
+        destination: `${directories.documents}/file1.mp3`
+      }
+    ]
+  }
+}
+
+// Start background service to keep app active
+await BackgroundService.start(veryIntensiveTask, options)
 ```
 
 #### Testing Background Downloads on iOS
