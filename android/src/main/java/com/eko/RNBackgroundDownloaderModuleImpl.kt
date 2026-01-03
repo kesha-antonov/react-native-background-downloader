@@ -609,8 +609,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // Use DownloadManager with valid external storage path
       // Download directly to final destination to avoid file duplication
       val destFile = File(destination)
-      if (!destFile.parentFile!!.exists()) {
-        destFile.parentFile!!.mkdirs()
+      val parentDir = destFile.parentFile
+      if (parentDir != null && !parentDir.exists()) {
+        parentDir.mkdirs()
       }
       request.setDestinationUri(Uri.fromFile(destFile))
       startDownloadManagerDownload(downloader.download(request))

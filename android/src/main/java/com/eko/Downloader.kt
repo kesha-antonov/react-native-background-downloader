@@ -136,8 +136,11 @@ class Downloader(private val context: Context) {
       // Clean up partially downloaded destination file if it exists
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
-        destFile.delete()
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        if (!destFile.delete()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
+        } else {
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        }
       }
     }
   }
@@ -315,8 +318,11 @@ class Downloader(private val context: Context) {
     if (pausedInfo != null) {
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
-        destFile.delete()
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        if (!destFile.delete()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
+        } else {
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        }
       }
     }
 
@@ -350,8 +356,11 @@ class Downloader(private val context: Context) {
     if (pausedInfo != null) {
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
-        destFile.delete()
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        if (!destFile.delete()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
+        } else {
+          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
+        }
       }
     }
   }

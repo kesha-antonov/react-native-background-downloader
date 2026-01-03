@@ -81,8 +81,11 @@ class ResumableDownloader {
 
     // Clean up any existing destination file if starting fresh (startByte == 0)
     if (startByte == 0L && destFile.exists()) {
-      destFile.delete()
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted existing destination file: $destination")
+      if (!destFile.delete()) {
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete existing destination file: $destination")
+      } else {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted existing destination file: $destination")
+      }
     }
 
     val state = DownloadState(
@@ -99,7 +102,12 @@ class ResumableDownloader {
       state.hasReportedBegin = true // Don't report begin again for resumed downloads
 
       // Ensure parent directories exist
-      destFile.parentFile?.mkdirs()
+      val parentDir = destFile.parentFile
+      if (parentDir != null && !parentDir.exists()) {
+        if (!parentDir.mkdirs()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories for: $destination")
+        }
+      }
       // We'll append to destination file at the start position
     }
 
@@ -195,8 +203,11 @@ class ResumableDownloader {
     // Clean up partially downloaded destination file
     val destFile = File(state.destination)
     if (destFile.exists()) {
-      destFile.delete()
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${state.destination}")
+      if (!destFile.delete()) {
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${state.destination}")
+      } else {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${state.destination}")
+      }
     }
 
     // Remove from active downloads after setting cancelled flag
@@ -392,7 +403,12 @@ class ResumableDownloader {
       val destFile = File(state.destination)
 
       // Create parent directories if needed
-      destFile.parentFile?.mkdirs()
+      val parentDir = destFile.parentFile
+      if (parentDir != null && !parentDir.exists()) {
+        if (!parentDir.mkdirs()) {
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories for: ${state.destination}")
+        }
+      }
 
       // Open in append mode if resuming
       val shouldAppend = startByte > 0 && responseCode == HttpURLConnection.HTTP_PARTIAL
