@@ -105,7 +105,7 @@ class ResumableDownloader {
       val parentDir = destFile.parentFile
       if (parentDir != null && !parentDir.exists()) {
         if (!parentDir.mkdirs()) {
-          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories for: $destination")
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories: ${parentDir.absolutePath}")
         }
       }
       // We'll append to destination file at the start position
@@ -406,7 +406,7 @@ class ResumableDownloader {
       val parentDir = destFile.parentFile
       if (parentDir != null && !parentDir.exists()) {
         if (!parentDir.mkdirs()) {
-          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories for: ${state.destination}")
+          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories: ${parentDir.absolutePath}")
         }
       }
 
