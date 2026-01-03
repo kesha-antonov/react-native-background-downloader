@@ -1,7 +1,7 @@
 import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
 import { DownloadTask } from './DownloadTask'
 import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative } from './types'
-import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, DEFAULT_MAX_PARALLEL_DOWNLOADS, DEFAULT_ALLOWS_CELLULAR_ACCESS } from './config'
+import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 type RNBackgroundDownloaderModule = Spec & {
@@ -256,12 +256,11 @@ export function setConfig ({
   else
     console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
 
-  if (maxParallelDownloads !== undefined) {
+  if (maxParallelDownloads !== undefined)
     if (maxParallelDownloads >= 1)
       config.maxParallelDownloads = maxParallelDownloads
     else
       console.warn(`[RNBackgroundDownloader] maxParallelDownloads must be a number >= 1. You passed ${maxParallelDownloads}`)
-  }
 
   if (allowsCellularAccess !== undefined)
     config.allowsCellularAccess = allowsCellularAccess
