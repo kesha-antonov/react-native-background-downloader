@@ -643,10 +643,19 @@ If you're using this library alongside an audio player like `react-native-track-
 
 **❌ Incorrect:** Starting downloads from UI/view context
 ```javascript
-// This may not work reliably when screen is locked
+// This may not work reliably when screen is locked with audio players
 function MyComponent() {
   const startDownload = () => {
-    createDownloadTask({ ... }).start()
+    createDownloadTask({
+      id: 'file123',
+      url: 'https://example.com/file.mp3',
+      destination: `${directories.documents}/file.mp3`
+    })
+    .begin(({ expectedBytes }) => console.log('Download started'))
+    .progress(({ bytesDownloaded, bytesTotal }) => console.log('Progress'))
+    .done(() => console.log('Done'))
+    .error(({ error }) => console.error('Error', error))
+    .start()
   }
   // ...
 }
@@ -656,7 +665,7 @@ function MyComponent() {
 ```javascript
 // In your track player service/background task (service.js)
 import TrackPlayer, { Event } from 'react-native-track-player'
-import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories, completeHandler } from '@kesha-antonov/react-native-background-downloader'
 
 // Register this service in your index.js: TrackPlayer.registerPlaybackService(() => require('./service'))
 module.exports = async function() {
@@ -664,16 +673,31 @@ module.exports = async function() {
     // This code runs in the background, even when screen is locked
     
     // Example: Get the next track from your queue/playlist
-    // You need to implement this based on your app's logic
-    const nextTrack = getNextTrack() // Your implementation
+    // Implement this function to return the next track object: { id, url, isDownloaded }
+    const nextTrack = await getNextTrackFromQueue()
     
     if (nextTrack && !nextTrack.isDownloaded) {
-      // Start download from background context
+      // Start download from background context with full callback chain
       createDownloadTask({
         id: nextTrack.id,
         url: nextTrack.url,
         destination: `${directories.documents}/${nextTrack.id}.mp3`
-      }).start()
+      })
+      .begin(({ expectedBytes }) => {
+        console.log(`Starting download: ${nextTrack.id}, ${expectedBytes} bytes`)
+      })
+      .progress(({ bytesDownloaded, bytesTotal }) => {
+        console.log(`Progress: ${nextTrack.id}, ${bytesDownloaded}/${bytesTotal}`)
+      })
+      .done(() => {
+        console.log('Download complete:', nextTrack.id)
+        completeHandler(nextTrack.id)
+      })
+      .error(({ error, errorCode }) => {
+        console.error('Download failed:', nextTrack.id, error, errorCode)
+        completeHandler(nextTrack.id)
+      })
+      .start()
     }
   })
 }
