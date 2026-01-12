@@ -249,6 +249,8 @@ expo prebuild --clean
 
 ## Usage
 
+> **📱 iOS Users:** If you're using this library with background audio players like `react-native-track-player` and experiencing issues with downloads when the screen is locked, see the [iOS Background Downloads and Screen Lock](#ios-background-downloads-and-screen-lock) section for important guidance on starting downloads from the correct context.
+
 ### Downloading a file
 
 ```javascript
@@ -823,6 +825,184 @@ The Android implementation uses the system's `DownloadManager` service for downl
 - **How it works**: When you pause a download, the current progress is saved. When resumed, a new download starts from where it left off using the `Range` header
 - **Server requirement**: The server must support HTTP Range requests for resume to work correctly. If the server doesn't support range requests, the download will restart from the beginning
 - **Temp files**: During pause/resume, progress is stored in a `.tmp` file which is renamed to the final destination upon completion
+
+### iOS Background Downloads and Screen Lock
+
+The iOS implementation uses Apple's `NSURLSession` with background session configuration, which is specifically designed to handle downloads even when:
+- The app is in the background
+- The app is suspended or terminated
+- The device screen is locked
+- The device goes to sleep
+
+#### How iOS Background Downloads Work
+
+iOS manages background downloads in a **separate system process** (`nsurlsessiond`), completely independent of your app. This means:
+
+1. **Downloads continue when locked**: Background sessions are designed to work when the device is locked. iOS handles temporary download files with appropriate file protection levels that allow access during background transfers.
+
+2. **App relaunch on completion**: When a background download completes while your app is suspended or terminated, iOS will relaunch your app in the background to handle the completion event. This is why the `handleEventsForBackgroundURLSession` method in AppDelegate is required.
+
+3. **Configuration matters**: The library already configures the session correctly with:
+   - `discretionary = NO` - Downloads proceed immediately without waiting for optimal conditions
+   - `shouldUseExtendedBackgroundIdleMode = YES` - Allows more time for background processing
+   - `sessionSendsLaunchEvents = YES` - Ensures your app is relaunched when downloads complete
+
+#### Using with Background Audio Players (react-native-track-player, etc.)
+
+If you're using this library alongside an audio player like `react-native-track-player` and experiencing issues with downloads not continuing when the screen is locked, it's likely due to how you're initiating the downloads:
+
+**❌ Incorrect:** Starting downloads from UI/view context
+```javascript
+// This may not work reliably when screen is locked with audio players
+function MyComponent() {
+  const startDownload = () => {
+    createDownloadTask({
+      id: 'file123',
+      url: 'https://example.com/file.mp3',
+      destination: `${directories.documents}/file.mp3`
+    })
+    .begin(({ expectedBytes }) => console.log('Download started'))
+    .progress(({ bytesDownloaded, bytesTotal }) => console.log('Progress'))
+    .done(() => console.log('Done'))
+    .error(({ error }) => console.error('Error', error))
+    .start()
+  }
+  // ...
+}
+```
+
+**✅ Correct:** Start downloads from the audio player's background service
+```javascript
+// In your track player service/background task (service.js)
+import TrackPlayer, { Event } from 'react-native-track-player'
+import { createDownloadTask, directories, completeHandler } from '@kesha-antonov/react-native-background-downloader'
+
+// Register this service in your index.js: TrackPlayer.registerPlaybackService(() => require('./service'))
+module.exports = async function() {
+  TrackPlayer.addEventListener(Event.PlaybackQueueEnded, async (event) => {
+    // This code runs in the background, even when screen is locked
+    
+    // Get the next track from your queue/playlist
+    // NOTE: You need to implement getNextTrackFromQueue() based on your app's logic
+    // It should return a track object like: { id: 'track1', url: 'https://...', isDownloaded: false }
+    const nextTrack = await getNextTrackFromQueue()
+    
+    if (nextTrack && !nextTrack.isDownloaded) {
+      // Start download from background context with full callback chain
+      createDownloadTask({
+        id: nextTrack.id,
+        url: nextTrack.url,
+        destination: `${directories.documents}/${nextTrack.id}.mp3`
+      })
+      .begin(({ expectedBytes }) => {
+        console.log(`Starting download: ${nextTrack.id}, ${expectedBytes} bytes`)
+      })
+      .progress(({ bytesDownloaded, bytesTotal }) => {
+        console.log(`Progress: ${nextTrack.id}, ${bytesDownloaded}/${bytesTotal}`)
+      })
+      .done(() => {
+        console.log('Download complete:', nextTrack.id)
+        completeHandler(nextTrack.id)
+      })
+      .error(({ error, errorCode }) => {
+        console.error('Download failed:', nextTrack.id, error, errorCode)
+        completeHandler(nextTrack.id)
+      })
+      .start()
+    }
+  })
+}
+```
+
+**Alternative:** Use react-native-background-actions to keep your app active
+```javascript
+import BackgroundService from 'react-native-background-actions'
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+
+const veryIntensiveTask = async (taskDataArguments) => {
+  const { downloads } = taskDataArguments
+  
+  // Start all downloads and collect promises
+  const downloadPromises = downloads.map(downloadInfo => {
+    return new Promise((resolve, reject) => {
+      createDownloadTask(downloadInfo)
+        .begin(({ expectedBytes }) => {
+          console.log(`Starting download: ${downloadInfo.id}, ${expectedBytes} bytes`)
+        })
+        .progress(({ bytesDownloaded, bytesTotal }) => {
+          console.log(`Progress: ${downloadInfo.id}, ${bytesDownloaded}/${bytesTotal}`)
+        })
+        .done(() => {
+          console.log('Download complete:', downloadInfo.id)
+          resolve()
+        })
+        .error(({ error, errorCode }) => {
+          console.error('Download failed:', downloadInfo.id, error, errorCode)
+          reject(error)
+        })
+        .start()
+    })
+  })
+  
+  // Wait for all downloads to complete
+  await Promise.allSettled(downloadPromises)
+}
+
+const options = {
+  taskName: 'Download Service',
+  taskTitle: 'Downloading files',
+  taskDesc: 'Downloading audio files in background',
+  taskIcon: { name: 'ic_launcher', type: 'mipmap' },
+  parameters: { 
+    downloads: [
+      {
+        id: 'file1',
+        url: 'https://example.com/file1.mp3',
+        destination: `${directories.documents}/file1.mp3`
+      }
+    ]
+  }
+}
+
+// Start background service to keep app active
+await BackgroundService.start(veryIntensiveTask, options)
+```
+
+#### Testing Background Downloads on iOS
+
+When testing background download behavior:
+
+1. **Use a real device**: Background download behavior is not accurately simulated in the iOS Simulator. Always test on a physical device.
+
+2. **Test the complete lifecycle**:
+   - Start a download
+   - Lock the screen or press home button
+   - Wait for the download to complete
+   - Unlock the device - your app should show the completed download
+
+3. **Check logs**: Enable debug logging to see what's happening:
+   ```javascript
+   import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+   
+   setConfig({ isLogsEnabled: true })
+   ```
+
+4. **Verify AppDelegate setup**: Ensure you've added the `handleEventsForBackgroundURLSession` method to your AppDelegate as described in the installation section. Without this, background downloads will be cancelled by iOS.
+
+#### Common Issues and Solutions
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Downloads stop when screen locks | Downloads started from view context while using audio player | Start downloads from audio player's background service |
+| Downloads cancelled immediately | Missing `handleEventsForBackgroundURLSession` in AppDelegate | Add the required method to AppDelegate (see installation section) |
+| Downloads work in foreground but not background | App not configured for background execution | Follow iOS setup instructions completely; use background tasks/services |
+| Downloads pause when app is terminated | Normal iOS behavior | Downloads will resume when network is available; use `getExistingDownloadTasks()` on app restart to reattach |
+
+#### Additional Resources
+
+- [Apple's Background Download Guide](https://developer.apple.com/documentation/foundation/downloading-files-in-the-background)
+- [react-native-background-actions](https://github.com/Rapsssito/react-native-background-actions) - For keeping your app active during background operations
+- [react-native-track-player Background Mode](https://react-native-track-player.js.org/docs/basics/background-mode) - Guide for audio playback in background
 
 ## Rules for proguard-rules.pro
 
