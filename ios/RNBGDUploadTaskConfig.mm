@@ -54,16 +54,19 @@
     self = [super init];
     if (self)
     {
-        self.id = [aDecoder decodeObjectForKey:@"id"];
-        self.url = [aDecoder decodeObjectForKey:@"url"];
-        self.source = [aDecoder decodeObjectForKey:@"source"];
-        NSString *method = [aDecoder decodeObjectForKey:@"method"];
+        // Use type-safe decoding (available since iOS 6, required for secure coding)
+        self.id = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"id"];
+        self.url = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"url"];
+        self.source = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"source"];
+        NSString *method = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"method"];
         self.method = method != nil ? method : @"POST";
-        NSString *metadata = [aDecoder decodeObjectForKey:@"metadata"];
+        NSString *metadata = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"metadata"];
         self.metadata = metadata != nil ? metadata : @"{}";
-        self.fieldName = [aDecoder decodeObjectForKey:@"fieldName"];
-        self.mimeType = [aDecoder decodeObjectForKey:@"mimeType"];
-        self.parameters = [aDecoder decodeObjectForKey:@"parameters"];
+        self.fieldName = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"fieldName"];
+        self.mimeType = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"mimeType"];
+        // Use set of allowed classes for NSDictionary
+        NSSet *dictClasses = [NSSet setWithObjects:[NSDictionary class], [NSString class], nil];
+        self.parameters = [aDecoder decodeObjectOfClasses:dictClasses forKey:@"parameters"];
         self.reportedBegin = [aDecoder decodeBoolForKey:@"reportedBegin"];
         self.bytesUploaded = [aDecoder decodeInt64ForKey:@"bytesUploaded"];
         self.bytesTotal = [aDecoder decodeInt64ForKey:@"bytesTotal"];

@@ -293,6 +293,7 @@ class UIDTDownloadJobService : JobService() {
         return true
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun createJobListener(configId: String, params: JobParameters): ResumableDownloader.DownloadListener {
         return object : ResumableDownloader.DownloadListener {
             override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
@@ -364,6 +365,7 @@ class UIDTDownloadJobService : JobService() {
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun createDownloadNotification(configId: String): Notification {
         return NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
             .setContentTitle("Background Download")

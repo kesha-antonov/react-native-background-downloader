@@ -44,10 +44,11 @@
     self = [super init];
     if (self)
     {
-        self.id = [aDecoder decodeObjectForKey:@"id"];
-        self.url = [aDecoder decodeObjectForKey:@"url"];
-        self.destination = [aDecoder decodeObjectForKey:@"destination"];
-        NSString *metadata = [aDecoder decodeObjectForKey:@"metadata"];
+        // Use type-safe decoding (available since iOS 6, required for secure coding)
+        self.id = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"id"];
+        self.url = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"url"];
+        self.destination = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"destination"];
+        NSString *metadata = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"metadata"];
         self.metadata = metadata != nil ? metadata : @"{}";
         self.reportedBegin = [aDecoder decodeBoolForKey:@"reportedBegin"];
         self.bytesDownloaded = [aDecoder decodeInt64ForKey:@"bytesDownloaded"];

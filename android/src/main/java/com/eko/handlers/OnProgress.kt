@@ -28,6 +28,10 @@ class OnProgress(
         private const val SLEEP_PENDING_MS = 1000L
         /** Sleep duration during active download (milliseconds) */
         private const val SLEEP_ACTIVE_MS = 250L
+        /** Sleep duration when download is stalled - no progress for a while (milliseconds) */
+        private const val SLEEP_STALLED_MS = 500L
+        /** Number of polls with no progress before considering download stalled */
+        private const val STALL_THRESHOLD = 4
     }
 
     @Volatile
@@ -35,6 +39,10 @@ class OnProgress(
 
     @Volatile
     private var isCompleted = true
+
+    /** Tracks consecutive polls with no progress change */
+    private var noProgressCount = 0
+    private var lastBytesDownloaded = 0L
 
     override fun call(): OnProgressState? {
         while (isRunning) {
@@ -57,8 +65,9 @@ class OnProgress(
                         return@use
                     }
 
-                    // TODO: Maybe we can write some logic in the pause codes here.
-                    //       For example; PAUSED_WAITING_TO_RETRY attempts count?
+                    // Pause states (PAUSED_QUEUED_FOR_WIFI, PAUSED_WAITING_FOR_NETWORK, PAUSED_WAITING_TO_RETRY)
+                    // are handled by DownloadManager internally with automatic retry. We just poll less frequently
+                    // during pause (see getSleepDuration) and continue reporting progress when resumed.
                     status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                     when (status) {
                         DownloadManager.STATUS_SUCCESSFUL -> {
@@ -127,11 +136,36 @@ class OnProgress(
         return if (columnIndex != -1) cursor.getDouble(columnIndex).toLong() else 0
     }
 
+    /**
+     * Determines optimal sleep duration based on download status and activity.
+     * Uses adaptive polling: polls more frequently during active progress,
+     * backs off when download is stalled, paused, or pending.
+     */
     private fun getSleepDuration(status: Int): Long {
+        // Check if download is making progress
+        val isProgressing = bytesDownloaded > lastBytesDownloaded
+        lastBytesDownloaded = bytesDownloaded
+
+        if (isProgressing) {
+            noProgressCount = 0
+        } else {
+            noProgressCount++
+        }
+
         return when (status) {
+            DownloadManager.STATUS_RUNNING -> {
+                // Adaptive polling: back off if no progress is being made
+                if (noProgressCount >= STALL_THRESHOLD) {
+                    SLEEP_STALLED_MS
+                } else {
+                    SLEEP_ACTIVE_MS
+                }
+            }
             DownloadManager.STATUS_PAUSED -> SLEEP_PAUSED_MS
             DownloadManager.STATUS_PENDING -> SLEEP_PENDING_MS
-            else -> SLEEP_ACTIVE_MS
+            DownloadManager.STATUS_SUCCESSFUL,
+            DownloadManager.STATUS_FAILED -> SLEEP_ACTIVE_MS // Loop will exit anyway
+            else -> SLEEP_PENDING_MS // Unknown status, be conservative
         }
     }
 }

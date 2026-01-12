@@ -203,12 +203,9 @@ RCT_EXPORT_MODULE();
         sessionConfig.timeoutIntervalForResource = kResourceTimeoutSeconds;
         sessionConfig.discretionary = NO;
         sessionConfig.sessionSendsLaunchEvents = YES;
-        if (@available(iOS 9.0, *)) {
-            sessionConfig.shouldUseExtendedBackgroundIdleMode = YES;
-        }
-        if (@available(iOS 13.0, *)) {
-            sessionConfig.allowsExpensiveNetworkAccess = YES;
-        }
+        // These APIs are available since our minimum iOS version (15.1)
+        sessionConfig.shouldUseExtendedBackgroundIdleMode = YES;
+        sessionConfig.allowsExpensiveNetworkAccess = YES;
 
         sharedLock = [NSNumber numberWithInt:1];
 

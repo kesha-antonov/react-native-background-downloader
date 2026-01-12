@@ -174,6 +174,7 @@ class ResumableDownloadService : Service() {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       intent.getSerializableExtra(EXTRA_HEADERS, HashMap::class.java) as? HashMap<String, String> ?: HashMap()
     } else {
+      @Suppress("DEPRECATION")
       intent.getSerializableExtra(EXTRA_HEADERS) as? HashMap<String, String> ?: HashMap()
     }
   }
