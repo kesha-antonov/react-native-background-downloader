@@ -18,8 +18,12 @@ import java.util.concurrent.ConcurrentHashMap
  * Wrapper around Android's DownloadManager for managing file downloads.
  * Provides methods for downloading, canceling, and querying download status.
  *
- * For pause/resume functionality, this class integrates with ResumableDownloadService
- * which uses HTTP Range headers to support true pause/resume, even in the background.
+ * For pause/resume functionality, this class integrates with:
+ * - UIDTDownloadJobService (Android 14+): Uses User-Initiated Data Transfer jobs
+ *   which are not affected by App Standby Buckets and work properly on Android 16+
+ * - ResumableDownloadService (Android < 14): Uses foreground service with dataSync type
+ *
+ * Both use HTTP Range headers to support true pause/resume, even in the background.
  */
 class Downloader(private val context: Context) {
 
@@ -233,11 +237,14 @@ class Downloader(private val context: Context) {
   }
 
   /**
-   * Start a download via the foreground service for background support.
+   * Start a download via the appropriate background mechanism.
    *
-   * We use ONLY the direct service call path (via binding), not the Intent path.
-   * The Intent is only used to ensure the service is started as a foreground service,
-   * but we set ACTION_STOP_SERVICE so it doesn't trigger another download.
+   * On Android 14+ (API 34+), uses User-Initiated Data Transfer (UIDT) jobs which:
+   * - Are not affected by App Standby Buckets quotas
+   * - Can run for extended periods as system conditions allow
+   * - Work properly on Android 16+ where foreground services are restricted
+   *
+   * On Android < 14, uses the foreground service with dataSync type.
    */
   private fun startDownloadService(
     configId: String,
@@ -248,6 +255,32 @@ class Downloader(private val context: Context) {
     totalBytes: Long,
     listener: ResumableDownloader.DownloadListener
   ) {
+    // On Android 14+, use UIDT jobs for better background execution
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      // Set the listener for UIDT job callbacks
+      UIDTDownloadJobService.downloadListener = listener
+
+      // Schedule UIDT job
+      val scheduled = UIDTDownloadJobService.scheduleDownload(
+        context = context,
+        configId = configId,
+        url = url,
+        destination = destination,
+        headers = headers,
+        startByte = startByte,
+        totalBytes = totalBytes
+      )
+
+      if (scheduled) {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Using UIDT job for download: $configId")
+        return
+      }
+
+      // Fall through to foreground service if UIDT scheduling fails
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "UIDT scheduling failed, falling back to foreground service")
+    }
+
+    // On Android < 14 or if UIDT fails, use foreground service
     // First, ensure the service is started as a foreground service
     // Use a no-op action to just wake up the service
     val startIntent = Intent(context, ResumableDownloadService::class.java)
@@ -296,6 +329,12 @@ class Downloader(private val context: Context) {
    * Pause a resumable download that's currently in progress.
    */
   fun pauseResumable(configId: String): Boolean {
+    // Check UIDT jobs on Android 14+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      if (UIDTDownloadJobService.isActiveJob(configId)) {
+        return UIDTDownloadJobService.pauseJob(configId)
+      }
+    }
     return downloadService?.pauseDownload(configId) ?: false
   }
 
@@ -303,6 +342,12 @@ class Downloader(private val context: Context) {
    * Resume a paused resumable download.
    */
   fun resumeResumable(configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
+    // Check UIDT jobs on Android 14+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      if (UIDTDownloadJobService.isActiveJob(configId)) {
+        return UIDTDownloadJobService.resumeJob(configId, listener)
+      }
+    }
     executeWhenServiceReady {
       downloadService?.setDownloadListener(listener)
     }
@@ -313,6 +358,11 @@ class Downloader(private val context: Context) {
    * Cancel a resumable download and clean up partially downloaded files.
    */
   fun cancelResumable(configId: String): Boolean {
+    // Cancel UIDT job if on Android 14+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      UIDTDownloadJobService.cancelJob(context, configId)
+    }
+
     // Clean up paused download state and partially downloaded file
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
@@ -333,6 +383,12 @@ class Downloader(private val context: Context) {
    * Check if a download is paused.
    */
   fun isPaused(configId: String): Boolean {
+    // Check UIDT jobs on Android 14+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      if (UIDTDownloadJobService.isPausedJob(configId)) {
+        return true
+      }
+    }
     return pausedDownloads.containsKey(configId) || (downloadService?.isPaused(configId) ?: false)
   }
 
@@ -342,9 +398,15 @@ class Downloader(private val context: Context) {
   fun getPausedInfo(configId: String): PausedDownloadInfo? = pausedDownloads[configId]
 
   /**
-   * Check if download is using resumable downloader.
+   * Check if download is using resumable downloader (either UIDT job or foreground service).
    */
   fun isResumableDownload(configId: String): Boolean {
+    // Check UIDT jobs on Android 14+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      if (UIDTDownloadJobService.isActiveJob(configId)) {
+        return true
+      }
+    }
     return downloadService?.getState(configId) != null
   }
 

@@ -5,15 +5,24 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
-  <!-- Required for User-Initiated Data Transfer (UIDT) jobs on Android 16+ -->
+  <!-- Required for User-Initiated Data Transfer (UIDT) jobs on Android 14+ -->
   <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
 
   <application>
+    <!-- Foreground service for background downloads (Android < 14) -->
     <service
       android:name=".ResumableDownloadService"
       android:enabled="true"
       android:exported="false"
       android:foregroundServiceType="dataSync" />
+
+    <!-- UIDT JobService for background downloads (Android 14+) -->
+    <!-- User-Initiated Data Transfer jobs are not affected by App Standby Buckets -->
+    <!-- and can run for extended periods, making them ideal for large file downloads -->
+    <service
+      android:name=".UIDTDownloadJobService"
+      android:permission="android.permission.BIND_JOB_SERVICE"
+      android:exported="false" />
   </application>
 
 </manifest>
