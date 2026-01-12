@@ -655,6 +655,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener)
     }
 
+    // On Android 16+ (API 36), DownloadManager has strict path restrictions and throws
+    // SecurityException for app-specific external storage paths. Use ResumableDownloader instead.
+    if (Build.VERSION.SDK_INT >= 36) {
+      logD(NAME, "Android 16+ detected: Using ResumableDownloader to avoid DownloadManager path restrictions")
+      startWithResumableDownloader()
+      return
+    }
+
     if (isValidExternalPath) {
       // Use DownloadManager with valid external storage path
       // Download directly to final destination to avoid file duplication
@@ -664,7 +672,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         parentDir.mkdirs()
       }
       request.setDestinationUri(Uri.fromFile(destFile))
-      startDownloadManagerDownload(downloader.download(request))
+      try {
+        startDownloadManagerDownload(downloader.download(request))
+      } catch (e: SecurityException) {
+        // Handle "Unsupported path" SecurityException on Android 16+
+        logW(NAME, "DownloadManager SecurityException (path not supported): ${e.message}")
+        logD(NAME, "Falling back to ResumableDownloader for download: $id")
+        startWithResumableDownloader()
+      }
     } else {
       // External files directory path is invalid or null
       // Try setDestinationInExternalFilesDir as fallback, then ResumableDownloader if that fails
