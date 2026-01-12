@@ -71,14 +71,9 @@ class Downloader(private val context: Context) {
 
   // Expose resumableDownloader for compatibility (delegates to service)
   // Cache a fallback instance to avoid creating new instances on every access when service is null
-  private var fallbackResumableDownloader: ResumableDownloader? = null
+  private val fallbackResumableDownloader: ResumableDownloader by lazy { ResumableDownloader() }
   val resumableDownloader: ResumableDownloader
-    get() = downloadService?.resumableDownloader ?: run {
-      if (fallbackResumableDownloader == null) {
-        fallbackResumableDownloader = ResumableDownloader()
-      }
-      fallbackResumableDownloader!!
-    }
+    get() = downloadService?.resumableDownloader ?: fallbackResumableDownloader
 
   data class PausedDownloadInfo(
     val configId: String,
@@ -479,8 +474,8 @@ class Downloader(private val context: Context) {
     result.putInt("status", status)
     result.putInt("reason", reason)
     result.putString("reasonText", reasonText)
-    result.putDouble("bytesDownloaded", bytesDownloadedSoFar.toLong().toDouble())
-    result.putDouble("bytesTotal", totalSizeBytes.toLong().toDouble())
+    result.putDouble("bytesDownloaded", bytesDownloadedSoFar.toDouble())
+    result.putDouble("bytesTotal", totalSizeBytes.toDouble())
     result.putString("localUri", localUri)
 
     return result
