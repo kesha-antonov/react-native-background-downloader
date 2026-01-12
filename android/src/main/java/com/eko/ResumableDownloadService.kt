@@ -166,6 +166,18 @@ class ResumableDownloadService : Service() {
     createNotificationChannel()
   }
 
+  /**
+   * Extract headers from Intent, handling deprecated API for backward compatibility.
+   */
+  @Suppress("UNCHECKED_CAST", "DEPRECATION")
+  private fun getHeadersFromIntent(intent: Intent): HashMap<String, String> {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      intent.getSerializableExtra(EXTRA_HEADERS, HashMap::class.java) as? HashMap<String, String> ?: HashMap()
+    } else {
+      intent.getSerializableExtra(EXTRA_HEADERS) as? HashMap<String, String> ?: HashMap()
+    }
+  }
+
   override fun onBind(intent: Intent?): IBinder {
     return binder
   }
@@ -178,8 +190,7 @@ class ResumableDownloadService : Service() {
         val id = intent.getStringExtra(EXTRA_DOWNLOAD_ID)
         val url = intent.getStringExtra(EXTRA_URL)
         val destination = intent.getStringExtra(EXTRA_DESTINATION)
-        @Suppress("UNCHECKED_CAST")
-        val headers = intent.getSerializableExtra(EXTRA_HEADERS) as? HashMap<String, String> ?: HashMap()
+        val headers = getHeadersFromIntent(intent)
         val startByte = intent.getLongExtra(EXTRA_START_BYTE, 0)
         val totalBytes = intent.getLongExtra(EXTRA_TOTAL_BYTES, -1)
 

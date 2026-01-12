@@ -580,20 +580,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       request.setRequiresCharging(false)
     }
 
-    // Mark as user-initiated data transfer for Android 16+ to prevent thermal throttling
-    // This ensures downloads continue even under moderate thermal conditions
-    // Requires RUN_USER_INITIATED_JOBS permission and notification visibility
-    if (Build.VERSION.SDK_INT >= 36) { // API 36 = Android 16
-      try {
-        // setRequiresUserAction(true) marks this download as user-initiated
-        // which gives it higher priority and prevents system cancellation
-        val method = request.javaClass.getMethod("setRequiresUserAction", Boolean::class.javaPrimitiveType)
-        method.invoke(request, true)
-        logD(NAME, "Download marked as user-initiated for Android 16+ UIDT support")
-      } catch (e: Exception) {
-        logW(NAME, "Failed to set user-initiated flag: ${e.message}")
-      }
-    }
+    // Note: On Android 16+, we use ResumableDownloader with UIDT jobs instead of DownloadManager
+    // for better background execution support. See the Android 16+ check below in download path.
 
     notificationTitle?.let { request.setTitle(it) }
 
