@@ -791,6 +791,110 @@ An absolute path to the app's documents directory. It is recommended that you us
 
 ## Platform-Specific Limitations
 
+### iOS Background Download Behavior
+
+This library uses iOS's `NSURLSession` with background session configuration, which is Apple's recommended approach for background downloads. However, iOS background downloads have specific behaviors that are important to understand:
+
+#### How iOS Background Downloads Work
+
+1. **System-Managed Downloads**: When your app goes to the background, iOS takes over the download and manages it in a separate process. Your app may be suspended or terminated, but the download continues.
+
+2. **App Wake-Up on Completion**: When a background download completes, iOS wakes up your app (if terminated) or calls the AppDelegate method `handleEventsForBackgroundURLSession`. This is why the mandatory AppDelegate setup is crucial.
+
+3. **Discretionary Behavior**: iOS may delay background downloads based on network conditions, battery level, and other factors to optimize device performance and battery life.
+
+#### Common Issues and Solutions
+
+**Downloads pause when screen is locked:**
+
+iOS background downloads should continue when the screen is locked. If downloads are stopping, verify:
+
+1. **AppDelegate Setup**: Ensure you've added the required `handleEventsForBackgroundURLSession` method as described in the [iOS - Extra Mandatory Step](#ios---extra-mandatory-step) section. Without this, iOS may cancel background downloads.
+
+2. **Download Initiation Context**: If you're starting downloads from JavaScript that runs in a view context (e.g., in response to a user action), the download should still work. However, for more reliable background operation when used with other libraries like audio players, consider starting downloads from a background context.
+
+3. **Using with Audio Players (react-native-track-player, etc.)**: When using this library alongside audio players, start downloads from the audio player's background service rather than from the main JavaScript context:
+
+   ```javascript
+   // In your track-player service (runs in background)
+   import TrackPlayer, { Event } from 'react-native-track-player'
+   import { createDownloadTask, directories, completeHandler } from '@kesha-antonov/react-native-background-downloader'
+
+   export async function PlaybackService() {
+     TrackPlayer.addEventListener(Event.RemoteNext, async () => {
+       // Start downloading next track from background service
+       const nextTrack = await getNextTrackInfo()
+
+       const task = createDownloadTask({
+         id: nextTrack.id,
+         url: nextTrack.url,
+         destination: `${directories.documents}/${nextTrack.filename}`,
+       })
+       .done(({ bytesDownloaded, bytesTotal }) => {
+         console.log('Download complete!')
+         completeHandler(nextTrack.id)
+       })
+       .error(({ error }) => {
+         console.error('Download failed:', error)
+       })
+
+       task.start()
+     })
+   }
+   ```
+
+4. **Using react-native-background-actions**: For scenarios where you need guaranteed background execution (not just background downloads), consider using [react-native-background-actions](https://github.com/Rapsssito/react-native-background-actions) alongside this library:
+
+   ```javascript
+   import BackgroundService from 'react-native-background-actions'
+   import { createDownloadTask, directories, completeHandler } from '@kesha-antonov/react-native-background-downloader'
+
+   const downloadTask = async (taskData) => {
+     const { url, filename, id } = taskData
+
+     return new Promise((resolve, reject) => {
+       const task = createDownloadTask({
+         id,
+         url,
+         destination: `${directories.documents}/${filename}`,
+       })
+       .done(({ bytesDownloaded }) => {
+         completeHandler(id)
+         resolve(bytesDownloaded)
+       })
+       .error(({ error }) => {
+         reject(new Error(error))
+       })
+
+       task.start()
+     })
+   }
+
+   const options = {
+     taskName: 'Download',
+     taskTitle: 'Downloading file',
+     taskDesc: 'Downloading in background',
+     taskIcon: { name: 'ic_launcher', type: 'mipmap' },
+     progressBar: { max: 100, value: 0, indeterminate: true },
+   }
+
+   await BackgroundService.start(downloadTask, options)
+   ```
+
+#### Best Practices for Reliable iOS Background Downloads
+
+1. **Always implement the AppDelegate method** - This is the most common cause of background download issues.
+
+2. **Call `completeHandler(jobId)`** - After processing a completed download, call this method to inform iOS that your app has finished handling the background event.
+
+3. **Use `getExistingDownloadTasks()`** - On app startup, always check for and re-attach to any downloads that completed while your app was suspended.
+
+4. **Handle app termination gracefully** - iOS may terminate your app at any time. The download will continue, but your app needs to be ready to re-attach when relaunched.
+
+5. **Test in production conditions** - Debug builds may behave differently than release builds. Test background downloads with the app installed from TestFlight or the App Store.
+
+For more details on iOS background downloads, see Apple's documentation: [Downloading Files in the Background](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background).
+
 ### Android MMKV Dependency
 
 This library uses MMKV for persistent storage of download state on Android. The MMKV dependency is declared as `compileOnly`, meaning your app must provide it.
