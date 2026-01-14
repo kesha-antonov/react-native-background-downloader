@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.3.9 (Unreleased)
+## v4.4.0
 
 ### ✨ New Features
 
