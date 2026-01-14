@@ -824,6 +824,28 @@ The Android implementation uses the system's `DownloadManager` service for downl
 - **Server requirement**: The server must support HTTP Range requests for resume to work correctly. If the server doesn't support range requests, the download will restart from the beginning
 - **Temp files**: During pause/resume, progress is stored in a `.tmp` file which is renamed to the final destination upon completion
 
+### Google Play Console Declaration
+
+The library uses Foreground Service permissions (`FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC`) to enable reliable background downloads. **Google Play requires you to declare foreground service usage in the Play Console** when publishing your app.
+
+If you see this error when submitting to Google Play:
+
+> "You must let us know whether your app uses any Foreground Service permissions."
+
+Complete these steps in the Google Play Console:
+
+1. Go to your app in the [Google Play Console](https://play.google.com/console)
+2. Navigate to **App content** → **Foreground Service**
+3. Select **Yes** when asked if your app uses Foreground Service permissions
+4. Choose **Data sync** as the Foreground Service type
+5. Select **Network processing** as the task
+6. Provide a justification explaining that your app downloads files in the background with a user-visible notification
+
+Example justification:
+> "This app downloads files in the background using a foreground service with a user-visible notification. The foreground service ensures downloads continue reliably when the app is in the background or when the device is under memory pressure. Users initiate downloads and can see download progress via the notification."
+
+This is a Play Console compliance step only—no additional code changes are required.
+
 ## Rules for proguard-rules.pro
 
 If you encounter `java.lang.IllegalStateException: TypeToken must be created with a type argument: new TypeToken<...>()` in Android release builds, add these rules to your `proguard-rules.pro`:

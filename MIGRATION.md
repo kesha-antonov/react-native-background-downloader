@@ -93,6 +93,25 @@ The library now requires additional permissions that are automatically added:
 
 These are declared in the library's `AndroidManifest.xml` and will be merged automatically.
 
+### Google Play Console Declaration Required
+
+Because the library uses Foreground Service permissions, Google Play requires you to declare this in the Play Console when publishing your app. Without this declaration, you will see the following error:
+
+> "You must let us know whether your app uses any Foreground Service permissions."
+
+**To resolve this, complete these steps in the Google Play Console:**
+
+1. Go to your app in the Google Play Console
+2. Navigate to **App content** → **Foreground Service**
+3. Select **Yes** when asked if your app uses Foreground Service permissions
+4. Choose **Data sync** as the Foreground Service type
+5. Select **Network processing** as the task
+6. Provide a justification such as:
+
+   > "This app downloads files in the background using a foreground service with a user-visible notification. The foreground service ensures downloads continue reliably when the app is in the background or when the device is under memory pressure. Users initiate downloads and can see download progress via the notification."
+
+**Note:** This is a Play Console compliance step only—no additional code changes are required.
+
 ## bytesTotal Returns -1 for Unknown Sizes
 
 When a server doesn't provide a `Content-Length` header, `bytesTotal` now returns `-1` instead of `0`.
