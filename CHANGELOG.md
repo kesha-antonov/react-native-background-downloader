@@ -6,13 +6,20 @@
 
 - **Android 16 UIDT Support:** Downloads are now automatically marked as User-Initiated Data Transfers on Android 16+ (API 36) to prevent thermal throttling and job quota restrictions. Downloads will continue reliably even under moderate thermal conditions (~40°C).
 
+### 🐛 Bug Fixes
+
+- **iOS MMKV Conflict Fix:** Removed hard MMKV dependency from iOS podspec to prevent symbol conflicts with `react-native-mmkv`. Apps using `react-native-mmkv` no longer experience crashes (EXC_BAD_ACCESS) on iOS.
+
 ### 📦 Dependencies & Infrastructure
 
 - **New Android Permission:** Added `RUN_USER_INITIATED_JOBS` permission for Android 16+ UIDT support
+- **iOS MMKV Dependency:** MMKV is no longer a hard dependency in the podspec. Apps not using `react-native-mmkv` must add `pod 'MMKV', '>= 1.0.0'` to their Podfile.
 
 ### 📚 Documentation
 
 - Added documentation about Android 16+ UIDT support in README
+- Added iOS MMKV dependency section in README (similar to Android section)
+- Added migration guide for iOS MMKV dependency change
 
 ---
 
