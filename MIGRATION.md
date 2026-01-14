@@ -6,6 +6,8 @@ This guide helps you upgrade between major versions of `@kesha-antonov/react-nat
 
 - [Migration Guide](#migration-guide)
   - [Table of Contents](#table-of-contents)
+- [Migration Guide: v4.3.x → v4.4.0](#migration-guide-v43x--v440)
+  - [iOS MMKV Dependency Change](#ios-mmkv-dependency-change)
 - [Migration Guide: v4.1.x → v4.2.0](#migration-guide-v41x--v420)
   - [Android Pause/Resume Now Supported](#android-pauseresume-now-supported)
   - [bytesTotal Returns -1 for Unknown Sizes](#bytestotal-returns--1-for-unknown-sizes)
@@ -126,6 +128,36 @@ When a server doesn't provide a `Content-Length` header, `bytesTotal` now return
 - `-1` clearly indicates "unknown" vs `0` which could mean "zero bytes"
 - Allows apps to show indeterminate progress indicators when appropriate
 - Consistent with common conventions in download APIs
+
+---
+
+# Migration Guide: v4.3.x → v4.4.0
+
+## iOS MMKV Dependency Change
+
+In v4.4.0, the MMKV dependency on iOS was removed from the podspec to prevent symbol conflicts when apps also use `react-native-mmkv`.
+
+### If you're using `react-native-mmkv`
+
+**No action required!** The `react-native-mmkv` package already provides the required MMKV dependency (via MMKVCore pod), so everything will work automatically.
+
+### If you're NOT using `react-native-mmkv`
+
+You must explicitly add the MMKV dependency to your `ios/Podfile`:
+
+```ruby
+pod 'MMKV', '>= 1.0.0'
+```
+
+Then run `cd ios && pod install`.
+
+### Why This Change?
+
+Previously, both this library and `react-native-mmkv` would include their own MMKV dependencies, causing symbol conflicts and crashes (EXC_BAD_ACCESS) on iOS. By removing the hard dependency, this library now relies on the app to provide the MMKV dependency, which:
+
+1. Eliminates symbol conflicts with `react-native-mmkv`
+2. Allows the app to control the MMKV version
+3. Fixes crashes on iOS when both libraries are used together
 
 ---
 

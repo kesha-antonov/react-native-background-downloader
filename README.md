@@ -791,6 +791,20 @@ An absolute path to the app's documents directory. It is recommended that you us
 
 ## Platform-Specific Limitations
 
+### iOS MMKV Dependency
+
+This library uses MMKV for persistent storage of download state on iOS. The MMKV dependency is **not** declared in the podspec to avoid conflicts with `react-native-mmkv`.
+
+**If you're using `react-native-mmkv`:** No additional setup needed - `react-native-mmkv` already provides the required MMKV dependency (via MMKVCore pod).
+
+**If you're NOT using `react-native-mmkv`:** Add the MMKV dependency to your `ios/Podfile`:
+
+```ruby
+pod 'MMKV', '>= 1.0.0'
+```
+
+Then run `cd ios && pod install`.
+
 ### Android MMKV Dependency
 
 This library uses MMKV for persistent storage of download state on Android. The MMKV dependency is declared as `compileOnly`, meaning your app must provide it.
