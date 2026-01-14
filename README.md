@@ -817,8 +817,16 @@ iOS background downloads should continue when the screen is locked. If downloads
 
    ```javascript
    // In your track-player service (runs in background)
+   // This service is registered with TrackPlayer and runs even when the app is backgrounded
    import TrackPlayer, { Event } from 'react-native-track-player'
    import { createDownloadTask, directories, completeHandler } from '@kesha-antonov/react-native-background-downloader'
+
+   // Your app's function to get the next track info - implement based on your needs
+   // Returns: { id: string, url: string, filename: string }
+   async function getNextTrackInfo() {
+     // Example: fetch from your playlist/queue
+     return { id: 'track-123', url: 'https://example.com/track.mp3', filename: 'track.mp3' }
+   }
 
    export async function PlaybackService() {
      TrackPlayer.addEventListener(Event.RemoteNext, async () => {
@@ -849,6 +857,13 @@ iOS background downloads should continue when the screen is locked. If downloads
    import BackgroundService from 'react-native-background-actions'
    import { createDownloadTask, directories, completeHandler } from '@kesha-antonov/react-native-background-downloader'
 
+   /**
+    * Background task function that downloads a file
+    * @param {Object} taskData - Task data passed to BackgroundService.start()
+    * @param {string} taskData.id - Unique download ID
+    * @param {string} taskData.url - URL to download from
+    * @param {string} taskData.filename - Destination filename
+    */
    const downloadTask = async (taskData) => {
      const { url, filename, id } = taskData
 
@@ -870,6 +885,7 @@ iOS background downloads should continue when the screen is locked. If downloads
      })
    }
 
+   // Start the background task
    const options = {
      taskName: 'Download',
      taskTitle: 'Downloading file',
@@ -878,6 +894,7 @@ iOS background downloads should continue when the screen is locked. If downloads
      progressBar: { max: 100, value: 0, indeterminate: true },
    }
 
+   // Call with your download parameters
    await BackgroundService.start(downloadTask, options)
    ```
 
