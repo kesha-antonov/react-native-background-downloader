@@ -37,6 +37,7 @@
     [aCoder encodeInt64:self.bytesTotal forKey:@"bytesTotal"];
     [aCoder encodeInteger:self.state forKey:@"state"];
     [aCoder encodeInteger:self.errorCode forKey:@"errorCode"];
+    [aCoder encodeObject:self.resumeData forKey:@"resumeData"];
 }
 
 - (nullable instancetype)initWithCoder:(nonnull NSCoder *)aDecoder
@@ -55,6 +56,7 @@
         self.bytesTotal = [aDecoder decodeInt64ForKey:@"bytesTotal"];
         self.state = [aDecoder decodeIntegerForKey:@"state"];
         self.errorCode = [aDecoder decodeIntegerForKey:@"errorCode"];
+        self.resumeData = [aDecoder decodeObjectOfClass:[NSData class] forKey:@"resumeData"];
     }
 
     return self;
