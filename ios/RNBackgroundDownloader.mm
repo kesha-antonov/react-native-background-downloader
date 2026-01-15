@@ -654,12 +654,9 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                         // Task not in idToTaskMap, find config by id and remove old mapping
                         taskConfig = [self findConfigById:identifier];
                         if (taskConfig != nil) {
-                            // Remove old task identifier mapping
-                            for (NSNumber *key in [taskToConfigMap allKeys]) {
-                                if ([taskToConfigMap[key].id isEqualToString:identifier]) {
-                                    [taskToConfigMap removeObjectForKey:key];
-                                    break;
-                                }
+                            NSNumber *oldKey = [self findTaskKeyById:identifier];
+                            if (oldKey != nil) {
+                                [taskToConfigMap removeObjectForKey:oldKey];
                             }
                         }
                     }
@@ -716,14 +713,14 @@ RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)res
                 [self removeTaskFromMap:task];
             } else {
                 // Task not in idToTaskMap, but may have persisted resume data
-                // Find and remove from taskToConfigMap
-                for (NSNumber *key in [taskToConfigMap allKeys]) {
-                    RNBGDTaskConfig *config = taskToConfigMap[key];
-                    if ([config.id isEqualToString:identifier]) {
-                        config.resumeData = nil;
+                // Find and remove from taskToConfigMap using helper method
+                RNBGDTaskConfig *config = [self findConfigById:identifier];
+                if (config != nil) {
+                    config.resumeData = nil;
+                    NSNumber *key = [self findTaskKeyById:identifier];
+                    if (key != nil) {
                         [taskToConfigMap removeObjectForKey:key];
                         [mmkv setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
-                        break;
                     }
                 }
             }
@@ -964,6 +961,16 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     for (RNBGDTaskConfig *config in [taskToConfigMap allValues]) {
         if ([config.id isEqualToString:taskId]) {
             return config;
+        }
+    }
+    return nil;
+}
+
+- (NSNumber *)findTaskKeyById:(NSString *)taskId {
+    for (NSNumber *key in [taskToConfigMap allKeys]) {
+        RNBGDTaskConfig *config = taskToConfigMap[key];
+        if ([config.id isEqualToString:taskId]) {
+            return key;
         }
     }
     return nil;

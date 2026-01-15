@@ -3,7 +3,7 @@
  * new architecture (TurboModules) and old architecture (Bridge)
  */
 
-import { getExistingDownloadTasks } from '../src/index'
+import { getExistingDownloadTasks, createDownloadTask } from '../src/index'
 import { NativeModules } from 'react-native'
 
 const { RNBackgroundDownloader } = NativeModules
@@ -100,8 +100,6 @@ describe('getExistingDownloadTasks', () => {
 
   test('getExistingDownloadTasks should preserve event handlers from original task', async () => {
     // First create a task with handlers
-    const { createDownloadTask } = require('../src/index')
-
     const originalTask = createDownloadTask({
       id: 'handler-test',
       url: 'https://example.com/file.zip',
