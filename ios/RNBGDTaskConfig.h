@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) long long bytesTotal;
 @property (nonatomic, assign) NSInteger state;
 @property (nonatomic, assign) NSInteger errorCode;
+@property (nonatomic, strong, nullable) NSData *resumeData;
 
 - (instancetype)initWithDictionary:(NSDictionary *)dict;
 

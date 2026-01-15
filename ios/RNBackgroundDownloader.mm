@@ -582,6 +582,16 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
                         if (resumeData != nil) {
                             self->idToResumeDataMap[identifier] = resumeData;
                             DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask] stored resume data for %@", identifier);
+                            
+                            // Also store resume data in task config for persistence across app restarts
+                            RNBGDTaskConfig *taskConfig = self->taskToConfigMap[@(task.taskIdentifier)];
+                            if (taskConfig) {
+                                taskConfig.resumeData = resumeData;
+                                taskConfig.state = NSURLSessionTaskStateCanceling;
+                                taskConfig.errorCode = -999;
+                                [self->mmkv setData:[self serialize:self->taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                                DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask] persisted resume data to task config for %@", identifier);
+                            }
                         } else {
                             DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask] no resume data available for %@", identifier);
                         }
@@ -619,6 +629,15 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
 
             NSData *resumeData = self->idToResumeDataMap[identifier];
             NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
+            
+            // If no resume data in memory, try to get it from persisted task config
+            if (resumeData == nil) {
+                RNBGDTaskConfig *taskConfig = [self findConfigById:identifier];
+                if (taskConfig != nil && taskConfig.resumeData != nil) {
+                    resumeData = taskConfig.resumeData;
+                    DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] restored resume data from task config for %@", identifier);
+                }
+            }
 
             if (resumeData != nil) {
                 // Task was paused with resume data, create new task from resume data
@@ -626,17 +645,30 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
 
                 NSURLSessionDownloadTask *newTask = [urlSession downloadTaskWithResumeData:resumeData];
                 if (newTask != nil) {
-                    // Get the task config from the old task
+                    // Get the task config from the old task or find by id
                     RNBGDTaskConfig *taskConfig = nil;
                     if (task != nil) {
                         taskConfig = taskToConfigMap[@(task.taskIdentifier)];
                         [taskToConfigMap removeObjectForKey:@(task.taskIdentifier)];
+                    } else {
+                        // Task not in idToTaskMap, find config by id and remove old mapping
+                        taskConfig = [self findConfigById:identifier];
+                        if (taskConfig != nil) {
+                            // Remove old task identifier mapping
+                            for (NSNumber *key in [taskToConfigMap allKeys]) {
+                                if ([taskToConfigMap[key].id isEqualToString:identifier]) {
+                                    [taskToConfigMap removeObjectForKey:key];
+                                    break;
+                                }
+                            }
+                        }
                     }
 
                     // Update mappings with new task
                     if (taskConfig != nil) {
                         taskConfig.state = NSURLSessionTaskStateRunning;
                         taskConfig.errorCode = 0;
+                        taskConfig.resumeData = nil; // Clear persisted resume data after resuming
                         taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
                         [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
                     }
@@ -682,6 +714,18 @@ RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)res
             if (task != nil) {
                 [task cancel];
                 [self removeTaskFromMap:task];
+            } else {
+                // Task not in idToTaskMap, but may have persisted resume data
+                // Find and remove from taskToConfigMap
+                for (NSNumber *key in [taskToConfigMap allKeys]) {
+                    RNBGDTaskConfig *config = taskToConfigMap[key];
+                    if ([config.id isEqualToString:identifier]) {
+                        config.resumeData = nil;
+                        [taskToConfigMap removeObjectForKey:key];
+                        [mmkv setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                        break;
+                    }
+                }
             }
             [self->idToResumeDataMap removeObjectForKey:identifier];
             [idsToPauseSet removeObject:identifier];
@@ -871,6 +915,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 }
 
 - (void)addPausedTasksToResults:(NSMutableArray *)foundTasks processedIds:(NSMutableSet *)processedIds {
+    // First, add tasks with resume data in memory
     for (NSString *taskId in idToResumeDataMap) {
         if ([processedIds containsObject:taskId]) {
             continue;
@@ -886,6 +931,31 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
             [foundTasks addObject:[self createTaskInfoFromConfig:taskConfig]];
             [processedIds addObject:taskId];
+        }
+    }
+    
+    // Also check for tasks with persisted resume data in taskToConfigMap (for app restarts)
+    for (RNBGDTaskConfig *taskConfig in [taskToConfigMap allValues]) {
+        if ([processedIds containsObject:taskConfig.id]) {
+            continue;
+        }
+        
+        // Check if this config has persisted resume data (paused before app restart)
+        if (taskConfig.resumeData != nil) {
+            // Restore resume data to in-memory map for resumeTask to use
+            idToResumeDataMap[taskConfig.id] = taskConfig.resumeData;
+            
+            // Ensure state and errorCode are set correctly
+            if (taskConfig.state != NSURLSessionTaskStateCanceling) {
+                taskConfig.state = NSURLSessionTaskStateCanceling;
+            }
+            if (taskConfig.errorCode == 0) {
+                taskConfig.errorCode = -999;
+            }
+            
+            DLog(taskConfig.id, @"[RNBackgroundDownloader] - [addPausedTasksToResults] restored persisted paused task: %@", taskConfig.id);
+            [foundTasks addObject:[self createTaskInfoFromConfig:taskConfig]];
+            [processedIds addObject:taskConfig.id];
         }
     }
 }
@@ -1714,7 +1784,7 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
 - (NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *)deserialize:(NSData *)taskMapRaw {
     NSError *error = nil;
     // Creates a list of classes that can be stored.
-    NSSet *classes = [NSSet setWithObjects:[RNBGDTaskConfig class], [NSMutableDictionary class], [NSNumber class], [NSString class], nil];
+    NSSet *classes = [NSSet setWithObjects:[RNBGDTaskConfig class], [NSMutableDictionary class], [NSNumber class], [NSString class], [NSData class], nil];
     NSMutableDictionary<NSNumber *, RNBGDTaskConfig *> *taskMap = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:taskMapRaw error:&error];
 
     if (error) {
