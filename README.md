@@ -83,7 +83,7 @@ export default {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `mmkvVersion` | string | `'2.2.4'` | The version of MMKV to use on Android. |
+| `mmkvVersion` | string | `'2.2.4'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. |
 
 The plugin will automatically:
 - **iOS:** Add the required `handleEventsForBackgroundURLSession` method to your AppDelegate
@@ -142,6 +142,8 @@ dependencies {
     implementation 'com.tencent:mmkv-shared:2.2.4'
 }
 ```
+
+> **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, you can skip this step as it already includes MMKV as a dependency.
 
 ## Usage
 
