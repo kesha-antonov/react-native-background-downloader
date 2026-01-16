@@ -29,15 +29,15 @@ A library for React-Native to help you download and upload large files on iOS an
 
 ### Why?
 
-On iOS, if you want to download big files no matter the state of your app, wether it's in the background or terminated by the OS, you have to use a system API called `NSURLSession`.
+**The Problem:** Standard network requests in React Native are tied to your app's lifecycle. When the user switches to another app or the OS terminates your app to free memory, your downloads stop. For small files this is fine, but for large files (videos, podcasts, documents) this creates a frustrating user experience.
 
-This API handles your downloads separately from your app and only keeps it informed using delegates (Read: [Downloading Files in the Background](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background)).
+**The Solution:** Both iOS and Android provide system-level APIs for background file transfers:
+- **iOS:** [`NSURLSession`](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background) - handles downloads in a separate process, continuing even after your app is terminated
+- **Android:** [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) - a system service that manages long-running downloads independently of your app
 
-On Android we are using similar process with [DownloadManager](https://developer.android.com/reference/android/app/DownloadManager)
+**The Challenge:** These APIs are powerful but complex. Downloads run in a separate process, so your app might restart from scratch while downloads are still in progress. Keeping your UI in sync with background downloads requires careful state management.
 
-The real challenge of using this method is making sure the app's UI is always up-to-date with the downloads that are happening in another process because your app might startup from scratch while the downloads are still running.
-
-`@kesha-antonov/react-native-background-downloader` gives you an easy API to both downloading large files and re-attaching to those downloads once your app launches again.
+**This Library:** `@kesha-antonov/react-native-background-downloader` wraps these native APIs in a simple, unified JavaScript interface. Start a download, close your app, reopen it hours later, and seamlessly reconnect to your ongoing downloads with a single function call.
 
 ## ToC
 
