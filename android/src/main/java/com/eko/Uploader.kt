@@ -201,7 +201,11 @@ class Uploader(private val context: Context) {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
 
-            // Note: Custom headers could be added here if config.headers was available
+            // Apply custom headers
+            config.headers?.forEach { (key, value) ->
+                connection.setRequestProperty(key, value)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Set upload header: $key = $value")
+            }
 
             if (useMultipart) {
                 connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")

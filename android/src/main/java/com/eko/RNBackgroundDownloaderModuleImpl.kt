@@ -1097,6 +1097,18 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     val fieldName = if (options.hasKey("fieldName")) options.getString("fieldName") else null
     val mimeType = if (options.hasKey("mimeType")) options.getString("mimeType") else null
+    val headers = if (options.hasKey("headers")) {
+      val headersMap = options.getMap("headers")
+      val result = mutableMapOf<String, String>()
+      if (headersMap != null) {
+        val iterator = headersMap.keySetIterator()
+        while (iterator.hasNextKey()) {
+          val key = iterator.nextKey()
+          result[key] = headersMap.getString(key) ?: ""
+        }
+      }
+      result
+    } else null
     val parameters = if (options.hasKey("parameters")) {
       val paramsMap = options.getMap("parameters")
       val result = mutableMapOf<String, String>()
@@ -1130,6 +1142,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       source = source,
       metadata = metadata ?: "{}",
       method = method ?: "POST",
+      headers = headers,
       fieldName = fieldName,
       mimeType = mimeType,
       parameters = parameters

@@ -10,6 +10,7 @@ data class RNBGDUploadTaskConfig(
     val source: String,
     val metadata: String = "{}",
     val method: String = "POST",
+    val headers: Map<String, String>? = null,
     val fieldName: String? = null,
     val mimeType: String? = null,
     val parameters: Map<String, String>? = null,
