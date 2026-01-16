@@ -12,9 +12,9 @@
   <img src="https://img.shields.io/badge/New%20Architecture-supported-green.svg" alt="New Architecture">
 </p>
 
-# @kesha-antonov/react-native-background-downloader
+# React Native Background Downloader
 
-A library for React-Native to help you download and upload large files on iOS and Android both in the foreground and most importantly in the background.
+Download and upload large files on iOS & Android — even when your app is in the background or terminated.
 
 ## ✨ Features
 
@@ -42,7 +42,7 @@ A library for React-Native to help you download and upload large files on iOS an
 
 ## Table of Contents
 
-- [@kesha-antonov/react-native-background-downloader](#kesha-antonovreact-native-background-downloader)
+- [React Native Background Downloader](#react-native-background-downloader)
   - [✨ Features](#-features)
   - [Why?](#why)
   - [Table of Contents](#table-of-contents)
