@@ -74,7 +74,7 @@ export default {
     plugins: [
       ["@kesha-antonov/react-native-background-downloader", {
         // Customize the MMKV version on Android (default: '4.1.1')
-        mmkvVersion: "4.1.1"
+        mmkvVersion: "2.2.4"
       }]
     ]
   }
@@ -83,7 +83,7 @@ export default {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `mmkvVersion` | string | `'4.1.1'` | The version of MMKV to use on Android. |
+| `mmkvVersion` | string | `'2.2.4'` | The version of MMKV to use on Android. |
 
 The plugin will automatically:
 - **iOS:** Add the required `handleEventsForBackgroundURLSession` method to your AppDelegate

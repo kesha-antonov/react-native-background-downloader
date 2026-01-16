@@ -6,18 +6,18 @@ interface PluginOptions {
   /**
    * Options for the MMKV dependency on Android.
    * Pass a string to specify the version, or an object with version property.
-   * @default '4.1.1'
+   * @default '2.2.4'
    * @example
    * // Use default version
    * ["@kesha-antonov/react-native-background-downloader"]
    * // Specify version
-   * ["@kesha-antonov/react-native-background-downloader", { mmkvVersion: "4.1.1" }]
+   * ["@kesha-antonov/react-native-background-downloader", { mmkvVersion: "2.2.4" }]
    */
   mmkvVersion?: string
 }
 
 const withRNBackgroundDownloader: ConfigPlugin<PluginOptions | void> = (config, options) => {
-  const { mmkvVersion = '4.1.1' } = options || {}
+  const { mmkvVersion = '2.2.4' } = options || {}
 
   // Handle iOS AppDelegate modifications
   config = withAppDelegate(config, (config) => {
