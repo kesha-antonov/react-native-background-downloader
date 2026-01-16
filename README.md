@@ -28,7 +28,7 @@ A library for React-Native to help you download and upload large files on iOS an
 - ⚡ **New Architecture** - Full TurboModules support for React Native
 - 📝 **TypeScript** - Complete TypeScript definitions included
 
-### Why?
+## Why?
 
 **The Problem:** Standard network requests in React Native are tied to your app's lifecycle. When the user switches to another app or the OS terminates your app to free memory, your downloads stop. For small files this is fine, but for large files (videos, podcasts, documents) this creates a frustrating user experience.
 
@@ -40,62 +40,58 @@ A library for React-Native to help you download and upload large files on iOS an
 
 **This Library:** `@kesha-antonov/react-native-background-downloader` wraps these native APIs in a simple, unified JavaScript interface. Start a download, close your app, reopen it hours later, and seamlessly reconnect to your ongoing downloads with a single function call.
 
-## ToC
+## Table of Contents
 
-- [Features](#-features)
-- [Requirements](#requirements)
-- [Getting started](#getting-started)
-- [Usage](#usage)
-  - [Downloading](#downloading-a-file)
-  - [Uploading](#uploading-a-file)
-  - [Custom Headers](#using-custom-headers)
-  - [Configuration](#configuring-parallel-downloads-and-network-types)
-  - [Debug Logs](#enabling-debug-logs)
-  - [Handling Redirects](#handling-urls-with-many-redirects-android)
-- [API](#api)
-- [Constants](#constants)
-- [Platform Notes](#platform-notes)
-- [Troubleshooting](#troubleshooting)
-- [Example App](#example-app)
-- [Migration Guide](#migration-guide)
-- [Contributing](#contributing)
-- [License](#license)
+- [@kesha-antonov/react-native-background-downloader](#kesha-antonovreact-native-background-downloader)
+  - [✨ Features](#-features)
+  - [Why?](#why)
+  - [Table of Contents](#table-of-contents)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
+    - [Expo Projects](#expo-projects)
+    - [Bare React Native Projects](#bare-react-native-projects)
+  - [Usage](#usage)
+    - [Downloading a file](#downloading-a-file)
+    - [Re-Attaching to background downloads](#re-attaching-to-background-downloads)
+      - [Re-Attaching to background uploads](#re-attaching-to-background-uploads)
+  - [Advanced Configuration](#advanced-configuration)
+      - [Max Parallel Downloads (iOS only)](#max-parallel-downloads-ios-only)
+      - [Cellular/WiFi Restrictions](#cellularwifi-restrictions)
+  - [API](#api)
+    - [Quick Reference](#quick-reference)
+  - [Platform Notes](#platform-notes)
+  - [Troubleshooting](#troubleshooting)
+  - [Example App](#example-app)
+  - [Use Cases](#use-cases)
+  - [Migration Guide](#migration-guide)
+  - [Contributing](#contributing)
+    - [Development Setup](#development-setup)
+  - [Authors](#authors)
+  - [License](#license)
 
 ## Requirements
 
 | Requirement | Version |
 |-------------|--------|
-| React Native | >= 0.57.0 |
-| iOS | >= 12.0 |
-| Android | API 21+ (Android 5.0) |
+| React Native | >= 0.70.0 |
+| iOS | >= 15.1 |
+| Android | API 24+ (Android 7.0) |
 | Expo | SDK 50+ (with config plugin) |
 
-## Getting started
+> **Note:** For older React Native versions (0.57.0 - 0.69.x), use version 2.x of this library.
 
-### Installation
+## Installation
 
-```bash
-yarn add @kesha-antonov/react-native-background-downloader
-```
+### Expo Projects
 
-or
-```bash
-npm i @kesha-antonov/react-native-background-downloader
-```
-
-Then:
+**Step 1:** Install the package
 
 ```bash
-cd ios && pod install
+npx expo install @kesha-antonov/react-native-background-downloader
 ```
 
-### iOS - Extra Mandatory Step
+**Step 2:** Add the config plugin to your `app.json` or `app.config.js`:
 
-#### Option 1: Using Expo Config Plugin (Recommended)
-
-If you're using Expo, add the plugin to your config:
-
-**In your `app.json`:**
 ```json
 {
   "expo": {
@@ -106,7 +102,8 @@ If you're using Expo, add the plugin to your config:
 }
 ```
 
-**Plugin Options:**
+<details>
+<summary><strong>Plugin Options (optional)</strong></summary>
 
 ```js
 // app.config.js
@@ -114,8 +111,7 @@ export default {
   expo: {
     plugins: [
       ["@kesha-antonov/react-native-background-downloader", {
-        // Customize the MMKV version on Android (default: '2.2.4')
-        mmkvVersion: "2.2.4"
+        mmkvVersion: "2.2.4"  // Customize MMKV version on Android
       }]
     ]
   }
@@ -126,57 +122,83 @@ export default {
 |--------|------|---------|-------------|
 | `mmkvVersion` | string | `'2.2.4'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. |
 
-The plugin will automatically:
-- **iOS:** Add the required `handleEventsForBackgroundURLSession` method to your AppDelegate
-- **Android:** Add the required MMKV dependency
+</details>
 
-After adding the plugin, run:
+**Step 3:** Rebuild your app
+
 ```bash
 npx expo prebuild --clean
+npx expo run:ios   # or npx expo run:android
 ```
 
-#### Option 2: Manual Setup
+The plugin automatically handles:
+- **iOS:** Adding the required `handleEventsForBackgroundURLSession` method to AppDelegate
+- **Android:** Adding the required MMKV dependency
+
+---
+
+### Bare React Native Projects
+
+**Step 1:** Install the package
+
+```bash
+# Using yarn
+yarn add @kesha-antonov/react-native-background-downloader
+
+# Using npm
+npm install @kesha-antonov/react-native-background-downloader
+```
+
+**Step 2:** Install iOS pods
+
+```bash
+cd ios && pod install && cd ..
+```
+
+**Step 3:** Configure iOS AppDelegate
 
 <details>
-  <summary>Manual setup for React Native 0.77+ (Click to expand)</summary>
+<summary><strong>React Native 0.77+ (Swift)</strong></summary>
 
-  In your project bridging header file (e.g. `ios/{projectName}-Bridging-Header.h`)
-  add an import for RNBackgroundDownloader:
+In your project bridging header file (e.g. `ios/{projectName}-Bridging-Header.h`):
 
-  ```objc
-  #import <RNBackgroundDownloader.h>
-  ```
+```objc
+#import <RNBackgroundDownloader.h>
+```
 
-  Then in your `AppDelegate.swift` add the following method inside of your `AppDelegate` class:
+In your `AppDelegate.swift`:
 
-  ```swift
-  func application(
-    _ application: UIApplication,
-    handleEventsForBackgroundURLSession identifier: String,
-    completionHandler: @escaping () -> Void
-  ) {
-    RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
-  }
-  ```
+```swift
+func application(
+  _ application: UIApplication,
+  handleEventsForBackgroundURLSession identifier: String,
+  completionHandler: @escaping () -> Void
+) {
+  RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
+}
+```
+
 </details>
 
 <details>
-  <summary>Manual setup for React Native < 0.77 (Click to expand)</summary>
+<summary><strong>React Native < 0.77 (Objective-C)</strong></summary>
 
-  In your `AppDelegate.m` add the following code:
-  ```objc
-  #import <RNBackgroundDownloader.h>
+In your `AppDelegate.m`:
 
-  - (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler
-  {
-    [RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];
-  }
-  ```
+```objc
+#import <RNBackgroundDownloader.h>
+
+- (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler
+{
+  [RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];
+}
+```
+
 </details>
 
-### Android - Extra Step (Non-Expo only)
+**Step 4:** Configure Android MMKV dependency
 
-If you're **not** using Expo, add the MMKV dependency to your `android/app/build.gradle`:
+Add MMKV to your `android/app/build.gradle`:
 
 ```gradle
 dependencies {
@@ -184,7 +206,7 @@ dependencies {
 }
 ```
 
-> **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, you can skip this step as it already includes MMKV as a dependency.
+> **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, skip this step — it already includes MMKV.
 
 ## Usage
 
@@ -257,7 +279,8 @@ for (let task of lostTasks) {
 
 `task.id` is very important for re-attaching the download task with any UI component representing that task. This is why you need to make sure to give sensible IDs that you know what to do with, try to avoid using random IDs.
 
-### Uploading a file
+<details>
+<summary><strong>Uploading a file</strong></summary>
 
 ```javascript
 import { Platform } from 'react-native'
@@ -307,7 +330,7 @@ await task.resume()
 await task.stop()
 ```
 
-### Re-Attaching to background uploads
+#### Re-Attaching to background uploads
 
 Similar to downloads, you can re-attach to uploads that were running when your app was terminated:
 
@@ -327,7 +350,12 @@ for (let task of lostUploads) {
 }
 ```
 
-### Using custom headers
+</details>
+
+## Advanced Configuration
+
+<details>
+<summary><strong>Using custom headers</strong></summary>
 If you need to send custom headers with your download request, you can do in it 2 ways:
 
 1) Globally using `setConfig()`:
@@ -367,7 +395,10 @@ task.start()
 ```
 Headers given in `createDownloadTask()` are **merged** with the ones given in `setConfig({ headers: { ... } })`.
 
-### Configuring Parallel Downloads and Network Types
+</details>
+
+<details>
+<summary><strong>Configuring parallel downloads and network types</strong></summary>
 
 You can configure global settings for download behavior using `setConfig()`:
 
@@ -419,7 +450,10 @@ const task = createDownloadTask({
 })
 ```
 
-### Enabling Debug Logs
+</details>
+
+<details>
+<summary><strong>Enabling debug logs</strong></summary>
 
 The library includes verbose debug logging that can help diagnose download issues. Logging is disabled by default but can be enabled at runtime using `setConfig()`. **Logging works in both debug and production/release builds.**
 
@@ -456,7 +490,10 @@ setConfig({
 - Logs include detailed information about download lifecycle, session management, and errors
 - In production builds, logs are only printed when explicitly enabled via `isLogsEnabled`
 
-### Handling Slow-Responding URLs
+</details>
+
+<details>
+<summary><strong>Handling slow-responding URLs</strong></summary>
 
 This library automatically includes connection timeout improvements for slow-responding URLs. By default, the following headers are added to all download requests on Android:
 
@@ -466,7 +503,10 @@ This library automatically includes connection timeout improvements for slow-res
 
 These headers help prevent downloads from getting stuck in "pending" state when servers take several minutes to respond initially. You can override these headers by providing your own in the `headers` option.
 
-### Handling URLs with Many Redirects (Android)
+</details>
+
+<details>
+<summary><strong>Handling URLs with many redirects (Android)</strong></summary>
 
 Android's DownloadManager has a built-in redirect limit that can cause `ERROR_TOO_MANY_REDIRECTS` for URLs with multiple redirects (common with podcast URLs, tracking services, CDNs, etc.).
 
@@ -506,11 +546,13 @@ task.start()
 - Falls back to original URL if redirect resolution fails
 - Respects the same headers and timeouts as the main download
 
+</details>
+
 ## API
 
-### Named Exports
+For complete API documentation, see the **[API Reference](./docs/API.md)**.
 
-The library exports the following functions and objects:
+### Quick Reference
 
 ```typescript
 import {
@@ -524,240 +566,24 @@ import {
 } from '@kesha-antonov/react-native-background-downloader'
 ```
 
-### `createDownloadTask(options)`
-
-Download a file to destination
-
-**options**
-
-An object containing options properties
-
-| Property      | Type                                             | Required | Platforms | Info                                                                                                                                                                                                                                 |
-| ------------- | ------------------------------------------------ | :------: | :-------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`          | String |    ✅     |    All    | A unique ID to provide for this download. This ID will help to identify the download task when the app re-launches |
-| `url`         | String |    ✅     |    All    | URL to file you want to download |
-| `destination` | String |    ✅     |    All    | Where to copy the file to once the download is done. The 'file://' prefix will be automatically removed if present |
-| `metadata`    | Record<string, unknown> |           |    All    | Custom data to be preserved across app restarts. Will be serialized to JSON |
-| `headers`     | Record<string, string \| null> |           |    All    | Custom headers to add to the download request. These are merged with the headers given in `setConfig({ headers: { ... } })`. Headers with null values will be removed |
-| `maxRedirects` | Number |          |  Android  | Maximum number of redirects to follow before passing URL to DownloadManager. If not specified or 0, no redirect resolution is performed. Helps avoid ERROR_TOO_MANY_REDIRECTS for URLs with many redirects (e.g., podcast URLs) |
-| `isAllowedOverRoaming` | Boolean   |          |  Android  | whether this download may proceed over a roaming connection. By default, roaming is allowed |
-| `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
-| `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show a download notification or not |
-| `notificationTitle`     | String   |          |  Android  | Title of the download notification |
-
-**returns**
-
-`DownloadTask` - The download task to control and monitor this download. Call `task.start()` to begin the download.
-
-### `getExistingDownloadTasks()`
-
-Checks for downloads that ran in background while your app was terminated.
-
-Recommended to run at the init stage of the app.
-
-**returns**
-
-`Promise<DownloadTask[]>` - A promise that resolves to an array of tasks that were running in the background so you can re-attach callbacks to them
-
-### `createUploadTask(options)`
-
-Upload a file to a server
-
-**options**
-
-An object containing options properties
-
-| Property      | Type                                             | Required | Platforms | Info                                                                                                                                                                                                                                 |
-| ------------- | ------------------------------------------------ | :------: | :-------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`          | String |    ✅     |    All    | A unique ID to provide for this upload. This ID will help to identify the upload task when the app re-launches |
-| `url`         | String |    ✅     |    All    | URL to upload the file to |
-| `source`      | String |    ✅     |    All    | Path to the local file to upload. The 'file://' prefix will be automatically removed if present |
-| `method`      | 'POST' \| 'PUT' \| 'PATCH' |          |    All    | HTTP method for upload. Default is 'POST' |
-| `metadata`    | Record<string, unknown> |           |    All    | Custom data to be preserved across app restarts. Will be serialized to JSON |
-| `headers`     | Record<string, string \| null> |           |    All    | Custom headers to add to the upload request. These are merged with the headers given in `setConfig({ headers: { ... } })`. Headers with null values will be removed |
-| `fieldName`   | String |          |    All    | Name of the multipart form field for the file. Default is 'file' |
-| `mimeType`    | String |          |    All    | MIME type of the file being uploaded. Default is inferred from file extension |
-| `parameters`  | Record<string, string> |          |    All    | Additional form parameters to send with the upload |
-| `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this upload may proceed over a roaming connection. By default, roaming is allowed |
-| `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this upload may proceed over a metered network connection. By default, metered networks are allowed |
-| `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show an upload notification or not |
-| `notificationTitle`     | String   |          |  Android  | Title of the upload notification |
-
-**returns**
-
-`UploadTask` - The upload task to control and monitor this upload. Call `task.start()` to begin the upload.
-
-### `getExistingUploadTasks()`
-
-Checks for uploads that ran in background while your app was terminated.
-
-Recommended to run at the init stage of the app.
-
-**returns**
-
-`Promise<UploadTask[]>` - A promise that resolves to an array of upload tasks that were running in the background so you can re-attach callbacks to them
-
-### `setConfig(config)`
-
-Sets global configuration for the downloader.
-
-**config**
-
-An object containing configuration properties
-
-| Name           | Type   | Info                                                                                                 |
-| -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| `headers`     | Record<string, string \| null> | Optional headers to use in all future downloads. Headers with null values will be removed |
-| `progressInterval` | Number | Interval in milliseconds for download progress updates. Must be >= 250. Default is 1000 |
-| `progressMinBytes` | Number | Minimum number of bytes that must be downloaded before a progress event is emitted. When set to 0, only the percentage threshold (1% change) triggers progress updates. Default is 1048576 (1MB) |
-| `isLogsEnabled`   | Boolean | Enables/disables verbose debug logs in native code (iOS and Android). Works in both debug and release builds. Default is false |
-| `logCallback`   | (log: { message: string, taskId?: string }) => void | Optional callback function to receive native debug logs in JavaScript. Only called when `isLogsEnabled` is true |
-| `maxParallelDownloads` | Number | **iOS only**. Sets the maximum number of simultaneous connections per host for the download session. Must be >= 1. Default is 4. Note: Android's DownloadManager does not support this configuration |
-| `allowsCellularAccess` | Boolean | Controls whether downloads are allowed over cellular (metered) connections. When set to `false`, downloads will only occur over WiFi. Default is `true`. This is a cross-platform abstraction - on iOS it sets `allowsCellularAccess`, on Android it sets `isAllowedOverMetered` |
-
-**Example:**
-
-```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
-
-// Configure parallel downloads (iOS only) and cellular access
-setConfig({
-  maxParallelDownloads: 8,  // iOS only - max simultaneous connections per host
-  allowsCellularAccess: false,  // Only download over WiFi
-})
-
-// Enable verbose logging with callback
-setConfig({
-  isLogsEnabled: true,
-  logCallback: (log) => {
-    console.log('[BackgroundDownloader]', log.message, log.taskId ? `(${log.taskId})` : '')
-  }
-})
-
-// Or just enable native console logging without JS callback
-setConfig({
-  isLogsEnabled: true
-})
-```
-
-### DownloadTask
-
-A class representing a download task created by `createDownloadTask()`. Note: You must call `task.start()` to begin the download after setting up event handlers.
-
-### UploadTask
-
-A class representing an upload task created by `createUploadTask()`. Note: You must call `task.start()` to begin the upload after setting up event handlers.
-
-**Members** (same structure as DownloadTask with upload-specific properties)
-
-| Name           | Type   | Info                                                                                                 |
-| -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| `id`           | String | The id you gave the task when calling `createUploadTask`                              |
-| `metadata`     | Record<string, unknown> | The metadata you gave the task when calling `createUploadTask`                        |
-| `state`        | 'PENDING' \| 'UPLOADING' \| 'PAUSED' \| 'DONE' \| 'FAILED' \| 'STOPPED' | Current state of the upload task |
-| `bytesUploaded` | Number | The number of bytes currently uploaded by the task                                                    |
-| `bytesTotal`   | Number | The total number bytes to be uploaded by this task |
-| `uploadParams` | UploadParams | The upload parameters set for this task |
-
-**Callback Methods**
-
-| Function   | Callback Arguments                | Info|
-| ---------- | --------------------------------- | ---- |
-| `begin`    | `{ expectedBytes: number }` | Called when upload starts |
-| `progress` | `{ bytesUploaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly |
-| `done`     | `{ responseCode: number, responseBody: string, bytesUploaded: number, bytesTotal: number }` | Called when the upload is done. Includes server response code and body |
-| `error`    | `{ error: string, errorCode: number }` | Called when the upload stops due to an error |
-
-**Methods**
-
-- `pause(): Promise<void>` - Pauses the upload (platform support may vary)
-- `resume(): Promise<void>` - Resumes a paused upload
-- `stop(): Promise<void>` - Stops the upload and removes temporary data
-- `start(): void` - Starts the upload
-
-### `Members`
-| Name           | Type   | Info                                                                                                 |
-| -------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| `id`           | String | The id you gave the task when calling `createDownloadTask`                              |
-| `metadata`     | Record<string, unknown> | The metadata you gave the task when calling `createDownloadTask`                        |
-| `state`        | 'PENDING' \| 'DOWNLOADING' \| 'PAUSED' \| 'DONE' \| 'FAILED' \| 'STOPPED' | Current state of the download task |
-| `bytesDownloaded` | Number | The number of bytes currently written by the task                                                    |
-| `bytesTotal`   | Number | The number bytes expected to be written by this task or more plainly, the file size being downloaded. **Note:** This value will be `-1` if the server does not provide a `Content-Length` header |
-| `downloadParams` | DownloadParams | The download parameters set for this task |
-
-### `completeHandler(jobId: string)`
-
-Finishes download job and informs OS that app can be closed in background if needed.
-After finishing download in background you have some time to process your JS logic and finish the job.
-
-**Parameters:**
-- `jobId` (String) - The ID of the download task to complete
-
-**Note:** This should be called after processing your download in the `done` callback to properly signal completion to the OS.
-
-### `Callback Methods`
-Use these methods to stay updated on what's happening with the task.
-
-All callback methods return the current instance of the `DownloadTask` for chaining.
-
-| Function   | Callback Arguments                | Info|
-| ---------- | --------------------------------- | ---- |
-| `begin`    | `{ expectedBytes: number, headers: Record<string, string \| null> }` | Called when the first byte is received. 💡: this is good place to check if the device has enough storage space for this download |
-| `progress` | `{ bytesDownloaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly. **Note:** `bytesTotal` will be `-1` if the server does not provide a `Content-Length` header |
-| `done`     | `{ location: string, bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set. `location` is the final file path. **Note:** `bytesTotal` will be `-1` if the server did not provide a `Content-Length` header |
-| `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error |
-
-### `pause(): Promise<void>`
-Pauses the download. Returns a promise that resolves when the pause operation is complete.
-
-**Note:** On Android, pause/resume is implemented using HTTP Range headers, which requires server support. The download progress is saved and resumed from where it left off.
-
-### `resume(): Promise<void>`
-Resumes a paused download. Returns a promise that resolves when the resume operation is complete.
-
-**Note:** On Android, this uses HTTP Range headers to resume from the last downloaded byte position. If the server doesn't support range requests, the download will restart from the beginning.
-
-### `stop(): Promise<void>`
-Stops the download for good and removes the file that was written so far. Returns a promise that resolves when the stop operation is complete.
-
-## Constants
-
-### directories
-
-### `documents`
-
-An absolute path to the app's documents directory. It is recommended that you use this path as the target of downloaded files.
+| Function | Description |
+|----------|-------------|
+| `createDownloadTask(options)` | Create a new download task |
+| `createUploadTask(options)` | Create a new upload task |
+| `getExistingDownloadTasks()` | Get downloads running in background |
+| `getExistingUploadTasks()` | Get uploads running in background |
+| `setConfig(config)` | Set global configuration |
+| `completeHandler(jobId)` | Signal download completion to OS |
+| `directories.documents` | Path to app's documents directory |
 
 ## Platform Notes
 
-### Android Pause/Resume
+For detailed platform-specific information, see **[Platform Notes](./docs/PLATFORM_NOTES.md)**.
 
-Pause/resume on Android uses HTTP Range headers. The server must support range requests for resume to work correctly. If the server doesn't support it, the download will restart from the beginning.
-
-### Android 16+ Support
-
-Downloads are automatically marked as user-initiated data transfers on Android 16+ (API 36) to prevent being killed due to thermal throttling.
-
-### Google Play Console Declaration
-
-The library uses Foreground Service permissions. When publishing to Google Play:
-
-1. Go to **App content** → **Foreground Service** in the Play Console
-2. Select **Yes** for Foreground Service usage
-3. Choose **Data sync** as the type
-4. Select **Network processing** as the task
-
-### Proguard Rules
-
-If you encounter `TypeToken` errors in release builds, add to `proguard-rules.pro`:
-
-```
--keep class com.eko.RNBGDTaskConfig { *; }
--keepattributes Signature
--keep class com.google.gson.reflect.TypeToken { *; }
--keep class * extends com.google.gson.reflect.TypeToken
--keep class com.tencent.mmkv.** { *; }
-```
+Key points:
+- **iOS**: Uses `NSURLSession` for true background downloads
+- **Android**: Uses `DownloadManager` + Foreground Services + MMKV
+- **Pause/Resume**: Works on both platforms (Android requires server Range header support)
 
 ## Troubleshooting
 
