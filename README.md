@@ -139,7 +139,7 @@ If you're **not** using Expo, add the MMKV dependency to your `android/app/build
 
 ```gradle
 dependencies {
-    implementation 'com.tencent:mmkv-shared:4.1.1'
+    implementation 'com.tencent:mmkv-shared:2.2.4'
 }
 ```
 
