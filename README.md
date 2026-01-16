@@ -710,7 +710,7 @@ yarn ios  # or yarn android
 
 Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 
-Based on [react-native-background-downloader](https://github.com/ekolabs/react-native-background-downloader) by [Elad Gil](https://github.com/ptelad) (2022, unmaintained)
+Based on [react-native-background-downloader](https://github.com/ekolabs/react-native-background-downloader) by [Elad Gil](https://github.com/ptelad) (unmaintained since 2019)
 
 ## License
 
