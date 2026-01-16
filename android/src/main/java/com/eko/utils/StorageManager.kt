@@ -2,6 +2,7 @@ package com.eko.utils
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.eko.Downloader
 import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.RNBGDTaskConfig
 import com.google.gson.Gson
@@ -17,6 +18,7 @@ class StorageManager(context: Context, private val name: String) {
     companion object {
         private const val TAG = "StorageManager"
         private const val KEY_DOWNLOAD_ID_TO_CONFIG = "_downloadIdToConfig"
+        private const val KEY_PAUSED_DOWNLOADS = "_pausedDownloads"
         private const val KEY_PROGRESS_INTERVAL = "_progressInterval"
         private const val KEY_PROGRESS_MIN_BYTES = "_progressMinBytes"
     }
@@ -191,6 +193,109 @@ class StorageManager(context: Context, private val name: String) {
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to get boolean $key: ${e.message}")
             defaultValue
+        }
+    }
+
+    /**
+     * Serializable data class for storing paused download information.
+     * This is needed because Gson requires explicit serialization for complex types.
+     */
+    data class PausedDownloadInfoData(
+        val configId: String,
+        val url: String,
+        val destination: String,
+        val headers: Map<String, String>,
+        val bytesDownloaded: Long,
+        val bytesTotal: Long,
+        val metadata: String = "{}"
+    )
+
+    /**
+     * Save paused downloads map.
+     */
+    fun savePausedDownloads(pausedDownloads: Map<String, Downloader.PausedDownloadInfo>) {
+        try {
+            val gson = Gson()
+            // Convert to serializable data class
+            val mapCopy = pausedDownloads.mapValues { (_, info) ->
+                PausedDownloadInfoData(
+                    configId = info.configId,
+                    url = info.url,
+                    destination = info.destination,
+                    headers = info.headers,
+                    bytesDownloaded = info.bytesDownloaded,
+                    bytesTotal = info.bytesTotal,
+                    metadata = info.metadata
+                )
+            }
+            val str = gson.toJson(mapCopy)
+
+            if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.encode("$name$KEY_PAUSED_DOWNLOADS", str)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved paused downloads to MMKV: ${pausedDownloads.size} items")
+            } else {
+                sharedPreferences.edit()
+                    .putString("$name$KEY_PAUSED_DOWNLOADS", str)
+                    .apply()
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved paused downloads to SharedPreferences fallback: ${pausedDownloads.size} items")
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save paused downloads: ${e.message}")
+        }
+    }
+
+    /**
+     * Load paused downloads map.
+     */
+    fun loadPausedDownloads(): MutableMap<String, Downloader.PausedDownloadInfo> {
+        try {
+            val str = if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.decodeString("$name$KEY_PAUSED_DOWNLOADS")?.also {
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded paused downloads from MMKV")
+                }
+            } else {
+                sharedPreferences.getString("$name$KEY_PAUSED_DOWNLOADS", null)?.also {
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded paused downloads from SharedPreferences fallback")
+                }
+            }
+
+            if (str != null) {
+                val gson = Gson()
+                val mapType = object : TypeToken<Map<String, PausedDownloadInfoData>>() {}.type
+                val dataMap: Map<String, PausedDownloadInfoData> = gson.fromJson(str, mapType)
+                // Convert back to PausedDownloadInfo
+                return dataMap.mapValues { (_, data) ->
+                    Downloader.PausedDownloadInfo(
+                        configId = data.configId,
+                        url = data.url,
+                        destination = data.destination,
+                        headers = data.headers,
+                        bytesDownloaded = data.bytesDownloaded,
+                        bytesTotal = data.bytesTotal,
+                        metadata = data.metadata
+                    )
+                }.toMutableMap()
+            } else {
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "No paused downloads found, starting with empty map")
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load paused downloads: ${e.message}")
+        }
+        return mutableMapOf()
+    }
+
+    /**
+     * Remove a paused download by config ID.
+     */
+    fun removePausedDownload(configId: String) {
+        try {
+            val paused = loadPausedDownloads()
+            if (paused.remove(configId) != null) {
+                savePausedDownloads(paused)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Removed paused download: $configId")
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to remove paused download: ${e.message}")
         }
     }
 }

@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Both use HTTP Range headers to support true pause/resume, even in the background.
  */
-class Downloader(private val context: Context) {
+class Downloader(private val context: Context, private val storageManager: com.eko.utils.StorageManager? = null) {
 
   companion object {
     private const val TAG = "RNBackgroundDownloader"
@@ -39,6 +39,7 @@ class Downloader(private val context: Context) {
   private val pendingServiceOperations = java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>()
 
   // Track which config IDs are using resumable downloads (paused state)
+  // This is loaded from persistent storage and synchronized with it
   private val pausedDownloads = ConcurrentHashMap<String, PausedDownloadInfo>()
 
   // Track download IDs that are being intentionally cancelled (to ignore broadcast events)
@@ -81,11 +82,20 @@ class Downloader(private val context: Context) {
     val destination: String,
     val headers: Map<String, String>,
     val bytesDownloaded: Long,
-    val bytesTotal: Long
+    val bytesTotal: Long,
+    val metadata: String = "{}"
   )
 
   init {
     bindToService()
+    // Load persisted paused downloads
+    storageManager?.let {
+      val loadedPaused = it.loadPausedDownloads()
+      if (loadedPaused.isNotEmpty()) {
+        pausedDownloads.putAll(loadedPaused)
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded ${loadedPaused.size} persisted paused downloads")
+      }
+    }
   }
 
   private fun bindToService() {
@@ -132,6 +142,8 @@ class Downloader(private val context: Context) {
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Cleaned up stale paused state for: $configId")
+      // Persist the removal
+      savePausedDownloads()
       // Clean up partially downloaded destination file if it exists
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
@@ -180,7 +192,7 @@ class Downloader(private val context: Context) {
    * Pause a download. This cancels the DownloadManager download and saves state
    * so it can be resumed later using HTTP Range headers.
    */
-  fun pause(downloadId: Long, configId: String, url: String, destination: String, headers: Map<String, String>): Boolean {
+  fun pause(downloadId: Long, configId: String, url: String, destination: String, headers: Map<String, String>, metadata: String = "{}"): Boolean {
     // Mark this download as being paused to ignore broadcast events
     cancellingDownloads[downloadId] = CancelIntent.PAUSING
 
@@ -193,14 +205,19 @@ class Downloader(private val context: Context) {
     downloadManager.remove(downloadId)
 
     // Save paused state for later resume
-    pausedDownloads[configId] = PausedDownloadInfo(
+    val pausedInfo = PausedDownloadInfo(
       configId = configId,
       url = url,
       destination = destination,
       headers = headers,
       bytesDownloaded = bytesDownloaded,
-      bytesTotal = bytesTotal
+      bytesTotal = bytesTotal,
+      metadata = metadata
     )
+    pausedDownloads[configId] = pausedInfo
+
+    // Persist to storage for app restart persistence
+    savePausedDownloads()
 
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Paused download $configId at $bytesDownloaded/$bytesTotal bytes")
     return true
@@ -210,11 +227,14 @@ class Downloader(private val context: Context) {
    * Resume a paused download using the background service with HTTP Range headers.
    */
   fun resume(configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
-    val pausedInfo = pausedDownloads[configId]
+    val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo == null) {
       RNBackgroundDownloaderModuleImpl.logW(TAG, "No paused download found for configId: $configId")
       return false
     }
+
+    // Persist the removal from paused state (it's now actively downloading)
+    savePausedDownloads()
 
     // Start the foreground service for background download
     startDownloadService(
@@ -361,6 +381,9 @@ class Downloader(private val context: Context) {
     // Clean up paused download state and partially downloaded file
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
+      // Persist the removal
+      savePausedDownloads()
+
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
         if (!destFile.delete()) {
@@ -393,6 +416,18 @@ class Downloader(private val context: Context) {
   fun getPausedInfo(configId: String): PausedDownloadInfo? = pausedDownloads[configId]
 
   /**
+   * Get all paused downloads.
+   */
+  fun getAllPausedDownloads(): Map<String, PausedDownloadInfo> = pausedDownloads.toMap()
+
+  /**
+   * Persist paused downloads to storage.
+   */
+  private fun savePausedDownloads() {
+    storageManager?.savePausedDownloads(pausedDownloads.toMap())
+  }
+
+  /**
    * Check if download is using resumable downloader (either UIDT job or foreground service).
    */
   fun isResumableDownload(configId: String): Boolean {
@@ -411,6 +446,9 @@ class Downloader(private val context: Context) {
   fun removePausedState(configId: String) {
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
+      // Persist the removal
+      savePausedDownloads()
+
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
         if (!destFile.delete()) {

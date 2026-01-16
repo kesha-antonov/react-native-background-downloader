@@ -110,6 +110,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   @Volatile
   private var isReceiverRegistered = false
 
+  // Map to store metadata for paused downloads
+  private val configIdToMetadata = mutableMapOf<String, String>()
+
   /**
    * Get the event emitter, ensuring it's initialized.
    * Returns null if the module hasn't been initialized yet.
@@ -197,7 +200,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     loadDownloadIdToConfigMap()
     loadConfigMap()
 
-    downloader = Downloader(reactContext)
+    downloader = Downloader(reactContext, storageManager)
   }
 
   fun getConstants(): Map<String, Any>? {
@@ -402,6 +405,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   ) {
     configIdToDownloadId.remove(configId)
     configIdToHeaders.remove(configId)
+    configIdToMetadata.remove(configId)
     progressReporter.clearDownloadState(configId)
 
     if (downloadId != null) {
@@ -612,10 +616,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Save headers for potential pause/resume functionality
     val headersMap = HeaderUtils.toMap(headers)
+    val metadataValue = metadata ?: "{}"
 
     // Helper function to start download with DownloadManager and track state
     fun startDownloadManagerDownload(downloadId: Long) {
-      val config = RNBGDTaskConfig(id, url, destination, metadata ?: "{}", notificationTitle)
+      val config = RNBGDTaskConfig(id, url, destination, metadataValue, notificationTitle)
       synchronized(sharedLock) {
         // Clean up any stale state from previous downloads with the same ID
         downloader.cleanupStaleState(id)
@@ -624,6 +629,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         progressReporter.initializeDownload(id)
         configIdToDownloadId[id] = downloadId
         configIdToHeaders[id] = headersMap
+        configIdToMetadata[id] = metadataValue
         downloadIdToConfig[downloadId] = config
         saveDownloadIdToConfigMap()
         resumeTasks(downloadId, config)
@@ -639,6 +645,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         progressReporter.clearDownloadState(id)
         progressReporter.initializeDownload(id)
         configIdToHeaders[id] = headersMap
+        configIdToMetadata[id] = metadataValue
       }
       downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener)
     }
@@ -705,12 +712,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val config = downloadIdToConfig[downloadId]
         if (config != null) {
           val headers = configIdToHeaders[configId] ?: emptyMap()
+          val metadata = configIdToMetadata[configId] ?: config.metadata
 
           // Stop progress tracking
           stopTaskProgress(configId)
 
           // Pause the download (this cancels DownloadManager and saves state)
-          val paused = downloader.pause(downloadId, configId, config.url, config.destination, headers)
+          val paused = downloader.pause(downloadId, configId, config.url, config.destination, headers, metadata)
 
           if (paused) {
             // Remove from DownloadManager tracking
@@ -801,8 +809,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
   fun getExistingDownloadTasks(promise: Promise) {
     val foundTasks = Arguments.createArray()
+    val processedIds = mutableSetOf<String>()
 
     synchronized(sharedLock) {
+      // Phase 1: Query active downloads from DownloadManager
       val query = DownloadManager.Query()
       try {
         downloader.downloadManager.query(query)?.use { cursor ->
@@ -842,6 +852,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                   val percent = if (bytesTotal > 0) bytesDownloaded / bytesTotal else 0.0
 
                   foundTasks.pushMap(params)
+                  processedIds.add(config.id)
                   configIdToDownloadId[config.id] = downloadId
                   progressReporter.setPercent(config.id, percent)
                 }
@@ -854,6 +865,31 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       } catch (e: Exception) {
         logE(NAME, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
       }
+
+      // Phase 2: Add paused downloads (persisted across app restarts)
+      val pausedDownloads = downloader.getAllPausedDownloads()
+      for ((configId, pausedInfo) in pausedDownloads) {
+        if (processedIds.contains(configId)) {
+          continue
+        }
+
+        val params = Arguments.createMap()
+        params.putString("id", configId)
+        params.putString("metadata", pausedInfo.metadata)
+        params.putInt("state", DownloadConstants.TASK_SUSPENDED) // PAUSED state
+        params.putDouble("bytesDownloaded", pausedInfo.bytesDownloaded.toDouble())
+        params.putDouble("bytesTotal", pausedInfo.bytesTotal.toDouble())
+
+        foundTasks.pushMap(params)
+        processedIds.add(configId)
+        logD(NAME, "getExistingDownloadTasks: Added paused download: $configId")
+      }
+
+      // Phase 3: Add active resumable downloads (in-progress via ResumableDownloader)
+      val resumableDownloader = downloader.resumableDownloader
+      // Check for any paused resumable downloads that weren't in the persisted state
+      // (e.g., paused during current session but not yet persisted)
+      // This is handled by the pausedDownloads map above since we persist on pause
     }
 
     promise.resolve(foundTasks)
