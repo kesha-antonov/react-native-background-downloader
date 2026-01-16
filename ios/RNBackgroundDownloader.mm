@@ -38,9 +38,6 @@ static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for com
 
 static CompletionHandler storedCompletionHandler;
 
-// Maximum retry attempts for queued events when bridge isn't ready
-static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max wait
-
 @implementation RNBackgroundDownloader {
     MMKV *mmkv;
     NSURLSession *urlSession;
@@ -130,7 +127,8 @@ RCT_EXPORT_MODULE();
     };
 #ifdef RCT_NEW_ARCH_ENABLED
     // For new architecture, we'd need to add this to the spec
-    // For now, just log to NSLog
+    // For now, just log to NSLog (body prepared for future use)
+    (void)body; // Suppress unused variable warning
     NSLog(@"[RNBD-Native] %@ taskId:%@", message, taskId);
 #else
     [self sendEventWithName:@"nativeDebugLog" body:body];
@@ -138,6 +136,9 @@ RCT_EXPORT_MODULE();
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
+// Maximum retry attempts for queued events when bridge isn't ready
+static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max wait
+
 // Old architecture override to ensure events are sent
 // Check if bridge is valid and loaded before sending events
 - (void)sendEventWithName:(NSString *)eventName body:(id)body {

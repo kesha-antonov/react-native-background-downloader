@@ -15,9 +15,13 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * This consolidates progress reporting logic that was previously
  * duplicated across RNBackgroundDownloaderModuleImpl and ResumableDownloadService.
+ *
+ * @param onEmitProgress Callback to emit batched progress reports
+ * @param bytesFieldName The field name for bytes progress (e.g., "bytesDownloaded" for downloads, "bytesUploaded" for uploads)
  */
 class ProgressReporter(
-    private val onEmitProgress: (WritableArray) -> Unit
+    private val onEmitProgress: (WritableArray) -> Unit,
+    private val bytesFieldName: String = "bytesDownloaded"
 ) {
     companion object {
         private const val TAG = "ProgressReporter"
@@ -84,7 +88,7 @@ class ProgressReporter(
         if (percentThresholdMet || bytesThresholdMet || bytesTotal <= 0) {
             val params = Arguments.createMap()
             params.putString("id", configId)
-            params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
+            params.putDouble(bytesFieldName, bytesDownloaded.toDouble())
             params.putDouble("bytesTotal", bytesTotal.toDouble())
             progressReports[configId] = params
             configIdToPercent[configId] = percent

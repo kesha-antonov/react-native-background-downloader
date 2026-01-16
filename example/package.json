@@ -7,17 +7,18 @@
     "start:android": "npx expo start --android --dev-client --clear",
     "start:ios": "npx expo start --ios --dev-client --clear",
     "start:web": "npx expo start --web --clear",
-    "lint": "expo lint",
+    "lint": "npx expo lint",
     "fresh": "yarn start --reset-cache",
-    "installDevBuild:ios": "expo run:ios",
-    "installDevBuild:android": "expo run:android",
-    "rebuildNativeDeps": "yarn expo prebuild",
-    "rebuildNativeDeps:clean": "yarn expo prebuild --clean",
-    "freshAndroid": "expo prebuild --clean && expo run:android",
-    "android": "expo run:android",
-    "ios": "expo run:ios"
+    "installDevBuild:ios": "npx expo run:ios",
+    "installDevBuild:android": "npx expo run:android",
+    "rebuildNativeDeps": "npx expo prebuild",
+    "rebuildNativeDeps:clean": "npx expo prebuild --clean",
+    "freshAndroid": "npx expo prebuild --clean && npx expo run:android",
+    "android": "npx expo run:android",
+    "ios": "npx expo run:ios"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.3",
     "@kesha-antonov/react-native-background-downloader": "link:..",
     "@react-navigation/native": "^7.1.22",
     "@react-navigation/stack": "^7.6.8",
@@ -28,15 +29,19 @@
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
-    "react-native-mmkv": "^3.2.0",
+    "react-native-mmkv": "^4.1.1",
+    "react-native-nitro-modules": "^0.33.1",
+    "react-native-reanimated": "^4.2.1",
     "react-native-root-siblings": "^5.0.1",
     "react-native-root-toast": "^4.0.1",
     "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0"
+    "react-native-screens": "~4.16.0",
+    "react-native-worklets": "^0.7.2"
   },
   "devDependencies": {
     "@babel/core": "^7.28.5",
     "@types/react": "~19.1.0",
+    "@types/react-native": "^0.73.0",
     "typescript": "~5.9.2"
   },
   "private": true

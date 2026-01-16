@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Animated, Platform } from 'react-native'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Platform } from 'react-native'
+import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
   getExistingUploadTasks,
@@ -50,21 +51,16 @@ const UploadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: Upl
   const progress = isTotalUnknown ? 0 : bytesUploaded / bytesTotal
   const progressPercent = isTotalUnknown ? 0 : Math.round(progress * 100)
 
-  // Animated progress bar
-  const progressAnim = useRef(new Animated.Value(0)).current
+  // Animated progress bar using reanimated
+  const progressAnim = useSharedValue(0)
 
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: progress,
-      duration: 300,
-      useNativeDriver: false,
-    }).start()
-  }, [progress, progressAnim])
+    progressAnim.value = withTiming(progress, { duration: 300 })
+  }, [progress])
 
-  const animatedWidth = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  })
+  const animatedStyle = useAnimatedStyle(() => ({
+    width: `${progressAnim.value * 100}%`,
+  }))
 
   const stateColor = useMemo(() => {
     switch (state) {
@@ -93,7 +89,7 @@ const UploadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: Upl
 
           {/* Progress Bar */}
           <View style={styles.progressBarContainer}>
-            <Animated.View style={[styles.progressBarFill, { width: isTotalUnknown ? '100%' : animatedWidth, backgroundColor: stateColor, opacity: isTotalUnknown ? 0.3 : 1 }]} />
+            <Animated.View style={[styles.progressBarFill, isTotalUnknown ? { width: '100%', backgroundColor: stateColor, opacity: 0.3 } : [animatedStyle, { backgroundColor: stateColor }]]} />
           </View>
 
           <Text style={styles.progressText}>
@@ -319,6 +315,10 @@ const UploadExampleScreen = () => {
       method: 'POST',
       fieldName: 'file',
       mimeType: 'application/octet-stream',
+      headers: {
+        'X-Custom-Header': 'test-value',
+        'X-Upload-Timestamp': new Date().toISOString(),
+      },
       parameters: {
         description: 'Test upload from React Native',
         timestamp: new Date().toISOString(),

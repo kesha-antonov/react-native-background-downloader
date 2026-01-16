@@ -19,9 +19,9 @@ Pod::Spec.new do |s|
   # React Native Core dependency
   install_modules_dependencies(s)
 
-  # MMKV is required for persistent download state storage on iOS
-  # If you're using react-native-mmkv, MMKV is already provided - no additional setup needed
-  # If you're NOT using react-native-mmkv, add to your Podfile: pod 'MMKV', '>= 1.0.0'
+  # MMKV is used for persistent download state storage on iOS
+  # Using MMKV (Objective-C wrapper) which depends on MMKVCore
+  s.dependency 'MMKV'
 
   # Enable codegen for new architecture
   if ENV['RCT_NEW_ARCH_ENABLED'] == '1'

@@ -95,9 +95,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   // Centralized progress reporting for uploads
-  private val uploadProgressReporter = ProgressReporter { reportsArray ->
-    getEventEmitter()?.emit("uploadProgress", reportsArray)
-  }
+  private val uploadProgressReporter = ProgressReporter(
+    onEmitProgress = { reportsArray ->
+      getEventEmitter()?.emit("uploadProgress", reportsArray)
+    },
+    bytesFieldName = "bytesUploaded"
+  )
 
   // Upload task configs mapping configId -> config
   private val uploadConfigs = mutableMapOf<String, RNBGDUploadTaskConfig>()

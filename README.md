@@ -1,29 +1,8 @@
-
 <p align="center">
   <img width="300" src="https://github.com/user-attachments/assets/25e89808-9eb7-42b2-8031-b48d8c24796c" />
 </p>
 
 [![npm version](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg)](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader)
-
-## 🎉 Version 4.0.0 Released!
-
-**v4.0.0** is now available with full **React Native New Architecture (TurboModules)** support!
-
-### What's New
-- ✅ Full TurboModules support for iOS and Android
-- ✅ Expo Config Plugin for automatic iOS setup
-- ✅ Android code converted to Kotlin
-- ✅ Full TypeScript support
-- ✅ New `progressMinBytes` option for hybrid progress reporting
-- ✅ `maxRedirects` option for Android
-
-### Upgrading from v3.x?
-📖 See the [Migration Guide](./MIGRATION.md) for detailed upgrade instructions and breaking changes.
-
-📋 See the [Changelog](./CHANGELOG.md) for the full list of changes.
-
-### Looking for v3.2.6?
-If you need the previous stable version: [3.2.6 readme](https://github.com/kesha-antonov/react-native-background-downloader/blob/8f4b8a844a2d7f00d1558f6ea65bac94c8dd6fc9/README.md)
 
 # @kesha-antonov/react-native-background-downloader
 
@@ -54,101 +33,32 @@ The real challenge of using this method is making sure the app's UI is always up
 
 ### Installation
 
-```Terminal
+```bash
 yarn add @kesha-antonov/react-native-background-downloader
 ```
 
 or
-```Terminal
+```bash
 npm i @kesha-antonov/react-native-background-downloader
 ```
 
 Then:
 
-```Terminal
+```bash
 cd ios && pod install
 ```
 
-<details>
-<summary>Manual Setup (Advanced)</summary>
-
-If you need to manually configure the package for New Architecture:
-
-**iOS**: The library automatically detects New Architecture via compile-time flags.
-
-**Android**: For New Architecture, you can optionally use `RNBackgroundDownloaderTurboPackage` instead of the default package:
-```java
-import com.eko.RNBackgroundDownloaderTurboPackage;
-
-// In your MainApplication.java
-@Override
-protected List<ReactPackage> getPackages() {
-  return Arrays.<ReactPackage>asList(
-    // ... other packages
-    new RNBackgroundDownloaderTurboPackage() // For New Architecture
-  );
-}
-```
-</details>
-
-### Mostly automatic installation
-Any React Native version **`>= 0.60`** supports autolinking so nothing should be done.
-
-For anything **`< 0.60`** run the following link command
-
-`$ react-native link @kesha-antonov/react-native-background-downloader`
-
-### Manual installation
-
-<details>
-
-#### iOS
-
-1. In XCode, in the project navigator, right click `Libraries` ➜ `Add Files to [your project's name]`
-2. Go to `node_modules` ➜ `@kesha-antonov/react-native-background-downloader` and add `RNBackgroundDownloader.xcodeproj`
-3. In XCode, in the project navigator, select your project. Add `libRNBackgroundDownloader.a` to your project's `Build Phases` ➜ `Link Binary With Libraries`
-4. Run your project (`Cmd+R`)
-
-#### Android
-
-1. Open up `android/app/src/main/java/[...]/MainActivity.java`
-  - Add `import com.eko.RNBackgroundDownloaderPackage;` to the imports at the top of the file
-  - Add `new RNBackgroundDownloaderPackage()` to the list returned by the `getPackages()` method
-2. Append the following lines to `android/settings.gradle`:
-    ```
-    include ':react-native-background-downloader'
-    project(':react-native-background-downloader').projectDir = new File(rootProject.projectDir,   '../node_modules/@kesha-antonov/react-native-background-downloader/android')
-    ```
-3. Insert the following lines inside the dependencies block in `android/app/build.gradle`:
-    ```
-      compile project(':react-native-background-downloader')
-    ```
-</details>
-
 ### iOS - Extra Mandatory Step
 
-#### Option 1: Using Expo Config Plugin (Recommended for Expo/EAS users)
+#### Option 1: Using Expo Config Plugin (Recommended)
 
-If you're using Expo or EAS Build, you can use the included Expo config plugin to automatically configure the native code:
+If you're using Expo, add the plugin to your config:
 
 **In your `app.json`:**
 ```json
 {
   "expo": {
-    "name": "Your App",
     "plugins": [
-      "@kesha-antonov/react-native-background-downloader"
-    ]
-  }
-}
-```
-
-**Or in your `app.config.js`:**
-```js
-export default {
-  expo: {
-    name: "Your App",
-    plugins: [
       "@kesha-antonov/react-native-background-downloader"
     ]
   }
@@ -157,19 +67,14 @@ export default {
 
 **Plugin Options:**
 
-You can customize the plugin behavior with options:
-
 ```js
 // app.config.js
 export default {
   expo: {
-    name: "Your App",
     plugins: [
       ["@kesha-antonov/react-native-background-downloader", {
-        // Set to false if you're already using react-native-mmkv
-        addMmkvDependency: true,
-        // Customize the MMKV version (default: '2.2.4')
-        mmkvVersion: "2.2.4"
+        // Customize the MMKV version on Android (default: '4.1.1')
+        mmkvVersion: "4.1.1"
       }]
     ]
   }
@@ -178,18 +83,15 @@ export default {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `addMmkvDependency` | boolean | `true` | Whether to automatically add MMKV dependency on Android. Set to `false` if you're using `react-native-mmkv`. |
-| `mmkvVersion` | string | `'2.2.4'` | The version of MMKV to use on Android. |
+| `mmkvVersion` | string | `'4.1.1'` | The version of MMKV to use on Android. |
 
 The plugin will automatically:
-- **iOS:** Add the required import to your AppDelegate (Objective-C) or Bridging Header (Swift)
-- **iOS:** Add the `handleEventsForBackgroundURLSession` method to your AppDelegate
-- **iOS:** Handle both React Native < 0.77 (Objective-C) and >= 0.77 (Swift) projects
-- **Android:** Add the required MMKV dependency (unless `addMmkvDependency: false`)
+- **iOS:** Add the required `handleEventsForBackgroundURLSession` method to your AppDelegate
+- **Android:** Add the required MMKV dependency
 
 After adding the plugin, run:
 ```bash
-expo prebuild --clean
+npx expo prebuild --clean
 ```
 
 #### Option 2: Manual Setup
@@ -201,30 +103,20 @@ expo prebuild --clean
   add an import for RNBackgroundDownloader:
 
   ```objc
-  ...
   #import <RNBackgroundDownloader.h>
   ```
 
   Then in your `AppDelegate.swift` add the following method inside of your `AppDelegate` class:
 
   ```swift
-  ...
-
-  @main
-  class AppDelegate: UIResponder, UIApplicationDelegate
-    ...
-
-    func application(
-      _ application: UIApplication,
-      handleEventsForBackgroundURLSession identifier: String,
-      completionHandler: @escaping () -> Void
-    ) {
-      RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
-    }
+  func application(
+    _ application: UIApplication,
+    handleEventsForBackgroundURLSession identifier: String,
+    completionHandler: @escaping () -> Void
+  ) {
+    RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
   }
-  ...
   ```
-  Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
 </details>
 
 <details>
@@ -232,20 +124,24 @@ expo prebuild --clean
 
   In your `AppDelegate.m` add the following code:
   ```objc
-  ...
   #import <RNBackgroundDownloader.h>
-
-  ...
 
   - (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler
   {
     [RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];
   }
-
-  ...
   ```
-  Failing to add this code will result in canceled background downloads. If Xcode complains that RNBackgroundDownloader.h is missing, you might have forgotten to `pod install` first.
 </details>
+
+### Android - Extra Step (Non-Expo only)
+
+If you're **not** using Expo, add the MMKV dependency to your `android/app/build.gradle`:
+
+```gradle
+dependencies {
+    implementation 'com.tencent:mmkv-shared:4.1.1'
+}
+```
 
 ## Usage
 
@@ -789,112 +685,40 @@ Stops the download for good and removes the file that was written so far. Return
 
 An absolute path to the app's documents directory. It is recommended that you use this path as the target of downloaded files.
 
-## Platform-Specific Limitations
+## Platform Notes
 
-### iOS MMKV Dependency
+### Android Pause/Resume
 
-This library uses MMKV for persistent storage of download state on iOS. The MMKV dependency is **not** declared in the podspec to avoid conflicts with `react-native-mmkv`.
+Pause/resume on Android uses HTTP Range headers. The server must support range requests for resume to work correctly. If the server doesn't support it, the download will restart from the beginning.
 
-**If you're using `react-native-mmkv`:** No additional setup needed - `react-native-mmkv` already provides the required MMKV dependency (via MMKVCore pod).
+### Android 16+ Support
 
-**If you're NOT using `react-native-mmkv`:** Add the MMKV dependency to your `ios/Podfile`:
-
-```ruby
-pod 'MMKV', '>= 1.0.0'
-```
-
-Then run `cd ios && pod install`.
-
-### Android MMKV Dependency
-
-This library uses MMKV for persistent storage of download state on Android. The MMKV dependency is declared as `compileOnly`, meaning your app must provide it.
-
-**If you're using `react-native-mmkv`:** No additional setup needed - `react-native-mmkv` already provides the required MMKV dependency.
-
-**If you're NOT using `react-native-mmkv`:** Add the MMKV dependency to your app's `android/app/build.gradle`:
-
-```gradle
-dependencies {
-    // ... other dependencies
-    implementation 'com.tencent:mmkv-shared:2.2.4'  // or newer
-}
-```
-
-**Note:** MMKV 2.0.0+ is required for Android 15+ support (16KB memory page sizes).
-
-### Android DownloadManager Limitations
-
-The Android implementation uses the system's `DownloadManager` service for downloads, with custom pause/resume support:
-
-#### Android 16+ User-Initiated Data Transfer (UIDT) Support
-- **Android 16 Compatibility**: Downloads are automatically marked as user-initiated data transfers on Android 16+ (API 36)
-- **What this fixes**: Prevents background downloads from being killed due to thermal throttling or job quota restrictions
-- **Requirements**: The library automatically includes the `RUN_USER_INITIATED_JOBS` permission and marks downloads as user-initiated when running on Android 16+
-- **No action needed**: This is handled automatically by the library - your downloads will continue reliably even under moderate thermal conditions (~40°C) on Android 16+
-
-#### Pause/Resume Support
-- **Implementation**: Pause/resume on Android is implemented using HTTP Range headers
-- **How it works**: When you pause a download, the current progress is saved. When resumed, a new download starts from where it left off using the `Range` header
-- **Server requirement**: The server must support HTTP Range requests for resume to work correctly. If the server doesn't support range requests, the download will restart from the beginning
-- **Temp files**: During pause/resume, progress is stored in a `.tmp` file which is renamed to the final destination upon completion
+Downloads are automatically marked as user-initiated data transfers on Android 16+ (API 36) to prevent being killed due to thermal throttling.
 
 ### Google Play Console Declaration
 
-The library uses Foreground Service permissions (`FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC`) to enable reliable background downloads. **Google Play requires you to declare foreground service usage in the Play Console** when publishing your app.
+The library uses Foreground Service permissions. When publishing to Google Play:
 
-If you see this error when submitting to Google Play:
+1. Go to **App content** → **Foreground Service** in the Play Console
+2. Select **Yes** for Foreground Service usage
+3. Choose **Data sync** as the type
+4. Select **Network processing** as the task
 
-> "You must let us know whether your app uses any Foreground Service permissions."
+### Proguard Rules
 
-Complete these steps in the Google Play Console:
-
-1. Go to your app in the [Google Play Console](https://play.google.com/console)
-2. Navigate to **App content** → **Foreground Service**
-3. Select **Yes** when asked if your app uses Foreground Service permissions
-4. Choose **Data sync** as the Foreground Service type
-5. Select **Network processing** as the task
-6. Provide a justification explaining that your app downloads files in the background with a user-visible notification
-
-Example justification:
-> "This app downloads files in the background using a foreground service with a user-visible notification. The foreground service ensures downloads continue reliably when the app is in the background or when the device is under memory pressure. Users initiate downloads and can see download progress via the notification."
-
-This is a Play Console compliance step only—no additional code changes are required.
-
-## Rules for proguard-rules.pro
-
-If you encounter `java.lang.IllegalStateException: TypeToken must be created with a type argument: new TypeToken<...>()` in Android release builds, add these rules to your `proguard-rules.pro`:
+If you encounter `TypeToken` errors in release builds, add to `proguard-rules.pro`:
 
 ```
-# react-native-background-downloader - Keep config class used by Gson
 -keep class com.eko.RNBGDTaskConfig { *; }
-
-# Gson TypeToken support
 -keepattributes Signature
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
-
-# MMKV
 -keep class com.tencent.mmkv.** { *; }
--dontwarn com.tencent.mmkv.**
 ```
-
-## Known Issues with New Architecture
-When using larger files with the New Architecture, you may encounter `ERROR_CANNOT_RESUME` (error code 1008). This is a known limitation of Android's DownloadManager, not specific to this library or the New Architecture. The error includes enhanced messaging to help diagnose the issue.
-
-**Workaround:** If you encounter this error frequently with large files, consider:
-1. Breaking large downloads into smaller chunks
-2. Implementing retry logic in your app
-3. Using alternative download strategies for very large files
-
-The library now provides enhanced error handling for this specific case with detailed logging and cleanup.
-
-## TODO
-
-- [ ] Write better API for downloads - current kinda boilerplate
 
 ## Authors
 
-Re-written & maintained by [Kesha Antonov](https://github.com/kesha-antonov)
+Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 
 Originally developed by [Elad Gil](https://github.com/ptelad) of [Eko](https://github.com/ekolabs/react-native-background-downloader)
 
