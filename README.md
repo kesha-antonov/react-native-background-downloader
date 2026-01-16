@@ -52,8 +52,7 @@ A library for React-Native to help you download and upload large files on iOS an
     - [Bare React Native Projects](#bare-react-native-projects)
   - [Usage](#usage)
     - [Downloading a file](#downloading-a-file)
-    - [Re-Attaching to background downloads](#re-attaching-to-background-downloads)
-      - [Re-Attaching to background uploads](#re-attaching-to-background-uploads)
+    - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
   - [Advanced Configuration](#advanced-configuration)
       - [Max Parallel Downloads (iOS only)](#max-parallel-downloads-ios-only)
       - [Cellular/WiFi Restrictions](#cellularwifi-restrictions)
@@ -253,31 +252,53 @@ await task.resume()
 await task.stop()
 ```
 
-### Re-Attaching to background downloads
+### Re-Attaching to background tasks
 
-This is the main selling point of this library (but it's free!).
+The killer feature of this library: **reconnect to downloads and uploads that continued running while your app was closed**.
 
-What happens to your downloads after the OS stopped your app? Well, they are still running, we just need to re-attach to them.
+When the OS terminates your app to free memory, background transfers keep running. When your app restarts, call `getExistingDownloadTasks()` or `getExistingUploadTasks()` to get back in sync.
 
-Add this code to app's init stage, and you'll never lose a download again!
+> **💡 Tip:** Use meaningful task IDs (not random UUIDs) so you can match tasks to your UI components after restart.
+
+**Downloads:**
 
 ```javascript
 import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
 
-let lostTasks = await getExistingDownloadTasks()
-for (let task of lostTasks) {
-  console.log(`Task ${task.id} was found!`)
+const lostTasks = await getExistingDownloadTasks()
+
+for (const task of lostTasks) {
+  console.log(`Found download: ${task.id}`)
+
   task.progress(({ bytesDownloaded, bytesTotal }) => {
     console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
   }).done(({ location, bytesDownloaded, bytesTotal }) => {
-    console.log('Download is done!', { location, bytesDownloaded, bytesTotal })
+    console.log('Download complete!', { location, bytesDownloaded, bytesTotal })
   }).error(({ error, errorCode }) => {
-    console.log('Download canceled due to error: ', { error, errorCode })
+    console.log('Download failed:', { error, errorCode })
   })
 }
 ```
 
-`task.id` is very important for re-attaching the download task with any UI component representing that task. This is why you need to make sure to give sensible IDs that you know what to do with, try to avoid using random IDs.
+**Uploads:**
+
+```javascript
+import { getExistingUploadTasks } from '@kesha-antonov/react-native-background-downloader'
+
+const lostUploads = await getExistingUploadTasks()
+
+for (const task of lostUploads) {
+  console.log(`Found upload: ${task.id}`)
+
+  task.progress(({ bytesUploaded, bytesTotal }) => {
+    console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
+  }).done(({ responseCode, responseBody }) => {
+    console.log('Upload complete!', { responseCode, responseBody })
+  }).error(({ error, errorCode }) => {
+    console.log('Upload failed:', { error, errorCode })
+  })
+}
+```
 
 <details>
 <summary><strong>Uploading a file</strong></summary>
@@ -330,7 +351,7 @@ await task.resume()
 await task.stop()
 ```
 
-#### Re-Attaching to background uploads
+**Re-Attaching to background uploads**
 
 Similar to downloads, you can re-attach to uploads that were running when your app was terminated:
 
@@ -646,7 +667,7 @@ The example app shows:
 - Starting multiple downloads
 - Pause/resume functionality
 - Progress tracking with animations
-- Re-attaching to background downloads
+- Re-attaching to background tasks
 - File management
 
 ## Use Cases
