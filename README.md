@@ -2,11 +2,30 @@
   <img width="300" src="https://github.com/user-attachments/assets/25e89808-9eb7-42b2-8031-b48d8c24796c" />
 </p>
 
-[![npm version](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg)](https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader)
+<p align="center">
+  <a href="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader"><img src="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg" alt="npm version"></a>
+  <a href="https://github.com/kesha-antonov/react-native-background-downloader/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license"></a>
+  <img src="https://img.shields.io/badge/platforms-iOS%20%7C%20Android-lightgrey.svg" alt="platforms">
+  <img src="https://img.shields.io/badge/TypeScript-supported-blue.svg" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Expo-compatible-000020.svg" alt="Expo compatible">
+  <img src="https://img.shields.io/badge/New%20Architecture-supported-green.svg" alt="New Architecture">
+</p>
 
 # @kesha-antonov/react-native-background-downloader
 
 A library for React-Native to help you download and upload large files on iOS and Android both in the foreground and most importantly in the background.
+
+## ✨ Features
+
+- 📥 **Background Downloads** - Downloads continue even when app is in background or terminated
+- 📤 **Background Uploads** - Upload files reliably in the background
+- ⏸️ **Pause/Resume** - Full pause and resume support on both iOS and Android
+- 🔄 **Re-attach to Downloads** - Reconnect to ongoing downloads after app restart
+- 📊 **Progress Tracking** - Real-time progress updates with customizable intervals
+- 🔒 **Custom Headers** - Support for authentication and custom request headers
+- 📱 **Expo Support** - Config plugin for easy Expo integration
+- ⚡ **New Architecture** - Full TurboModules support for React Native
+- 📝 **TypeScript** - Complete TypeScript definitions included
 
 ### Why?
 
@@ -22,12 +41,33 @@ The real challenge of using this method is making sure the app's UI is always up
 
 ## ToC
 
+- [Features](#-features)
+- [Requirements](#requirements)
 - [Getting started](#getting-started)
 - [Usage](#usage)
   - [Downloading](#downloading-a-file)
   - [Uploading](#uploading-a-file)
+  - [Custom Headers](#using-custom-headers)
+  - [Configuration](#configuring-parallel-downloads-and-network-types)
+  - [Debug Logs](#enabling-debug-logs)
+  - [Handling Redirects](#handling-urls-with-many-redirects-android)
 - [API](#api)
 - [Constants](#constants)
+- [Platform Notes](#platform-notes)
+- [Troubleshooting](#troubleshooting)
+- [Example App](#example-app)
+- [Migration Guide](#migration-guide)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Requirements
+
+| Requirement | Version |
+|-------------|--------|
+| React Native | >= 0.57.0 |
+| iOS | >= 12.0 |
+| Android | API 21+ (Android 5.0) |
+| Expo | SDK 50+ (with config plugin) |
 
 ## Getting started
 
@@ -718,6 +758,126 @@ If you encounter `TypeToken` errors in release builds, add to `proguard-rules.pr
 -keep class com.tencent.mmkv.** { *; }
 ```
 
+## Troubleshooting
+
+<details>
+<summary><strong>Download stuck in "pending" state (Android)</strong></summary>
+
+This can happen with slow-responding servers. The library automatically adds keep-alive headers, but you can also try:
+- Increase timeout by setting custom headers
+- Check if the server supports the download URL
+- Enable debug logs to see what's happening: `setConfig({ isLogsEnabled: true })`
+</details>
+
+<details>
+<summary><strong>Duplicate class errors with react-native-mmkv (Android)</strong></summary>
+
+If you're using `react-native-mmkv`, you don't need to add the MMKV dependency manually - it's already included. The library uses `compileOnly` to avoid conflicts.
+</details>
+
+<details>
+<summary><strong>EXC_BAD_ACCESS crash on iOS with react-native-mmkv</strong></summary>
+
+This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
+</details>
+
+<details>
+<summary><strong>Downloads not resuming after app restart</strong></summary>
+
+Make sure to call `getExistingDownloadTasks()` at app startup and re-attach your callbacks. The task IDs you provide are used to identify downloads across restarts.
+</details>
+
+<details>
+<summary><strong>Google Play Console asking about Foreground Service</strong></summary>
+
+See the [Google Play Console Declaration](#google-play-console-declaration) section for the required steps.
+</details>
+
+<details>
+<summary><strong>TypeToken errors in release builds (Android)</strong></summary>
+
+Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section.
+</details>
+
+## Example App
+
+The repository includes a full example app demonstrating all features:
+
+```bash
+cd example
+yarn install
+
+# iOS
+cd ios && pod install && cd ..
+yarn ios
+
+# Android
+yarn android
+```
+
+The example app shows:
+- Starting multiple downloads
+- Pause/resume functionality
+- Progress tracking with animations
+- Re-attaching to background downloads
+- File management
+
+## Use Cases
+
+This library is perfect for apps that need reliable file transfers:
+
+- 🎵 **Music/Podcast Apps** - Download episodes for offline listening
+- 📚 **E-book Readers** - Download books in the background
+- 🎬 **Video Streaming** - Offline video downloads
+- 📁 **File Managers** - Large file transfers
+- 🎮 **Games** - Download game assets and updates
+- 📱 **Enterprise Apps** - Sync large documents and media
+
+## Migration Guide
+
+Upgrading from an older version? Check the [Migration Guide](./MIGRATION.md) for detailed instructions:
+
+- [v4.3.x → v4.4.0](./MIGRATION.md#migration-guide-v43x--v440) - iOS MMKV dependency change
+- [v4.1.x → v4.2.0](./MIGRATION.md#migration-guide-v41x--v420) - Android pause/resume support
+- [v4.0.x → v4.1.0](./MIGRATION.md#migration-guide-v40x--v410) - MMKV dependency change
+- [v3.2.6 → v4.0.0](./MIGRATION.md#migration-guide-v326--v400) - Major API changes
+
+See the [Changelog](./CHANGELOG.md) for a complete list of changes in each version.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Install dependencies (`yarn install`)
+4. Make your changes
+5. Run tests (`yarn test`)
+6. Run linting (`yarn lint`)
+7. Commit your changes (`git commit -m 'Add amazing feature'`)
+8. Push to the branch (`git push origin feature/amazing-feature`)
+9. Open a Pull Request
+
+### Development Setup
+
+```bash
+# Install dependencies
+yarn install
+
+# Run tests
+yarn test
+
+# Run linting
+yarn lint
+
+# Build the Expo plugin
+yarn build-plugin
+
+# Run the example app
+cd example && yarn install
+yarn ios  # or yarn android
+```
+
 ## Authors
 
 Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
@@ -725,4 +885,5 @@ Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 Originally developed by [Elad Gil](https://github.com/ptelad) of [Eko](https://github.com/ekolabs/react-native-background-downloader)
 
 ## License
-Apache 2
+
+[Apache 2.0](./LICENSE)
