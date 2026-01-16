@@ -243,6 +243,19 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Set the listener for resumable downloads (used by the background service)
     downloader.setResumableDownloadListener(resumableDownloadListener)
 
+    // Load persisted upload configs (for app restart recovery)
+    synchronized(sharedLock) {
+      val persistedUploads = storageManager.loadUploadConfigs()
+      for ((id, config) in persistedUploads) {
+        // Mark as suspended since they need to be restarted after app restart
+        config.state = DownloadConstants.TASK_SUSPENDED
+        uploadConfigs[id] = config
+      }
+      if (persistedUploads.isNotEmpty()) {
+        logD(NAME, "Loaded ${persistedUploads.size} persisted upload configs")
+      }
+    }
+
     for ((downloadId, config) in downloadIdToConfig) {
       resumeTasks(downloadId, config)
     }
@@ -1039,6 +1052,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       synchronized(sharedLock) {
         uploadConfigs[id]?.state = DownloadConstants.TASK_COMPLETED
         uploadConfigs.remove(id)
+        // Remove from persistent storage on completion
+        storageManager.saveUploadConfigs(uploadConfigs)
       }
       uploadEventEmitter.emitComplete(id, responseCode, responseBody, bytesUploaded, bytesTotal)
     }
@@ -1047,6 +1062,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       synchronized(sharedLock) {
         uploadConfigs[id]?.state = DownloadConstants.TASK_CANCELING
         uploadConfigs.remove(id)
+        // Remove from persistent storage on error
+        storageManager.saveUploadConfigs(uploadConfigs)
       }
       uploadEventEmitter.emitFailed(id, error, errorCode)
     }
@@ -1121,6 +1138,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     synchronized(sharedLock) {
       uploadConfigs[id] = config
       uploadProgressReporter.initializeDownload(id)
+      // Persist upload config for app restart recovery
+      storageManager.saveUploadConfigs(uploadConfigs)
     }
 
     uploader.startUpload(config, uploadListener)
@@ -1129,6 +1148,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun pauseUploadTask(configId: String) {
     synchronized(sharedLock) {
       uploadConfigs[configId]?.state = DownloadConstants.TASK_SUSPENDED
+      // Persist state change
+      storageManager.saveUploadConfigs(uploadConfigs)
     }
     uploader.pause(configId)
     logD(NAME, "Paused upload: $configId")
@@ -1137,6 +1158,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun resumeUploadTask(configId: String) {
     synchronized(sharedLock) {
       uploadConfigs[configId]?.state = DownloadConstants.TASK_RUNNING
+      // Persist state change
+      storageManager.saveUploadConfigs(uploadConfigs)
     }
     uploader.resume(configId, uploadListener)
     logD(NAME, "Resumed upload: $configId")
@@ -1146,6 +1169,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     synchronized(sharedLock) {
       uploadConfigs.remove(configId)
       uploadProgressReporter.clearDownloadState(configId)
+      // Remove from persistent storage
+      storageManager.saveUploadConfigs(uploadConfigs)
     }
     uploader.cancel(configId)
     logD(NAME, "Stopped upload: $configId")

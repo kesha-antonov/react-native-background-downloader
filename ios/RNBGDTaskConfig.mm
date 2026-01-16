@@ -21,6 +21,7 @@
         self.bytesTotal = 0;
         self.state = NSURLSessionTaskStateRunning;
         self.errorCode = 0;
+        self.hasResumeData = NO;
     }
 
     return self;
@@ -37,7 +38,7 @@
     [aCoder encodeInt64:self.bytesTotal forKey:@"bytesTotal"];
     [aCoder encodeInteger:self.state forKey:@"state"];
     [aCoder encodeInteger:self.errorCode forKey:@"errorCode"];
-    [aCoder encodeObject:self.resumeData forKey:@"resumeData"];
+    [aCoder encodeBool:self.hasResumeData forKey:@"hasResumeData"];
 }
 
 - (nullable instancetype)initWithCoder:(nonnull NSCoder *)aDecoder
@@ -56,7 +57,7 @@
         self.bytesTotal = [aDecoder decodeInt64ForKey:@"bytesTotal"];
         self.state = [aDecoder decodeIntegerForKey:@"state"];
         self.errorCode = [aDecoder decodeIntegerForKey:@"errorCode"];
-        self.resumeData = [aDecoder decodeObjectOfClass:[NSData class] forKey:@"resumeData"];
+        self.hasResumeData = [aDecoder decodeBoolForKey:@"hasResumeData"];
     }
 
     return self;

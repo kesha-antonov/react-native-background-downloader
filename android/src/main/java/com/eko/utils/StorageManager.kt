@@ -5,12 +5,13 @@ import android.content.SharedPreferences
 import com.eko.Downloader
 import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.RNBGDTaskConfig
+import com.eko.RNBGDUploadTaskConfig
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
 
 /**
- * Manages persistent storage for download configurations.
+ * Manages persistent storage for download and upload configurations.
  * Uses MMKV when available, falls back to SharedPreferences.
  */
 class StorageManager(context: Context, private val name: String) {
@@ -19,6 +20,7 @@ class StorageManager(context: Context, private val name: String) {
         private const val TAG = "StorageManager"
         private const val KEY_DOWNLOAD_ID_TO_CONFIG = "_downloadIdToConfig"
         private const val KEY_PAUSED_DOWNLOADS = "_pausedDownloads"
+        private const val KEY_UPLOAD_CONFIGS = "_uploadConfigs"
         private const val KEY_PROGRESS_INTERVAL = "_progressInterval"
         private const val KEY_PROGRESS_MIN_BYTES = "_progressMinBytes"
     }
@@ -296,6 +298,73 @@ class StorageManager(context: Context, private val name: String) {
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to remove paused download: ${e.message}")
+        }
+    }
+
+    /**
+     * Save upload configs map.
+     */
+    fun saveUploadConfigs(uploadConfigs: Map<String, RNBGDUploadTaskConfig>) {
+        try {
+            val gson = Gson()
+            // Create a defensive copy to prevent ConcurrentModificationException
+            val mapCopy = HashMap(uploadConfigs)
+            val str = gson.toJson(mapCopy)
+
+            if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.encode("$name$KEY_UPLOAD_CONFIGS", str)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved upload configs to MMKV: ${uploadConfigs.size} items")
+            } else {
+                sharedPreferences.edit()
+                    .putString("$name$KEY_UPLOAD_CONFIGS", str)
+                    .apply()
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved upload configs to SharedPreferences: ${uploadConfigs.size} items")
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save upload configs: ${e.message}")
+        }
+    }
+
+    /**
+     * Load upload configs map.
+     */
+    fun loadUploadConfigs(): MutableMap<String, RNBGDUploadTaskConfig> {
+        try {
+            val str = if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.decodeString("$name$KEY_UPLOAD_CONFIGS")?.also {
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded upload configs from MMKV")
+                }
+            } else {
+                sharedPreferences.getString("$name$KEY_UPLOAD_CONFIGS", null)?.also {
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded upload configs from SharedPreferences")
+                }
+            }
+
+            if (str != null) {
+                val gson = Gson()
+                val mapType = object : TypeToken<Map<String, RNBGDUploadTaskConfig>>() {}.type
+                return gson.fromJson(str, mapType)
+            } else {
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "No upload configs found, starting with empty map")
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load upload configs: ${e.message}")
+        }
+        return mutableMapOf()
+    }
+
+    /**
+     * Remove an upload config by ID.
+     */
+    fun removeUploadConfig(configId: String) {
+        try {
+            val configs = loadUploadConfigs()
+            if (configs.remove(configId) != null) {
+                saveUploadConfigs(configs)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Removed upload config: $configId")
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to remove upload config: ${e.message}")
         }
     }
 }
