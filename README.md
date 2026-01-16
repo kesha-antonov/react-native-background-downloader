@@ -73,7 +73,7 @@ export default {
   expo: {
     plugins: [
       ["@kesha-antonov/react-native-background-downloader", {
-        // Customize the MMKV version on Android (default: '4.1.1')
+        // Customize the MMKV version on Android (default: '2.2.4')
         mmkvVersion: "2.2.4"
       }]
     ]
