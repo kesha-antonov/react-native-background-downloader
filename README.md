@@ -33,7 +33,7 @@ A library for React-Native to help you download and upload large files on iOS an
 
 **The Solution:** Both iOS and Android provide system-level APIs for background file transfers:
 - **iOS:** [`NSURLSession`](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background) - handles downloads in a separate process, continuing even after your app is terminated
-- **Android:** [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) - a system service that manages long-running downloads independently of your app
+- **Android:** A combination of [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) for system-managed downloads, [Foreground Services](https://developer.android.com/develop/background-work/services/foreground-services) for pause/resume support, and [MMKV](https://github.com/Tencent/MMKV) for persistent state storage
 
 **The Challenge:** These APIs are powerful but complex. Downloads run in a separate process, so your app might restart from scratch while downloads are still in progress. Keeping your UI in sync with background downloads requires careful state management.
 
