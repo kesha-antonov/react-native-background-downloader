@@ -254,9 +254,9 @@ await task.stop()
 
 ### Re-Attaching to background tasks
 
-The killer feature of this library: **reconnect to downloads and uploads that continued running while your app was closed**.
+The killer feature of this library: **reconnect to downloads and uploads that continued running while your app was closed**, or **resume paused tasks from a previous session**.
 
-When the OS terminates your app to free memory, background transfers keep running. When your app restarts, call `getExistingDownloadTasks()` or `getExistingUploadTasks()` to get back in sync.
+When the OS terminates your app to free memory, background transfers keep running. When your app restarts, call `getExistingDownloadTasks()` or `getExistingUploadTasks()` to get back in sync. Paused tasks are also preserved and can be resumed with `task.resume()`.
 
 > **💡 Tip:** Use meaningful task IDs (not random UUIDs) so you can match tasks to your UI components after restart.
 
@@ -349,26 +349,6 @@ await task.resume()
 
 // Cancel the task
 await task.stop()
-```
-
-**Re-Attaching to background uploads**
-
-Similar to downloads, you can re-attach to uploads that were running when your app was terminated:
-
-```javascript
-import { getExistingUploadTasks } from '@kesha-antonov/react-native-background-downloader'
-
-let lostUploads = await getExistingUploadTasks()
-for (let task of lostUploads) {
-  console.log(`Upload task ${task.id} was found!`)
-  task.progress(({ bytesUploaded, bytesTotal }) => {
-    console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
-  }).done(({ responseCode, responseBody }) => {
-    console.log('Upload is done!', { responseCode, responseBody })
-  }).error(({ error, errorCode }) => {
-    console.log('Upload canceled due to error: ', { error, errorCode })
-  })
-}
 ```
 
 </details>
