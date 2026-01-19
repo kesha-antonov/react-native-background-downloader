@@ -110,7 +110,8 @@ export default {
   expo: {
     plugins: [
       ["@kesha-antonov/react-native-background-downloader", {
-        mmkvVersion: "2.2.4"  // Customize MMKV version on Android
+        mmkvVersion: "2.2.4",  // Customize MMKV version on Android
+        skipMmkvDependency: true  // Skip if you want to add MMKV manually
       }]
     ]
   }
@@ -120,6 +121,7 @@ export default {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `mmkvVersion` | string | `'2.2.4'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. |
+| `skipMmkvDependency` | boolean | `false` | Skip adding MMKV dependency. Set to `true` if you're using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) to avoid duplicate class errors. The plugin auto-detects `react-native-mmkv` but you can use this option to explicitly skip. |
 
 </details>
 
