@@ -1,4 +1,5 @@
 import { ConfigPlugin, withAppDelegate, withAppBuildGradle, IOSConfig } from '@expo/config-plugins'
+import type { ExpoConfig } from '@expo/config-types'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -63,7 +64,7 @@ const withRNBackgroundDownloader: ConfigPlugin<PluginOptions | void> = (config, 
  * Check if react-native-mmkv is present in the project dependencies.
  * react-native-mmkv uses io.github.zhongwuzw:mmkv which conflicts with com.tencent:mmkv-shared.
  */
-function checkForReactNativeMmkv (config: any): boolean {
+function checkForReactNativeMmkv (config: ExpoConfig): boolean {
   const dependencies = config._internal?.projectConfig?.dependencies || {}
   const devDependencies = config._internal?.projectConfig?.devDependencies || {}
 
