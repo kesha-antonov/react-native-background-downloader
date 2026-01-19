@@ -1,5 +1,74 @@
 # Changelog
 
+## v4.4.5
+
+### 🐛 Bug Fixes
+
+- **Android: Stop Task Not Working on Android 14+:** Fixed `stopTask()` not actually stopping UIDT downloads on Android 14+. The JobScheduler job was cancelled but the underlying HTTP download continued. Now properly calls `resumableDownloader.cancel()` before removing from active jobs.
+- **Android: Paused Tasks Not Persisting Across App Restarts:** Fixed paused UIDT downloads losing their state when the app was restarted. Added `getJobDownloadState()` to retrieve download state from active UIDT jobs and `savePausedDownloadState()` to properly persist pause state.
+- **Android: ACCESS_NETWORK_STATE Permission:** Added missing permission required for JobScheduler network connectivity constraints on Android 14+.
+- **Android: Downloaded Files List Showing Incomplete Files:** The "Downloaded Files" section in the example app now correctly filters out files that have active (non-DONE) download tasks, preventing incomplete files from appearing in the list.
+
+### 🧹 Code Cleanup
+
+- **Removed Verbose Debug Logs:** Cleaned up extensive debug logging in `StorageManager`, `Downloader`, and `RNBackgroundDownloaderModuleImpl` that was cluttering production logs. Removed serialization/deserialization logs, verification reads, and per-item iteration logs while keeping error logging.
+- **Simplified Kotlin Code:** Removed unnecessary `else` blocks containing only debug/warning logs from `pauseTask()` and `resumeTask()` methods for cleaner code.
+
+### ✨ Improvements
+
+- **TypeScript: Added `destination` to Task Info:** The `destination` field is now returned from `getExistingDownloadTasks()` for paused downloads, allowing the app to know where the file will be saved.
+
+### 📚 Documentation
+
+- Added `skipMmkvDependency` option documentation to README for Expo plugin
+
+---
+
+## v4.4.4
+
+### 🐛 Bug Fixes
+
+- **Expo Plugin: Fixed TypeScript Types:** Corrected TypeScript type definitions in the Expo config plugin.
+
+---
+
+## v4.4.3
+
+### ✨ New Features
+
+- **Expo Plugin: Auto-detect react-native-mmkv:** The Expo config plugin now automatically detects if `react-native-mmkv` is installed and skips adding the MMKV dependency to avoid duplicate class errors. Use `skipMmkvDependency: true` option to manually skip if needed.
+- **Android: Version from package.json:** Android native code now reads the library version from `package.json` instead of hardcoding it.
+
+---
+
+## v4.4.2
+
+### 🐛 Bug Fixes
+
+- **Kotlin 2.0 Compatibility:** Fixed compilation error with Kotlin 2.0 (React Native 0.77+) by updating `progressReporter` to use named parameter syntax. This ensures compatibility with both Kotlin 1.9 (RN 0.76) and Kotlin 2.x (RN 0.77+).
+
+---
+
+## v4.4.1
+
+### 🐛 Bug Fixes
+
+- **Android: Paused Tasks Persistence:** Fixed paused downloads not being restored after app restart on Android. Added persistent storage for paused download state using MMKV/SharedPreferences.
+- **iOS: Improved Pause/Resume Handling:** Better handling of pause/resume operations on app restarts for iOS.
+- **Upload Task App Restart Recovery:** Fixed upload tasks not being recoverable after app restart (#143). Added persistent storage for upload task configurations.
+
+### ✨ Improvements
+
+- **Example App:** Added task list display with animations and improved UI for managing downloads.
+
+### 📚 Documentation
+
+- Updated README with clearer MMKV dependency instructions
+- Added information about resuming tasks after app restarts
+- Updated authors section
+
+---
+
 ## v4.4.0
 
 ### ✨ New Features
