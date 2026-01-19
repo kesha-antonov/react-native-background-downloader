@@ -62,6 +62,9 @@ const TaskIdStorage = {
 setConfig({
   isLogsEnabled: true,
   progressMinBytes: 1024 * 100, // 100 KB
+  logCallback: (log: string) => {
+    console.log('[RNBD]', log)
+  }
 })
 
 interface UrlItem {
@@ -398,6 +401,18 @@ const BasicExampleScreen = () => {
           tasks.forEach(task => newMap.set(task.id, task))
           return newMap
         })
+        // Restore destinations from task's destination property or metadata
+        setDestinations(prev => {
+          const newMap = new Map(prev)
+          tasks.forEach(task => {
+            // First try native destination, then metadata
+            const dest = task.destination || (task.metadata as any)?.destination
+            if (dest) {
+              newMap.set(task.id, dest)
+            }
+          })
+          return newMap
+        })
       }
     } catch (e) {
       console.warn('getExistingDownloadTasks e', e)
@@ -507,6 +522,8 @@ const BasicExampleScreen = () => {
       id: urlItem.id,
       url: urlItem.url,
       destination,
+      // Store destination in metadata so we can restore it after app restart
+      metadata: { destination },
     }
 
     if (urlItem.maxRedirects)
@@ -637,9 +654,26 @@ const BasicExampleScreen = () => {
 
   const downloadsPath = getDownloadsDirPath()
 
+  // Filter out files that have an active (non-DONE) download task
+  const completedFiles = useMemo(() => {
+    return downloadedFiles.filter(fileName => {
+      // Check if any active task is downloading this file
+      for (const task of downloadTasks.values()) {
+        // Check if task's destination matches this file
+        const taskDestination = destinations.get(task.id)
+        if (taskDestination && taskDestination.endsWith('/' + fileName)) {
+          // File has an associated task - only show if task is DONE
+          return task.state === 'DONE'
+        }
+      }
+      // No active task for this file - it's a completed download from a previous session
+      return true
+    })
+  }, [downloadedFiles, downloadTasks, destinations])
+
   const renderHeader = useCallback(() => (
-    <Header onReset={reset} onClear={clearStorage} onRemoveTask={removeTask} onDeleteFile={deleteSingleFile} filesCount={downloadedFiles.length} files={downloadedFiles} tasks={downloadTasks} downloadsPath={downloadsPath} />
-  ), [reset, clearStorage, removeTask, deleteSingleFile, downloadedFiles, downloadTasks, downloadsPath])
+    <Header onReset={reset} onClear={clearStorage} onRemoveTask={removeTask} onDeleteFile={deleteSingleFile} filesCount={completedFiles.length} files={completedFiles} tasks={downloadTasks} downloadsPath={downloadsPath} />
+  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath])
 
   return (
     <FlatList

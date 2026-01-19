@@ -68,15 +68,14 @@ class StorageManager(context: Context, private val name: String) {
 
             if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.encode("$name$KEY_DOWNLOAD_ID_TO_CONFIG", str)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved download config to MMKV")
             } else {
                 sharedPreferences.edit()
                     .putString("$name$KEY_DOWNLOAD_ID_TO_CONFIG", str)
-                    .apply()
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved download config to SharedPreferences fallback")
+                    .commit() // Use commit() for synchronous save
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save download config: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -86,24 +85,19 @@ class StorageManager(context: Context, private val name: String) {
     fun loadDownloadIdToConfigMap(): MutableMap<Long, RNBGDTaskConfig> {
         try {
             val str = if (isMMKVAvailable && mmkv != null) {
-                mmkv!!.decodeString("$name$KEY_DOWNLOAD_ID_TO_CONFIG")?.also {
-                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded download config from MMKV")
-                }
+                mmkv!!.decodeString("$name$KEY_DOWNLOAD_ID_TO_CONFIG")
             } else {
-                sharedPreferences.getString("$name$KEY_DOWNLOAD_ID_TO_CONFIG", null)?.also {
-                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded download config from SharedPreferences fallback")
-                }
+                sharedPreferences.getString("$name$KEY_DOWNLOAD_ID_TO_CONFIG", null)
             }
 
-            if (str != null) {
+            if (str != null && str.isNotEmpty()) {
                 val gson = Gson()
                 val mapType = object : TypeToken<Map<Long, RNBGDTaskConfig>>() {}.type
                 return gson.fromJson(str, mapType)
-            } else {
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "No existing download config found, starting with empty map")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load download config: ${e.message}")
+            e.printStackTrace()
         }
         return mutableMapOf()
     }
@@ -116,13 +110,11 @@ class StorageManager(context: Context, private val name: String) {
             if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.encode("$name$KEY_PROGRESS_INTERVAL", progressInterval.toInt())
                 mmkv!!.encode("$name$KEY_PROGRESS_MIN_BYTES", progressMinBytes)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved config to MMKV")
             } else {
                 sharedPreferences.edit()
                     .putInt("$name$KEY_PROGRESS_INTERVAL", progressInterval.toInt())
                     .putLong("$name$KEY_PROGRESS_MIN_BYTES", progressMinBytes)
                     .apply()
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved config to SharedPreferences fallback")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save config: ${e.message}")
@@ -144,16 +136,12 @@ class StorageManager(context: Context, private val name: String) {
 
                 val progressMinBytesScope = mmkv!!.decodeLong("$name$KEY_PROGRESS_MIN_BYTES")
                 minBytes = if (progressMinBytesScope > 0) progressMinBytesScope else 0L
-
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded config from MMKV")
             } else {
                 val progressIntervalScope = sharedPreferences.getInt("$name$KEY_PROGRESS_INTERVAL", 0)
                 interval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else 0L
 
                 val progressMinBytesScope = sharedPreferences.getLong("$name$KEY_PROGRESS_MIN_BYTES", 0)
                 minBytes = if (progressMinBytesScope > 0) progressMinBytesScope else 0L
-
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded config from SharedPreferences fallback")
             }
 
             return Pair(interval, minBytes)
@@ -170,12 +158,10 @@ class StorageManager(context: Context, private val name: String) {
         try {
             if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.encode("$name$key", value)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved boolean $key=$value to MMKV")
             } else {
                 sharedPreferences.edit()
                     .putBoolean("$name$key", value)
                     .apply()
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved boolean $key=$value to SharedPreferences fallback")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save boolean $key: ${e.message}")
@@ -234,15 +220,14 @@ class StorageManager(context: Context, private val name: String) {
 
             if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.encode("$name$KEY_PAUSED_DOWNLOADS", str)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved paused downloads to MMKV: ${pausedDownloads.size} items")
             } else {
                 sharedPreferences.edit()
                     .putString("$name$KEY_PAUSED_DOWNLOADS", str)
-                    .apply()
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved paused downloads to SharedPreferences fallback: ${pausedDownloads.size} items")
+                    .commit() // Use commit() instead of apply() for synchronous save
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save paused downloads: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -252,16 +237,12 @@ class StorageManager(context: Context, private val name: String) {
     fun loadPausedDownloads(): MutableMap<String, Downloader.PausedDownloadInfo> {
         try {
             val str = if (isMMKVAvailable && mmkv != null) {
-                mmkv!!.decodeString("$name$KEY_PAUSED_DOWNLOADS")?.also {
-                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded paused downloads from MMKV")
-                }
+                mmkv!!.decodeString("$name$KEY_PAUSED_DOWNLOADS")
             } else {
-                sharedPreferences.getString("$name$KEY_PAUSED_DOWNLOADS", null)?.also {
-                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded paused downloads from SharedPreferences fallback")
-                }
+                sharedPreferences.getString("$name$KEY_PAUSED_DOWNLOADS", null)
             }
 
-            if (str != null) {
+            if (str != null && str.isNotEmpty()) {
                 val gson = Gson()
                 val mapType = object : TypeToken<Map<String, PausedDownloadInfoData>>() {}.type
                 val dataMap: Map<String, PausedDownloadInfoData> = gson.fromJson(str, mapType)
@@ -277,11 +258,10 @@ class StorageManager(context: Context, private val name: String) {
                         metadata = data.metadata
                     )
                 }.toMutableMap()
-            } else {
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "No paused downloads found, starting with empty map")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load paused downloads: ${e.message}")
+            e.printStackTrace()
         }
         return mutableMapOf()
     }
@@ -294,7 +274,6 @@ class StorageManager(context: Context, private val name: String) {
             val paused = loadPausedDownloads()
             if (paused.remove(configId) != null) {
                 savePausedDownloads(paused)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Removed paused download: $configId")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to remove paused download: ${e.message}")
@@ -313,12 +292,10 @@ class StorageManager(context: Context, private val name: String) {
 
             if (isMMKVAvailable && mmkv != null) {
                 mmkv!!.encode("$name$KEY_UPLOAD_CONFIGS", str)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved upload configs to MMKV: ${uploadConfigs.size} items")
             } else {
                 sharedPreferences.edit()
                     .putString("$name$KEY_UPLOAD_CONFIGS", str)
                     .apply()
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved upload configs to SharedPreferences: ${uploadConfigs.size} items")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save upload configs: ${e.message}")
@@ -331,21 +308,15 @@ class StorageManager(context: Context, private val name: String) {
     fun loadUploadConfigs(): MutableMap<String, RNBGDUploadTaskConfig> {
         try {
             val str = if (isMMKVAvailable && mmkv != null) {
-                mmkv!!.decodeString("$name$KEY_UPLOAD_CONFIGS")?.also {
-                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded upload configs from MMKV")
-                }
+                mmkv!!.decodeString("$name$KEY_UPLOAD_CONFIGS")
             } else {
-                sharedPreferences.getString("$name$KEY_UPLOAD_CONFIGS", null)?.also {
-                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded upload configs from SharedPreferences")
-                }
+                sharedPreferences.getString("$name$KEY_UPLOAD_CONFIGS", null)
             }
 
             if (str != null) {
                 val gson = Gson()
                 val mapType = object : TypeToken<Map<String, RNBGDUploadTaskConfig>>() {}.type
                 return gson.fromJson(str, mapType)
-            } else {
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "No upload configs found, starting with empty map")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load upload configs: ${e.message}")
@@ -361,7 +332,6 @@ class StorageManager(context: Context, private val name: String) {
             val configs = loadUploadConfigs()
             if (configs.remove(configId) != null) {
                 saveUploadConfigs(configs)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Removed upload config: $configId")
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to remove upload config: ${e.message}")

@@ -99,6 +99,7 @@ export interface Spec extends TurboModule {
     bytesDownloaded: number
     bytesTotal: number
     errorCode?: number | null
+    destination?: string | null
   }>>
 
   // Upload methods (optional for backward compatibility until native implementation is complete)

@@ -7,6 +7,8 @@
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <!-- Required for User-Initiated Data Transfer (UIDT) jobs on Android 14+ -->
   <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
+  <!-- Required for jobs with connectivity constraints -->
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
   <application>
     <!-- Foreground service for background downloads (Android < 14) -->

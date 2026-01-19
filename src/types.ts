@@ -57,6 +57,7 @@ export interface TaskInfoNative {
   bytesTotal: number
   errorCode: number
   state: number
+  destination?: string | null
 }
 
 export interface TaskInfo {

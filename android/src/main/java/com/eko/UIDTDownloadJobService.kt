@@ -141,6 +141,13 @@ class UIDTDownloadJobService : JobService() {
         fun cancelJob(context: Context, configId: String) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
 
+            // First cancel the download in the ResumableDownloader (stops the actual HTTP download)
+            val jobState = activeJobs[configId]
+            if (jobState != null) {
+                jobState.resumableDownloader.cancel(configId)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled ResumableDownloader for $configId")
+            }
+
             val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
             val jobId = JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
 
@@ -164,6 +171,15 @@ class UIDTDownloadJobService : JobService() {
         fun isPausedJob(configId: String): Boolean {
             val jobState = activeJobs[configId]
             return jobState?.resumableDownloader?.isPaused(configId) ?: false
+        }
+
+        /**
+         * Get the download state for a UIDT job.
+         * Returns the ResumableDownloader.DownloadState if the job is active, null otherwise.
+         */
+        fun getJobDownloadState(configId: String): ResumableDownloader.DownloadState? {
+            val jobState = activeJobs[configId] ?: return null
+            return jobState.resumableDownloader.getState(configId)
         }
 
         /**

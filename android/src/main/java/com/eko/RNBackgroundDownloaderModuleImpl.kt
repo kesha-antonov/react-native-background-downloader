@@ -719,8 +719,39 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     synchronized(sharedLock) {
       // First check if it's an active resumable download
       if (downloader.isResumableDownload(configId)) {
-        downloader.pauseResumable(configId)
-        logD(NAME, "Paused resumable download: $configId")
+        // Get state before pausing - check both UIDT jobs and regular service
+        var state: ResumableDownloader.DownloadState? = null
+
+        // Check UIDT jobs first (Android 14+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          state = UIDTDownloadJobService.getJobDownloadState(configId)
+        }
+
+        // Fall back to regular service if not found in UIDT jobs
+        if (state == null) {
+          state = downloader.resumableDownloader.getState(configId)
+        }
+
+        // Pause the download
+        val paused = downloader.pauseResumable(configId)
+
+        if (paused && state != null) {
+          // Save to persistent storage so we can resume after app restart
+          val headers = configIdToHeaders[configId] ?: state.headers
+          val metadata = configIdToMetadata[configId] ?: "{}"
+
+          downloader.savePausedDownloadState(
+            configId = configId,
+            url = state.url,
+            destination = state.destination,
+            headers = headers,
+            bytesDownloaded = state.bytesDownloaded.get(),
+            bytesTotal = state.bytesTotal,
+            metadata = metadata
+          )
+
+          logD(NAME, "Paused resumable download: $configId (saved state: ${state.bytesDownloaded.get()}/${state.bytesTotal} bytes)")
+        }
         return
       }
 
@@ -744,14 +775,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             configIdToDownloadId.remove(configId)
             saveDownloadIdToConfigMap()
             logD(NAME, "Paused DownloadManager download: $configId")
-          } else {
-            logD(NAME, "pauseTask: Download not paused (may already be paused): $configId")
           }
-        } else {
-          logW(NAME, "pauseTask: No config found for downloadId: $downloadId")
         }
-      } else {
-        logW(NAME, "pauseTask: No download found for configId: $configId")
       }
     }
   }
@@ -771,13 +796,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val resumed = downloader.resume(configId, resumableDownloadListener)
         if (resumed) {
           logD(NAME, "Resumed download via ResumableDownloader: $configId")
-        } else {
-          logW(NAME, "Failed to resume download: $configId")
         }
         return
       }
-
-      logW(NAME, "resumeTask: No paused download found for configId: $configId")
     }
   }
 
@@ -897,10 +918,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         params.putInt("state", DownloadConstants.TASK_SUSPENDED) // PAUSED state
         params.putDouble("bytesDownloaded", pausedInfo.bytesDownloaded.toDouble())
         params.putDouble("bytesTotal", pausedInfo.bytesTotal.toDouble())
+        params.putString("destination", pausedInfo.destination)
 
         foundTasks.pushMap(params)
         processedIds.add(configId)
-        logD(NAME, "getExistingDownloadTasks: Added paused download: $configId")
       }
 
       // Phase 3: Add active resumable downloads (in-progress via ResumableDownloader)
@@ -908,6 +929,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // Check for any paused resumable downloads that weren't in the persisted state
       // (e.g., paused during current session but not yet persisted)
       // This is handled by the pausedDownloads map above since we persist on pause
+
+      logD(NAME, "getExistingDownloadTasks: found ${foundTasks.size()} tasks")
     }
 
     promise.resolve(foundTasks)
@@ -988,14 +1011,17 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   private fun saveDownloadIdToConfigMap() {
+    logD(NAME, "saveDownloadIdToConfigMap() called with ${downloadIdToConfig.size} entries")
     synchronized(sharedLock) {
       storageManager.saveDownloadIdToConfigMap(downloadIdToConfig)
     }
   }
 
   private fun loadDownloadIdToConfigMap() {
+    logD(NAME, "loadDownloadIdToConfigMap() called")
     synchronized(sharedLock) {
       downloadIdToConfig = storageManager.loadDownloadIdToConfigMap()
+      logD(NAME, "loadDownloadIdToConfigMap() loaded ${downloadIdToConfig.size} entries")
     }
   }
 

@@ -33,6 +33,7 @@ function getNativeModule (): import('./NativeRNBackgroundDownloader').Spec {
 export class DownloadTask {
   id: string = ''
   metadata: Metadata = {}
+  destination?: string
 
   state: DownloadTaskState = 'PENDING'
   errorCode: number = 0
@@ -54,6 +55,9 @@ export class DownloadTask {
 
     if ((taskParams as TaskInfoNative).bytesTotal)
       this.bytesTotal = (taskParams as TaskInfoNative).bytesTotal
+
+    if ((taskParams as TaskInfoNative).destination)
+      this.destination = (taskParams as TaskInfoNative).destination ?? undefined
 
     this.metadata = this.tryParseJson(taskParams.metadata) ?? {}
 

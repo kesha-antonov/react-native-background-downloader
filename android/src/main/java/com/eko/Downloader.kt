@@ -93,7 +93,6 @@ class Downloader(private val context: Context, private val storageManager: com.e
       val loadedPaused = it.loadPausedDownloads()
       if (loadedPaused.isNotEmpty()) {
         pausedDownloads.putAll(loadedPaused)
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Loaded ${loadedPaused.size} persisted paused downloads")
       }
     }
   }
@@ -141,17 +140,12 @@ class Downloader(private val context: Context, private val storageManager: com.e
     // Remove any stale paused state from a previous download with the same ID
     val pausedInfo = pausedDownloads.remove(configId)
     if (pausedInfo != null) {
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Cleaned up stale paused state for: $configId")
       // Persist the removal
       savePausedDownloads()
       // Clean up partially downloaded destination file if it exists
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
-        if (!destFile.delete()) {
-          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
-        } else {
-          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
-        }
+        destFile.delete()
       }
     }
   }
@@ -221,6 +215,37 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Paused download $configId at $bytesDownloaded/$bytesTotal bytes")
     return true
+  }
+
+  /**
+   * Save paused download state for a ResumableDownloader download.
+   * This is called when pausing a download that was started via ResumableDownloader
+   * (e.g., on Android 16+ or when DownloadManager path restrictions apply).
+   */
+  fun savePausedDownloadState(
+    configId: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    bytesDownloaded: Long,
+    bytesTotal: Long,
+    metadata: String = "{}"
+  ) {
+    val pausedInfo = PausedDownloadInfo(
+      configId = configId,
+      url = url,
+      destination = destination,
+      headers = headers,
+      bytesDownloaded = bytesDownloaded,
+      bytesTotal = bytesTotal,
+      metadata = metadata
+    )
+    pausedDownloads[configId] = pausedInfo
+
+    // Persist to storage for app restart persistence
+    savePausedDownloads()
+
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved paused state for resumable download $configId at $bytesDownloaded/$bytesTotal bytes")
   }
 
   /**
@@ -386,11 +411,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
-        if (!destFile.delete()) {
-          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
-        } else {
-          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
-        }
+        destFile.delete()
       }
     }
 
@@ -418,13 +439,18 @@ class Downloader(private val context: Context, private val storageManager: com.e
   /**
    * Get all paused downloads.
    */
-  fun getAllPausedDownloads(): Map<String, PausedDownloadInfo> = pausedDownloads.toMap()
+  fun getAllPausedDownloads(): Map<String, PausedDownloadInfo> {
+    return pausedDownloads.toMap()
+  }
 
   /**
    * Persist paused downloads to storage.
    */
   private fun savePausedDownloads() {
-    storageManager?.savePausedDownloads(pausedDownloads.toMap())
+    if (storageManager == null) {
+      return
+    }
+    storageManager.savePausedDownloads(pausedDownloads.toMap())
   }
 
   /**
@@ -451,11 +477,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
       val destFile = File(pausedInfo.destination)
       if (destFile.exists()) {
-        if (!destFile.delete()) {
-          RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${pausedInfo.destination}")
-        } else {
-          RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${pausedInfo.destination}")
-        }
+        destFile.delete()
       }
     }
   }
