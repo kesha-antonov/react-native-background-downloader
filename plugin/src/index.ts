@@ -14,10 +14,23 @@ interface PluginOptions {
    * ["@kesha-antonov/react-native-background-downloader", { mmkvVersion: "2.2.4" }]
    */
   mmkvVersion?: string
+  /**
+   * Skip adding MMKV dependency on Android.
+   * Set to true if you're using react-native-mmkv or another library that provides MMKV.
+   * This prevents duplicate class errors.
+   * @default false
+   * @example
+   * ["@kesha-antonov/react-native-background-downloader", { skipMmkvDependency: true }]
+   */
+  skipMmkvDependency?: boolean
 }
 
 const withRNBackgroundDownloader: ConfigPlugin<PluginOptions | void> = (config, options) => {
-  const { mmkvVersion = '2.2.4' } = options || {}
+  const { mmkvVersion = '2.2.4', skipMmkvDependency = false } = options || {}
+
+  // Auto-detect react-native-mmkv in dependencies
+  const hasReactNativeMmkv = checkForReactNativeMmkv(config)
+  const shouldSkipMmkv = skipMmkvDependency || hasReactNativeMmkv
 
   // Handle iOS AppDelegate modifications
   config = withAppDelegate(config, (config) => {
@@ -36,18 +49,53 @@ const withRNBackgroundDownloader: ConfigPlugin<PluginOptions | void> = (config, 
     return config
   })
 
-  // Handle Android MMKV dependency
-  config = withAppBuildGradle(config, (config) => {
-    config.modResults.contents = addMmkvDependencyAndroid(config.modResults.contents, mmkvVersion)
-    return config
-  })
+  // Handle Android MMKV dependency (skip if react-native-mmkv is present)
+  if (!shouldSkipMmkv)
+    config = withAppBuildGradle(config, (config) => {
+      config.modResults.contents = addMmkvDependencyAndroid(config.modResults.contents, mmkvVersion)
+      return config
+    })
 
   return config
 }
 
+/**
+ * Check if react-native-mmkv is present in the project dependencies.
+ * react-native-mmkv uses io.github.zhongwuzw:mmkv which conflicts with com.tencent:mmkv-shared.
+ */
+function checkForReactNativeMmkv (config: any): boolean {
+  const dependencies = config._internal?.projectConfig?.dependencies || {}
+  const devDependencies = config._internal?.projectConfig?.devDependencies || {}
+
+  // Also check the expo config directly
+  const allDeps = {
+    ...dependencies,
+    ...devDependencies,
+  }
+
+  // Check for react-native-mmkv in dependencies
+  if ('react-native-mmkv' in allDeps)
+    return true
+
+  // Try to detect from package.json if available
+  try {
+    const projectRoot = config._internal?.projectRoot || process.cwd()
+    const packageJsonPath = path.join(projectRoot, 'package.json')
+    if (fs.existsSync(packageJsonPath)) {
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+      if (packageJson.dependencies?.['react-native-mmkv'] || packageJson.devDependencies?.['react-native-mmkv'])
+        return true
+    }
+  } catch {
+    // Ignore errors reading package.json
+  }
+
+  return false
+}
+
 function addMmkvDependencyAndroid (buildGradleContents: string, mmkvVersion: string): string {
   // Check if MMKV dependency is already present
-  if (buildGradleContents.includes('com.tencent:mmkv'))
+  if (buildGradleContents.includes('com.tencent:mmkv') || buildGradleContents.includes('io.github.zhongwuzw:mmkv'))
     return buildGradleContents
 
   // Find the dependencies block and add MMKV
@@ -56,7 +104,7 @@ function addMmkvDependencyAndroid (buildGradleContents: string, mmkvVersion: str
 
   if (match) {
     const insertPosition = buildGradleContents.indexOf(match[0]) + match[0].length
-    const mmkvDependency = `\n    // MMKV is required by @kesha-antonov/react-native-background-downloader\n    implementation 'com.tencent:mmkv-shared:${mmkvVersion}'`
+    const mmkvDependency = `\n    // MMKV is required by @kesha-antonov/react-native-background-downloader\n    // If you're using react-native-mmkv, remove this line to avoid duplicate class errors\n    implementation 'com.tencent:mmkv-shared:${mmkvVersion}'`
 
     buildGradleContents = buildGradleContents.slice(0, insertPosition) +
       mmkvDependency +
