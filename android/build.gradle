@@ -13,6 +13,13 @@ def safeExtGet(prop, fallback) {
     rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
 
+// Read version from package.json
+def getVersionFromPackageJson() {
+    def packageJsonFile = file("$projectDir/../package.json")
+    def packageJson = new groovy.json.JsonSlurper().parseText(packageJsonFile.text)
+    return packageJson.version
+}
+
 android {
     def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
     // Check AGP version for backward compatibility reasons (for RN < 0.71)
@@ -34,6 +41,7 @@ android {
         }
 
         buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+        buildConfigField "String", "LIBRARY_VERSION", "\"${getVersionFromPackageJson()}\""
     }
 
     buildFeatures {

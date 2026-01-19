@@ -39,11 +39,11 @@ object DownloadConstants {
     /** Keep-Alive header value for connection pooling */
     const val KEEP_ALIVE_HEADER_VALUE = "timeout=600, max=1000"
 
-    /** Library version for User-Agent */
-    const val VERSION = "4.4.2"
+    /** Library version for User-Agent - extracted from package.json via BuildConfig */
+    val VERSION: String = BuildConfig.LIBRARY_VERSION
 
     /** User-Agent string for HTTP requests */
-    const val USER_AGENT = "ReactNative-BackgroundDownloader/$VERSION"
+    val USER_AGENT: String = "ReactNative-BackgroundDownloader/$VERSION"
 
     // ========== Task States ==========
 
