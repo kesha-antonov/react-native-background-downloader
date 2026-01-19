@@ -77,9 +77,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   private lateinit var ee: DeviceEventManagerModule.RCTDeviceEventEmitter
 
   // Centralized progress reporting with threshold filtering and batching
-  private val progressReporter = ProgressReporter { reportsArray ->
-    getEventEmitter()?.emit("downloadProgress", reportsArray)
-  }
+  private val progressReporter = ProgressReporter(
+    onEmitProgress = { reportsArray ->
+      getEventEmitter()?.emit("downloadProgress", reportsArray)
+    }
+  )
 
   // Centralized event emitter for download events
   private val eventEmitter by lazy {
