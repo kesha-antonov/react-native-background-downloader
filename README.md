@@ -12,9 +12,13 @@
   <img src="https://img.shields.io/badge/New%20Architecture-supported-green.svg" alt="New Architecture">
 </p>
 
-# React Native Background Downloader
+<h1 align="center">React Native Background Downloader</h1>
 
-Download and upload large files on iOS & Android — even when your app is in the background or terminated.
+<p align="center">
+  Download and upload large files on iOS & Android — even when your app is in the background or terminated.
+</p>
+
+---
 
 ## ✨ Features
 
@@ -42,31 +46,30 @@ Download and upload large files on iOS & Android — even when your app is in th
 
 ## Table of Contents
 
-- [React Native Background Downloader](#react-native-background-downloader)
-  - [✨ Features](#-features)
-  - [Why?](#why)
-  - [Table of Contents](#table-of-contents)
-  - [Requirements](#requirements)
-  - [Installation](#installation)
-    - [Expo Projects](#expo-projects)
-    - [Bare React Native Projects](#bare-react-native-projects)
-  - [Usage](#usage)
-    - [Downloading a file](#downloading-a-file)
-    - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
-  - [Advanced Configuration](#advanced-configuration)
-      - [Max Parallel Downloads (iOS only)](#max-parallel-downloads-ios-only)
-      - [Cellular/WiFi Restrictions](#cellularwifi-restrictions)
-  - [API](#api)
-    - [Quick Reference](#quick-reference)
-  - [Platform Notes](#platform-notes)
-  - [Troubleshooting](#troubleshooting)
-  - [Example App](#example-app)
-  - [Use Cases](#use-cases)
-  - [Migration Guide](#migration-guide)
-  - [Contributing](#contributing)
-    - [Development Setup](#development-setup)
-  - [Authors](#authors)
-  - [License](#license)
+- [✨ Features](#-features)
+- [Why?](#why)
+- [Table of Contents](#table-of-contents)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Expo Projects](#expo-projects)
+  - [Bare React Native Projects](#bare-react-native-projects)
+- [Usage](#usage)
+  - [Downloading a file](#downloading-a-file)
+  - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
+- [Advanced Configuration](#advanced-configuration)
+    - [Max Parallel Downloads (iOS only)](#max-parallel-downloads-ios-only)
+    - [Cellular/WiFi Restrictions](#cellularwifi-restrictions)
+- [API](#api)
+  - [Quick Reference](#quick-reference)
+- [Platform Notes](#platform-notes)
+- [Troubleshooting](#troubleshooting)
+- [Example App](#example-app)
+- [Use Cases](#use-cases)
+- [Migration Guide](#migration-guide)
+- [Contributing](#contributing)
+  - [Development Setup](#development-setup)
+- [Authors](#authors)
+- [License](#license)
 
 ## Requirements
 
