@@ -32,7 +32,7 @@
 - ⚡ **New Architecture** - Full TurboModules support for React Native
 - 📝 **TypeScript** - Complete TypeScript definitions included
 
-## 🤔 Why?
+## 💡 Why?
 
 **The Problem:** Standard network requests in React Native are tied to your app's lifecycle. When the user switches to another app or the OS terminates your app to free memory, your downloads stop. For small files this is fine, but for large files (videos, podcasts, documents) this creates a frustrating user experience.
 
@@ -47,7 +47,7 @@
 ## 📖 Table of Contents
 
 - [✨ Features](#-features)
-- [🤔 Why?](#-why)
+- [💡 Why?](#-why)
 - [📖 Table of Contents](#-table-of-contents)
 - [📋 Requirements](#-requirements)
 - [📦 Installation](#-installation)
