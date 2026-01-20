@@ -32,7 +32,7 @@
 - ⚡ **New Architecture** - Full TurboModules support for React Native
 - 📝 **TypeScript** - Complete TypeScript definitions included
 
-## Why?
+## 🤔 Why?
 
 **The Problem:** Standard network requests in React Native are tied to your app's lifecycle. When the user switches to another app or the OS terminates your app to free memory, your downloads stop. For small files this is fine, but for large files (videos, podcasts, documents) this creates a frustrating user experience.
 
@@ -44,34 +44,34 @@
 
 **This Library:** `@kesha-antonov/react-native-background-downloader` wraps these native APIs in a simple, unified JavaScript interface. Start a download, close your app, reopen it hours later, and seamlessly reconnect to your ongoing downloads with a single function call.
 
-## Table of Contents
+## 📖 Table of Contents
 
 - [✨ Features](#-features)
-- [Why?](#why)
-- [Table of Contents](#table-of-contents)
-- [Requirements](#requirements)
-- [Installation](#installation)
+- [🤔 Why?](#-why)
+- [📖 Table of Contents](#-table-of-contents)
+- [📋 Requirements](#-requirements)
+- [📦 Installation](#-installation)
   - [Expo Projects](#expo-projects)
   - [Bare React Native Projects](#bare-react-native-projects)
-- [Usage](#usage)
+- [🚀 Usage](#-usage)
   - [Downloading a file](#downloading-a-file)
   - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
-- [Advanced Configuration](#advanced-configuration)
+- [⚙️ Advanced Configuration](#️-advanced-configuration)
     - [Max Parallel Downloads (iOS only)](#max-parallel-downloads-ios-only)
     - [Cellular/WiFi Restrictions](#cellularwifi-restrictions)
-- [API](#api)
+- [📚 API](#-api)
   - [Quick Reference](#quick-reference)
-- [Platform Notes](#platform-notes)
-- [Troubleshooting](#troubleshooting)
-- [Example App](#example-app)
-- [Use Cases](#use-cases)
-- [Migration Guide](#migration-guide)
-- [Contributing](#contributing)
+- [📱 Platform Notes](#-platform-notes)
+- [❓ Troubleshooting](#-troubleshooting)
+- [🧪 Example App](#-example-app)
+- [💡 Use Cases](#-use-cases)
+- [🔄 Migration Guide](#-migration-guide)
+- [🤝 Contributing](#-contributing)
   - [Development Setup](#development-setup)
-- [Authors](#authors)
-- [License](#license)
+- [👥 Authors](#-authors)
+- [📄 License](#-license)
 
-## Requirements
+## 📋 Requirements
 
 | Requirement | Version |
 |-------------|--------|
@@ -82,7 +82,7 @@
 
 > **Note:** For older React Native versions (0.57.0 - 0.69.x), use version 2.x of this library.
 
-## Installation
+## 📦 Installation
 
 ### Expo Projects
 
@@ -212,7 +212,7 @@ dependencies {
 
 > **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, skip this step — it already includes MMKV.
 
-## Usage
+## 🚀 Usage
 
 ### Downloading a file
 
@@ -358,7 +358,7 @@ await task.stop()
 
 </details>
 
-## Advanced Configuration
+## ⚙️ Advanced Configuration
 
 <details>
 <summary><strong>Using custom headers</strong></summary>
@@ -554,7 +554,7 @@ task.start()
 
 </details>
 
-## API
+## 📚 API
 
 For complete API documentation, see the **[API Reference](./docs/API.md)**.
 
@@ -582,7 +582,7 @@ import {
 | `completeHandler(jobId)` | Signal download completion to OS |
 | `directories.documents` | Path to app's documents directory |
 
-## Platform Notes
+## 📱 Platform Notes
 
 For detailed platform-specific information, see **[Platform Notes](./docs/PLATFORM_NOTES.md)**.
 
@@ -591,7 +591,7 @@ Key points:
 - **Android**: Uses `DownloadManager` + Foreground Services + MMKV
 - **Pause/Resume**: Works on both platforms (Android requires server Range header support)
 
-## Troubleshooting
+## ❓ Troubleshooting
 
 <details>
 <summary><strong>Download stuck in "pending" state (Android)</strong></summary>
@@ -632,7 +632,7 @@ See the [Google Play Console Declaration](#google-play-console-declaration) sect
 Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section.
 </details>
 
-## Example App
+## 🧪 Example App
 
 The repository includes a full example app demonstrating all features:
 
@@ -655,7 +655,7 @@ The example app shows:
 - Re-attaching to background tasks
 - File management
 
-## Use Cases
+## 💡 Use Cases
 
 This library is perfect for apps that need reliable file transfers:
 
@@ -666,7 +666,7 @@ This library is perfect for apps that need reliable file transfers:
 - 🎮 **Games** - Download game assets and updates
 - 📱 **Enterprise Apps** - Sync large documents and media
 
-## Migration Guide
+## 🔄 Migration Guide
 
 Upgrading from an older version? Check the [Migration Guide](./MIGRATION.md) for detailed instructions:
 
@@ -677,7 +677,7 @@ Upgrading from an older version? Check the [Migration Guide](./MIGRATION.md) for
 
 See the [Changelog](./CHANGELOG.md) for a complete list of changes in each version.
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
@@ -711,12 +711,14 @@ cd example && yarn install
 yarn ios  # or yarn android
 ```
 
-## Authors
+## 👥 Authors
 
 Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 
 Based on [react-native-background-downloader](https://github.com/ekolabs/react-native-background-downloader) by [Elad Gil](https://github.com/ptelad) (unmaintained since 2019)
 
-## License
+> Please note that this project is maintained in free time. If you find it helpful, please consider [becoming a sponsor](https://github.com/sponsors/kesha-antonov).
+
+## 📄 License
 
 [Apache 2.0](./LICENSE)
