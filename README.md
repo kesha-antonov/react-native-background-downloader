@@ -145,16 +145,24 @@ The plugin automatically handles:
 
 **Step 1:** Install the package
 
+**yarn:**
 ```bash
-# Using yarn
 yarn add @kesha-antonov/react-native-background-downloader
+```
 
-# Using npm
+**npm:**
+```bash
 npm install @kesha-antonov/react-native-background-downloader
 ```
 
 **Step 2:** Install iOS pods
 
+**yarn:**
+```bash
+cd ios && pod install && cd ..
+```
+
+**npm:**
 ```bash
 cd ios && pod install && cd ..
 ```
