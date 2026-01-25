@@ -338,17 +338,13 @@ class UIDTDownloadJobService : JobService() {
                 val notificationId = getNotificationIdForConfig(configId)
 
                 // Call jobFinished to properly end the UIDT job
+                // Note: jobFinished(params, false) is sufficient - no need for jobScheduler.cancel()
+                // since wantsReschedule=false tells the system the job is complete and should not be rescheduled
                 val service = serviceInstance
                 if (service != null) {
                     RNBackgroundDownloaderModuleImpl.logD(TAG, "Calling jobFinished for paused job $configId")
                     service.jobFinished(jobState.params, false)
                 }
-
-                // Cancel the UIDT job from JobScheduler
-                val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
-                val jobId = JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
-                jobScheduler.cancel(jobId)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled UIDT job $jobId for paused download $configId")
 
                 // Remove from activeJobs - will create new job on resume
                 activeJobs.remove(configId)
