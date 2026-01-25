@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, SectionList, SectionListData, TouchableOpacity, Switch, Platform } from 'react-native'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, Switch, Platform, PermissionsAndroid, Alert } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
@@ -17,11 +17,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { createMMKV } from 'react-native-mmkv'
 
 const DOWNLOADS_SUBDIR = 'downloads'
-const defaultDir = new Directory(Paths.document)
 
 // Storage helper for persisting task IDs between app restarts
 const storage = createMMKV({ id: 'download-example-storage' })
 const TASK_IDS_KEY = 'taskIds'
+const SHOW_NOTIFICATIONS_KEY = 'showNotificationsEnabled'
+const NOTIFICATION_GROUPING_KEY = 'notificationGroupingEnabled'
 
 const TaskIdStorage = {
   load: (): Record<string, string> => {
@@ -103,6 +104,7 @@ const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onD
 
   useEffect(() => {
     progressAnim.value = withTiming(progress, { duration: 300 })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress])
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -196,6 +198,7 @@ const TaskItem = React.memo(({ task, onRemove }: { task: DownloadTask, onRemove:
 
   useEffect(() => {
     progressAnim.value = withTiming(progress, { duration: 300 })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress])
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -246,7 +249,6 @@ interface HeaderProps {
   onReset: () => void
   onRemoveTask: (id: string) => void
   onDeleteFile: (fileName: string) => void
-  filesCount: number
   files: string[]
   tasks: Map<string, DownloadTask>
   downloadsPath: string
@@ -256,9 +258,7 @@ interface HeaderProps {
   onShowNotificationsEnabledChange: (show: boolean) => void
 }
 
-const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, filesCount, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange }: HeaderProps) => {
-  const tasksCount = tasks.size
-
+const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange }: HeaderProps) => {
   // Convert tasks to array for display
   const tasksList = Array.from(tasks.values())
 
@@ -394,8 +394,87 @@ const BasicExampleScreen = () => {
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
   const [destinations, setDestinations] = useState<Map<string, string>>(new Map())
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([])
-  const [notificationGroupingEnabled, setNotificationGroupingEnabled] = useState(false)
-  const [showNotificationsEnabled, setShowNotificationsEnabled] = useState(true)
+  const [notificationGroupingEnabled, setNotificationGroupingEnabled] = useState(() => {
+    return storage.getBoolean(NOTIFICATION_GROUPING_KEY) ?? false
+  })
+  const [showNotificationsEnabled, setShowNotificationsEnabled] = useState(() => {
+    return storage.getBoolean(SHOW_NOTIFICATIONS_KEY) ?? false
+  })
+
+  // Handle notification grouping toggle with persistence
+  const handleNotificationGroupingChange = useCallback((enabled: boolean) => {
+    setNotificationGroupingEnabled(enabled)
+    storage.set(NOTIFICATION_GROUPING_KEY, enabled)
+    // Apply to native immediately via setConfig
+    setConfig({
+      notificationsGrouping: {
+        enabled,
+        texts: {
+          downloadTitle: 'Download',
+          downloadStarting: 'Starting...',
+          downloadProgress: 'Downloading... {progress}%',
+          downloadFinished: 'Complete',
+          groupTitle: 'Downloads',
+          groupText: '{count} downloads in progress',
+        },
+      },
+      showNotificationsEnabled,
+    })
+  }, [showNotificationsEnabled])
+
+  // Request POST_NOTIFICATIONS permission on Android 13+
+  const requestNotificationPermission = useCallback(async (): Promise<boolean> => {
+    if (Platform.OS !== 'android') return true
+    if (Platform.Version < 33) return true // Not needed below Android 13
+
+    try {
+      const result = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+        {
+          title: 'Notification Permission',
+          message: 'This app needs notification permission to show download progress.',
+          buttonPositive: 'Allow',
+          buttonNegative: 'Deny',
+        }
+      )
+      return result === PermissionsAndroid.RESULTS.GRANTED
+    } catch (e) {
+      console.warn('Failed to request notification permission:', e)
+      return false
+    }
+  }, [])
+
+  // Handle show notifications toggle with persistence and permission request
+  const handleShowNotificationsChange = useCallback(async (show: boolean) => {
+    if (show) {
+      const granted = await requestNotificationPermission()
+      if (!granted) {
+        Alert.alert(
+          'Permission Required',
+          'Notification permission is required to show download progress. Please enable it in app settings.',
+          [{ text: 'OK' }]
+        )
+        return
+      }
+    }
+    setShowNotificationsEnabled(show)
+    storage.set(SHOW_NOTIFICATIONS_KEY, show)
+    // Apply to native immediately via setConfig
+    setConfig({
+      notificationsGrouping: {
+        enabled: notificationGroupingEnabled,
+        texts: {
+          downloadTitle: 'Download',
+          downloadStarting: 'Starting...',
+          downloadProgress: 'Downloading... {progress}%',
+          downloadFinished: 'Complete',
+          groupTitle: 'Downloads',
+          groupText: '{count} downloads in progress',
+        },
+      },
+      showNotificationsEnabled: show,
+    })
+  }, [requestNotificationPermission, notificationGroupingEnabled])
 
   const updateTask = useCallback((task: DownloadTask) => {
     // Store the actual task instance, not a copy, to preserve methods
@@ -404,10 +483,10 @@ const BasicExampleScreen = () => {
 
   const process = useCallback((task: DownloadTask) => {
     return task
-      .begin(({ expectedBytes, headers }) => {
+      .begin(() => {
         updateTask(task)
       })
-      .progress(({ bytesDownloaded, bytesTotal }) => {
+      .progress(() => {
         updateTask(task)
       })
       .done(() => {
@@ -420,6 +499,7 @@ const BasicExampleScreen = () => {
         updateTask(task)
         completeHandler(task.id)
       })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateTask])
 
   const resumeExistingTasks = useCallback(async () => {
@@ -438,10 +518,9 @@ const BasicExampleScreen = () => {
           const newMap = new Map(prev)
           tasks.forEach(task => {
             // First try native destination, then metadata
-            const dest = task.destination || (task.metadata as any)?.destination
-            if (dest) {
+            const dest = task.destination || (task.metadata as { destination?: string } | undefined)?.destination
+            if (dest)
               newMap.set(task.id, dest)
-            }
           })
           return newMap
         })
@@ -459,18 +538,18 @@ const BasicExampleScreen = () => {
   const getDownloadsDirPath = useCallback(() => {
     // For the download library, we need path without file:// prefix
     // Use directories.documents from our library if available, otherwise extract from expo Paths
-    if (directories.documents) {
+    if (directories.documents)
       return directories.documents + '/' + DOWNLOADS_SUBDIR
-    }
+
     // Paths.document.uri is a URI string, remove file:// prefix
     return Paths.document.uri.replace('file://', '') + '/' + DOWNLOADS_SUBDIR
   }, [])
 
   const ensureDownloadsDirExists = useCallback(() => {
     const downloadsDir = getDownloadsDir()
-    if (!downloadsDir.exists) {
+    if (!downloadsDir.exists)
       downloadsDir.create()
-    }
+
     return downloadsDir
   }, [getDownloadsDir])
 
@@ -516,9 +595,9 @@ const BasicExampleScreen = () => {
 
   const removeTask = useCallback((id: string) => {
     const task = downloadTasks.get(id)
-    if (task) {
+    if (task)
       task.stop()
-    }
+
     setDownloadTasks(prev => {
       const newMap = new Map(prev)
       newMap.delete(id)
@@ -535,9 +614,8 @@ const BasicExampleScreen = () => {
       const segments = pathname.split('/').filter(Boolean)
       const lastSegment = segments[segments.length - 1]
       // Check if it looks like a filename (has an extension)
-      if (lastSegment && lastSegment.includes('.')) {
+      if (lastSegment && lastSegment.includes('.'))
         return lastSegment
-      }
     } catch (e) {
       console.warn('Failed to parse URL for filename:', e)
     }
@@ -550,10 +628,11 @@ const BasicExampleScreen = () => {
     // Extract filename from URL, fallback to task ID
     const fileName = getFileNameFromUrl(urlItem.url, urlItem.id)
     const destination = getDownloadsDirPath() + '/' + fileName
-    const taskAttribute: any = {
+    const task = createDownloadTask({
       id: urlItem.id,
       url: urlItem.url,
       destination,
+      maxRedirects: urlItem.maxRedirects,
       // Store destination in metadata so we can restore it after app restart
       // Also include groupId/groupName for notification grouping (Android)
       metadata: {
@@ -563,12 +642,7 @@ const BasicExampleScreen = () => {
           groupName: 'Example Downloads',
         }),
       },
-    }
-
-    if (urlItem.maxRedirects)
-      taskAttribute.maxRedirects = urlItem.maxRedirects
-
-    let task = createDownloadTask(taskAttribute)
+    })
     process(task)
     task.start()
     setDownloadTasks(prev => new Map(prev).set(task.id, task))
@@ -642,12 +716,12 @@ const BasicExampleScreen = () => {
       // Clear destination for the task that had this file
       setDestinations(prev => {
         const newMap = new Map(prev)
-        for (const [id, dest] of newMap) {
+        for (const [id, dest] of newMap)
           if (dest.endsWith('/' + fileName)) {
             newMap.delete(id)
             break
           }
-        }
+
         return newMap
       })
       // Refresh file list from disk
@@ -666,13 +740,13 @@ const BasicExampleScreen = () => {
       logCallback: (log: string) => {
         console.log('[RNBD]', log)
       },
-      showNotificationsEnabled: showNotificationsEnabled,
+      showNotificationsEnabled,
       notificationsGrouping: {
         enabled: notificationGroupingEnabled,
         texts: {
           downloadTitle: 'Download',
           downloadStarting: 'Starting...',
-          downloadProgress: '{progress}%',
+          downloadProgress: 'Downloading... {progress}%',
           downloadFinished: 'Complete',
           groupTitle: 'Downloads',
           groupText: '{count} downloads in progress',
@@ -689,8 +763,12 @@ const BasicExampleScreen = () => {
     }))
     setUrlList(initializedUrlList)
 
-    resumeExistingTasks()
-    readStorage()
+    // Small delay to ensure setConfig has been applied before resuming tasks
+    setTimeout(() => {
+      resumeExistingTasks()
+      readStorage()
+    }, 100)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const downloadItems = useMemo<DownloadItemData[]>(() =>
@@ -723,10 +801,9 @@ const BasicExampleScreen = () => {
       for (const task of downloadTasks.values()) {
         // Check if task's destination matches this file
         const taskDestination = destinations.get(task.id)
-        if (taskDestination && taskDestination.endsWith('/' + fileName)) {
+        if (taskDestination && taskDestination.endsWith('/' + fileName))
           // File has an associated task - only show if task is DONE
           return task.state === 'DONE'
-        }
       }
       // No active task for this file - it's a completed download from a previous session
       return true
@@ -739,16 +816,15 @@ const BasicExampleScreen = () => {
       onClear={clearStorage}
       onRemoveTask={removeTask}
       onDeleteFile={deleteSingleFile}
-      filesCount={completedFiles.length}
       files={completedFiles}
       tasks={downloadTasks}
       downloadsPath={downloadsPath}
       notificationGroupingEnabled={notificationGroupingEnabled}
-      onNotificationGroupingChange={setNotificationGroupingEnabled}
+      onNotificationGroupingChange={handleNotificationGroupingChange}
       showNotificationsEnabled={showNotificationsEnabled}
-      onShowNotificationsEnabledChange={setShowNotificationsEnabled}
+      onShowNotificationsEnabledChange={handleShowNotificationsChange}
     />
-  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled])
+  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange])
 
   return (
     <FlatList

@@ -369,10 +369,17 @@ class ResumableDownloadService : Service() {
       else -> "Download service running"
     }
 
+    // Use download icon when actively downloading, pause icon when all paused
+    val icon = if (runningCount > 0) {
+      android.R.drawable.stat_sys_download
+    } else {
+      android.R.drawable.stat_sys_download_done
+    }
+
     return NotificationCompat.Builder(this, DownloadConstants.NOTIFICATION_CHANNEL_ID)
       .setContentTitle("Background Download")
       .setContentText(contentText)
-      .setSmallIcon(android.R.drawable.stat_sys_download)
+      .setSmallIcon(icon)
       .setPriority(NotificationCompat.PRIORITY_LOW)
       .setOngoing(true)
       .setGroup(NOTIFICATION_GROUP_KEY)

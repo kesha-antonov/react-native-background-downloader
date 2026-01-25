@@ -17,6 +17,8 @@ export interface NotificationTexts {
   downloadStarting?: string
   /** Text pattern for download progress. Use {progress} for percentage (default: "Downloading... {progress}%") */
   downloadProgress?: string
+  /** Text shown when download is paused (default: "Paused") */
+  downloadPaused?: string
   /** Text shown when download is finished (default: "Download complete") */
   downloadFinished?: string
   /** Title for group summary notification (default: "Downloads") */
@@ -113,8 +115,6 @@ export type DownloadParams = {
   headers?: Headers
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
-  isNotificationVisible?: boolean
-  notificationTitle?: string
   maxRedirects?: number
   /** Group ID for notification grouping (only used when grouping is enabled) */
   groupId?: string
@@ -160,8 +160,6 @@ export interface DownloadOption {
   metadata?: object
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
-  isNotificationVisible?: boolean
-  notificationTitle?: string
 }
 
 export type Download = (options: DownloadOption) => DownloadTask
@@ -234,8 +232,6 @@ export type UploadParams = {
   parameters?: Record<string, string>
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
-  isNotificationVisible?: boolean
-  notificationTitle?: string
 }
 
 export interface UploadTask {
@@ -280,8 +276,6 @@ export interface UploadOption {
   parameters?: Record<string, string>
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
-  isNotificationVisible?: boolean
-  notificationTitle?: string
 }
 
 export type Upload = (options: UploadOption) => UploadTask

@@ -377,7 +377,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
     // Check UIDT jobs on Android 14+
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       if (UIDTDownloadJobService.isActiveJob(configId)) {
-        return UIDTDownloadJobService.pauseJob(configId)
+        return UIDTDownloadJobService.pauseJob(context, configId)
       }
     }
     return downloadService?.pauseDownload(configId) ?: false
@@ -390,7 +390,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
     // Check UIDT jobs on Android 14+
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       if (UIDTDownloadJobService.isActiveJob(configId)) {
-        return UIDTDownloadJobService.resumeJob(configId, listener)
+        return UIDTDownloadJobService.resumeJob(context, configId, listener)
       }
     }
     executeWhenServiceReady {

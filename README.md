@@ -584,6 +584,7 @@ setConfig({
       downloadTitle: 'Download',
       downloadStarting: 'Starting download...',
       downloadProgress: 'Downloading... {progress}%',
+      downloadPaused: 'Paused',
       downloadFinished: 'Download complete',
       groupTitle: 'Downloads',
       groupText: '{count} downloads in progress',
@@ -618,23 +619,42 @@ const task = createDownloadTask({
 task.start()
 ```
 
+**Notification behavior during pause/resume:**
+
+When a download is paused on Android 14+:
+- The background UIDT job is cancelled (to prevent downloads continuing in background)
+- A detached "Paused" notification remains visible showing current progress
+- When resumed, a new UIDT job is created and the notification switches to "Downloading" state
+- When stopped, the notification is removed
+- **When app is closed, all download notifications are automatically removed**
+
+This ensures users always see the download status without unexpected background activity.
+
 **Configuration options:**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `showNotificationsEnabled` | boolean | `false` | Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs require a notification, but it will be barely visible). This is a top-level config option. |
 | `notificationsGrouping.enabled` | boolean | `false` | Enable notification grouping |
-| `notificationsGrouping.texts.downloadTitle` | string | `'Download'` | Title for individual download notifications |
-| `notificationsGrouping.texts.downloadStarting` | string | `'Starting download...'` | Text when download is starting |
-| `notificationsGrouping.texts.downloadProgress` | string | `'Downloading... {progress}%'` | Progress text. Use `{progress}` placeholder for percentage |
-| `notificationsGrouping.texts.downloadFinished` | string | `'Download complete'` | Text when download is finished |
-| `notificationsGrouping.texts.groupTitle` | string | `'Downloads'` | Title for group summary notification |
-| `notificationsGrouping.texts.groupText` | string | `'{count} download(s) in progress'` | Group summary text. Use `{count}` placeholder for number of downloads |
+| `notificationsGrouping.texts` | object | See below | Customizable notification texts |
+
+**Notification texts (`notificationsGrouping.texts`):**
+
+| Key | Default | Placeholders | Description |
+|-----|---------|--------------|-------------|
+| `downloadTitle` | `'Download'` | — | Title for individual download notifications |
+| `downloadStarting` | `'Starting download...'` | — | Text when download is starting |
+| `downloadProgress` | `'Downloading... {progress}%'` | `{progress}` | Progress text with current percentage (0-100) |
+| `downloadPaused` | `'Paused'` | — | Text when download is paused |
+| `downloadFinished` | `'Download complete'` | — | Text when download is finished |
+| `groupTitle` | `'Downloads'` | — | Title for group summary notification |
+| `groupText` | `'{count} download(s) in progress'` | `{count}` | Group summary text with active downloads count |
 
 **Notes:**
 - Notifications cannot be completely disabled on Android 14+ due to UIDT requirements
 - When `showNotificationsEnabled: false`, notifications are created with minimal visibility (lowest priority, empty content)
-- Notifications are automatically removed when downloads complete
+- Paused downloads show a non-ongoing notification (can be swiped away by user)
+- Active downloads show an ongoing notification (cannot be swiped away)
 - This feature only affects Android 14+ (API 34) where UIDT jobs are used
 - On older Android versions, the standard DownloadManager notifications are shown
 - iOS uses system download notifications and doesn't support custom grouping

@@ -68,6 +68,7 @@ module.exports = {
     'react/display-name': 'off',
     'react-hooks/exhaustive-deps': ['warn', {
     }],
+    'object-shorthand': ['error', 'always'],
   },
   overrides: [{
     files: ['**/*.ts', '**/*.tsx'],

@@ -185,7 +185,6 @@ export class UploadTask {
       headers: this.headersToUnsafeObject(this.uploadParams.headers),
       isAllowedOverRoaming: this.uploadParams.isAllowedOverRoaming ?? false,
       isAllowedOverMetered: this.uploadParams.isAllowedOverMetered ?? false,
-      isNotificationVisible: this.uploadParams.isNotificationVisible ?? false,
     })
   }
 

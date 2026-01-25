@@ -427,7 +427,7 @@ export function setConfig ({
     if (nativeModule.setAllowsCellularAccess && allowsCellularAccess !== undefined)
       nativeModule.setAllowsCellularAccess(config.allowsCellularAccess)
     // Update notification config on native side (Android)
-    if (nativeModule.setNotificationGroupingConfig && (notificationsGrouping !== undefined || showNotificationsEnabled !== undefined))
+    if (Platform.OS === 'android' && nativeModule.setNotificationGroupingConfig)
       nativeModule.setNotificationGroupingConfig({
         enabled: config.notificationsGrouping.enabled,
         showNotificationsEnabled: config.showNotificationsEnabled ?? false,
@@ -509,7 +509,6 @@ export const completeHandler = (jobId: string) => {
 export function createDownloadTask ({
   isAllowedOverRoaming = true,
   isAllowedOverMetered = true,
-  isNotificationVisible = false,
   metadata,
   ...rest
 }: TaskInfo & DownloadParams) {
@@ -531,7 +530,6 @@ export function createDownloadTask ({
   task.setDownloadParams({
     isAllowedOverRoaming,
     isAllowedOverMetered,
-    isNotificationVisible,
     ...rest,
   })
 
@@ -606,7 +604,6 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
 export function createUploadTask ({
   isAllowedOverRoaming = true,
   isAllowedOverMetered = true,
-  isNotificationVisible = false,
   metadata,
   ...rest
 }: UploadTaskInfo & UploadParams) {
@@ -628,7 +625,6 @@ export function createUploadTask ({
   task.setUploadParams({
     isAllowedOverRoaming,
     isAllowedOverMetered,
-    isNotificationVisible,
     ...rest,
   })
 

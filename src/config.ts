@@ -10,6 +10,7 @@ export const DEFAULT_NOTIFICATION_TEXTS: Required<NotificationTexts> = {
   downloadTitle: 'Download',
   downloadStarting: 'Starting download...',
   downloadProgress: 'Downloading... {progress}%',
+  downloadPaused: 'Paused',
   downloadFinished: 'Download complete',
   groupTitle: 'Downloads',
   groupText: (count: number) => `${count} download${count !== 1 ? 's' : ''} in progress`,
@@ -65,6 +66,7 @@ export function getNotificationTextsForNative (): Record<string, string> {
     downloadTitle: texts.downloadTitle ?? DEFAULT_NOTIFICATION_TEXTS.downloadTitle,
     downloadStarting: texts.downloadStarting ?? DEFAULT_NOTIFICATION_TEXTS.downloadStarting,
     downloadProgress: texts.downloadProgress ?? DEFAULT_NOTIFICATION_TEXTS.downloadProgress,
+    downloadPaused: texts.downloadPaused ?? DEFAULT_NOTIFICATION_TEXTS.downloadPaused,
     downloadFinished: texts.downloadFinished ?? DEFAULT_NOTIFICATION_TEXTS.downloadFinished,
     groupTitle: texts.groupTitle ?? DEFAULT_NOTIFICATION_TEXTS.groupTitle,
     // For native side, we send a pattern with {count} placeholder

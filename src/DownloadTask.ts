@@ -173,7 +173,6 @@ export class DownloadTask {
       headers: this.headersToUnsafeObject(this.downloadParams.headers),
       isAllowedOverRoaming: this.downloadParams.isAllowedOverRoaming ?? false,
       isAllowedOverMetered: this.downloadParams.isAllowedOverMetered ?? false,
-      isNotificationVisible: this.downloadParams.isNotificationVisible ?? false,
     })
   }
 

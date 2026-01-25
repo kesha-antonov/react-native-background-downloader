@@ -97,6 +97,11 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun setNotificationGroupingConfig(config: ReadableMap) {
+        impl.setNotificationGroupingConfig(config)
+    }
+
+    @ReactMethod
     fun addListener(eventName: String) {
         impl.addListener(eventName)
     }

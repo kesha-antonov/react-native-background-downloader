@@ -270,6 +270,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Set the listener for resumable downloads (used by the background service)
     downloader.setResumableDownloadListener(resumableDownloadListener)
 
+    // Note: We don't clean up paused notifications here because they should remain visible
+    // showing that downloads are paused. They will be cancelled when download is resumed or stopped.
+
     // Load persisted upload configs (for app restart recovery)
     synchronized(sharedLock) {
       val persistedUploads = storageManager.loadUploadConfigs()
@@ -289,6 +292,22 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   fun invalidate() {
+    // Cancel all download notifications when app is closed
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      // Cancel notifications for all known downloads
+      synchronized(sharedLock) {
+        for ((_, config) in downloadIdToConfig) {
+          UIDTDownloadJobService.cancelNotification(reactContext, config.id)
+        }
+      }
+      // Also cancel notifications for paused downloads
+      val pausedDownloads = downloader.getAllPausedDownloads()
+      for ((configId, _) in pausedDownloads) {
+        UIDTDownloadJobService.cancelNotification(reactContext, configId)
+      }
+      logD(NAME, "Cancelled all download notifications on invalidate")
+    }
+
     unregisterDownloadReceiver()
     downloader.unbindService()
   }
@@ -574,7 +593,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         else -> null
       }
     } else null
-    val notificationTitle = options.getString("notificationTitle")
 
     val progressIntervalScope = options.getInt("progressInterval")
     val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
@@ -582,6 +600,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       val newInterval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else progressReporter.getProgressInterval()
       val newMinBytes = if (progressMinBytesScope > 0) progressMinBytesScope else progressReporter.getProgressMinBytes()
       progressReporter.configure(newInterval, newMinBytes)
+      // Sync notification update interval with progress interval for Android 14+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        UIDTDownloadJobService.setNotificationUpdateInterval(newInterval)
+      }
       saveConfigMap()
     }
 
@@ -593,7 +615,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // Fall back to global allowsCellularAccess setting
       storageManager.getBooleanSync("allowsCellularAccess", true)
     }
-    val isNotificationVisible = options.getBoolean("isNotificationVisible")
+    // Use global notification setting instead of per-task setting
+    val isNotificationVisible = UIDTDownloadJobService.isNotificationsEnabled()
 
     // Get maxRedirects parameter
     var maxRedirects = 0
@@ -627,8 +650,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Note: On Android 16+, we use ResumableDownloader with UIDT jobs instead of DownloadManager
     // for better background execution support. See the Android 16+ check below in download path.
 
-    notificationTitle?.let { request.setTitle(it) }
-
     // Add default headers to improve connection handling for slow-responding URLs
     HeaderUtils.applyDefaultHeaders(request, headers)
 
@@ -660,7 +681,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Helper function to start download with DownloadManager and track state
     fun startDownloadManagerDownload(downloadId: Long) {
-      val config = RNBGDTaskConfig(id, url, destination, metadataValue, notificationTitle)
+      val config = RNBGDTaskConfig(id, url, destination, metadataValue)
       synchronized(sharedLock) {
         // Clean up any stale state from previous downloads with the same ID
         downloader.cleanupStaleState(id)
@@ -806,7 +827,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   // Resume a paused download using HTTP Range headers via ResumableDownloader.
   fun resumeTask(configId: String) {
     synchronized(sharedLock) {
-      // First check if it's a paused resumable download
+      // First check if it's a paused UIDT job (Android 14+)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        if (UIDTDownloadJobService.isPausedJob(configId)) {
+          downloader.resumeResumable(configId, resumableDownloadListener)
+          logD(NAME, "Resumed paused UIDT job: $configId")
+          return
+        }
+      }
+
+      // Check if it's a paused resumable download in the foreground service
       if (downloader.resumableDownloader.isPaused(configId)) {
         downloader.resumeResumable(configId, resumableDownloadListener)
         logD(NAME, "Resumed paused resumable download: $configId")
@@ -828,6 +858,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     synchronized(sharedLock) {
       // Stop progress tracking
       stopTaskProgress(configId)
+
+      // Cancel any detached paused notification (Android 14+)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        UIDTDownloadJobService.cancelNotification(reactContext, configId)
+      }
 
       // Cancel resumable download if active
       downloader.cancelResumable(configId)
@@ -1061,6 +1096,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       val (interval, minBytes) = storageManager.loadProgressConfig()
       if (interval > 0 || minBytes > 0) {
         progressReporter.configure(interval, minBytes)
+        // Sync notification update interval with progress interval for Android 14+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          UIDTDownloadJobService.setNotificationUpdateInterval(interval)
+        }
       }
     }
   }

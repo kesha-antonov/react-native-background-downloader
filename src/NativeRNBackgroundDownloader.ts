@@ -77,8 +77,6 @@ export interface Spec extends TurboModule {
     progressMinBytes?: number
     isAllowedOverRoaming: boolean
     isAllowedOverMetered: boolean
-    isNotificationVisible: boolean
-    notificationTitle?: string
     maxRedirects?: number
   }): void
 
@@ -91,6 +89,7 @@ export interface Spec extends TurboModule {
   setLogsEnabled(enabled: boolean): void
   setMaxParallelDownloads(max: number): void
   setAllowsCellularAccess(allows: boolean): void
+  setNotificationGroupingConfig?(config: { enabled: boolean, showNotificationsEnabled: boolean, texts: UnsafeObject }): void
 
   getExistingDownloadTasks(): Promise<Array<{
     id: string
@@ -117,8 +116,6 @@ export interface Spec extends TurboModule {
     parameters?: UnsafeObject
     isAllowedOverRoaming: boolean
     isAllowedOverMetered: boolean
-    isNotificationVisible: boolean
-    notificationTitle?: string
   }): void
 
   pauseUploadTask?(id: string): Promise<void>

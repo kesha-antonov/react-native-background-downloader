@@ -51,8 +51,11 @@ class UIDTDownloadJobService : JobService() {
         const val KEY_METADATA = "metadata"
         // Headers are stored separately due to PersistableBundle limitations
 
-        // Notification channel for UIDT jobs
+        // Notification channel for UIDT jobs (visible notifications)
         private const val UIDT_NOTIFICATION_CHANNEL_ID = "uidt_download_channel"
+
+        // Notification channel for UIDT jobs (silent/hidden notifications)
+        private const val UIDT_NOTIFICATION_CHANNEL_SILENT_ID = "uidt_download_channel_silent"
 
         // Notification group for grouping all download notifications together
         private const val NOTIFICATION_GROUP_KEY = "com.eko.DOWNLOAD_GROUP"
@@ -62,6 +65,27 @@ class UIDTDownloadJobService : JobService() {
 
         // Atomic counter for notification IDs
         private val notificationIdCounter = AtomicInteger(20000)
+
+        /**
+         * Generate a stable notification ID for a configId.
+         * This ensures the same download always uses the same notification ID,
+         * even across app restarts.
+         */
+        private fun getNotificationIdForConfig(configId: String): Int {
+            // Use hash of configId to get stable ID, ensure it's positive and above 20000
+            return 20000 + (configId.hashCode() and 0x7FFFFFFF) % 100000
+        }
+
+        /**
+         * Cancel notification for a specific download.
+         * Use this to clean up stale notifications from previous app sessions.
+         */
+        fun cancelNotification(context: Context, configId: String) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationId = getNotificationIdForConfig(configId)
+            notificationManager.cancel(notificationId)
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled notification $notificationId for $configId")
+        }
 
         // Static storage for headers (PersistableBundle can't store complex objects)
         private val pendingHeaders = ConcurrentHashMap<String, Map<String, String>>()
@@ -78,15 +102,33 @@ class UIDTDownloadJobService : JobService() {
         @Volatile
         private var showNotificationsEnabled = false
 
+        // Notification update interval in milliseconds (synced with progressInterval)
+        @Volatile
+        private var notificationUpdateInterval: Long = 500 // Default 500ms
+
         // Notification texts configuration
         private val notificationTexts = mutableMapOf(
             "downloadTitle" to "Download",
             "downloadStarting" to "Starting download...",
             "downloadProgress" to "Downloading... {progress}%",
+            "downloadPaused" to "Paused",
             "downloadFinished" to "Download complete",
             "groupTitle" to "Downloads",
             "groupText" to "{count} download(s) in progress"
         )
+
+        /**
+         * Check if notifications are enabled globally.
+         */
+        fun isNotificationsEnabled(): Boolean = showNotificationsEnabled
+
+        /**
+         * Set notification update interval (should match progressInterval).
+         */
+        fun setNotificationUpdateInterval(interval: Long) {
+            notificationUpdateInterval = interval
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Notification update interval set to: $interval ms")
+        }
 
         /**
          * Configure notification grouping and texts.
@@ -193,11 +235,41 @@ class UIDTDownloadJobService : JobService() {
         fun cancelJob(context: Context, configId: String) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
 
-            // First cancel the download in the ResumableDownloader (stops the actual HTTP download)
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "cancelJob called for $configId")
+
+            // Get job state before removing (for notification cleanup)
             val jobState = activeJobs[configId]
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "cancelJob: jobState=$jobState")
+
             if (jobState != null) {
+                // First cancel the download in the ResumableDownloader (stops the actual HTTP download)
                 jobState.resumableDownloader.cancel(configId)
                 RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled ResumableDownloader for $configId")
+
+                // Use setNotification with REMOVE policy to properly dismiss the notification
+                val service = serviceInstance
+                if (service != null) {
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Using setNotification with REMOVE policy for $configId")
+                    // Create an empty notification and set REMOVE policy to dismiss it
+                    val emptyNotification = NotificationCompat.Builder(context, UIDT_NOTIFICATION_CHANNEL_SILENT_ID)
+                        .setContentTitle("")
+                        .setContentText("")
+                        .setSmallIcon(android.R.drawable.stat_sys_download)
+                        .build()
+                    service.setNotification(
+                        jobState.params,
+                        jobState.notificationId,
+                        emptyNotification,
+                        JobService.JOB_END_NOTIFICATION_POLICY_REMOVE
+                    )
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Calling jobFinished for $configId")
+                    service.jobFinished(jobState.params, false)
+                }
+
+                // Also cancel via NotificationManager as a fallback
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(jobState.notificationId)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled notification ${jobState.notificationId} for $configId")
             }
 
             val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
@@ -206,6 +278,11 @@ class UIDTDownloadJobService : JobService() {
             jobScheduler.cancel(jobId)
             pendingHeaders.remove(configId)
             activeJobs.remove(configId)
+
+            // Update summary notification if grouping was enabled
+            if (jobState != null && groupingEnabled && jobState.groupId.isNotEmpty()) {
+                updateSummaryNotificationStatic(context, jobState.groupId, jobState.groupName)
+            }
 
             RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled UIDT job for $configId")
         }
@@ -236,39 +313,277 @@ class UIDTDownloadJobService : JobService() {
 
         /**
          * Pause an active UIDT download.
+         * This will pause the download, cancel the UIDT job, but keep a detached notification showing paused state.
+         * The download state is persisted and can be resumed later by creating a new UIDT job.
          */
-        fun pauseJob(configId: String): Boolean {
+        fun pauseJob(context: Context, configId: String): Boolean {
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "pauseJob called: configId=$configId, showNotificationsEnabled=$showNotificationsEnabled")
             val jobState = activeJobs[configId] ?: return false
-            return jobState.resumableDownloader.pause(configId)
+
+            // First pause the actual download (this saves state to disk)
+            val result = jobState.resumableDownloader.pause(configId)
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "pauseJob: pause result=$result")
+
+            if (result) {
+                // Get progress before removing job state
+                val downloadState = jobState.resumableDownloader.getState(configId)
+                val bytesDownloaded = downloadState?.bytesDownloaded?.get() ?: 0L
+                val bytesTotal = downloadState?.bytesTotal ?: -1L
+                val progress = if (bytesTotal > 0) {
+                    ((bytesDownloaded.toDouble() / bytesTotal) * 100).toInt()
+                } else {
+                    0
+                }
+                val groupName = jobState.groupName
+                val notificationId = getNotificationIdForConfig(configId)
+
+                // Call jobFinished to properly end the UIDT job
+                val service = serviceInstance
+                if (service != null) {
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Calling jobFinished for paused job $configId")
+                    service.jobFinished(jobState.params, false)
+                }
+
+                // Cancel the UIDT job from JobScheduler
+                val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+                val jobId = JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
+                jobScheduler.cancel(jobId)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelled UIDT job $jobId for paused download $configId")
+
+                // Remove from activeJobs - will create new job on resume
+                activeJobs.remove(configId)
+
+                // Show detached paused notification (not tied to UIDT job)
+                if (showNotificationsEnabled) {
+                    showPausedNotification(context, configId, notificationId, progress, groupName)
+                }
+            }
+            return result
+        }
+
+        /**
+         * Show a detached notification for paused downloads.
+         * This notification is not tied to a UIDT job and will persist until cancelled.
+         */
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        private fun showPausedNotification(context: Context, configId: String, notificationId: Int, progress: Int, groupName: String) {
+            val channelId = UIDT_NOTIFICATION_CHANNEL_ID
+            val title = if (groupingEnabled && groupName.isNotEmpty()) {
+                groupName
+            } else {
+                getNotificationText("downloadTitle")
+            }
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setContentTitle(title)
+                .setContentText(getNotificationText("downloadPaused"))
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(false) // Not ongoing - user can swipe to dismiss
+                .setOnlyAlertOnce(true)
+                .setShowWhen(false)
+                .setProgress(100, progress, false)
+                .build()
+
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(notificationId, notification)
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Showed paused notification $notificationId for $configId with progress $progress%")
+        }
+
+        /**
+         * Update notification to show paused state.
+         */
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        private fun updatePausedNotification(context: Context, jobState: JobState) {
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "updatePausedNotification called for notificationId=${jobState.notificationId}")
+            val channelId = UIDT_NOTIFICATION_CHANNEL_ID
+            val title = if (groupingEnabled && jobState.groupName.isNotEmpty()) {
+                jobState.groupName
+            } else {
+                getNotificationText("downloadTitle")
+            }
+
+            // Get current progress for the paused state
+            val configId = jobState.params.extras.getString(KEY_DOWNLOAD_ID) ?: ""
+            val downloadState = jobState.resumableDownloader.getState(configId)
+            val bytesDownloaded = downloadState?.bytesDownloaded?.get() ?: 0L
+            val bytesTotal = downloadState?.bytesTotal ?: -1L
+            val progress = if (bytesTotal > 0) {
+                ((bytesDownloaded.toDouble() / bytesTotal) * 100).toInt()
+            } else {
+                0
+            }
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setContentTitle(title)
+                .setContentText(getNotificationText("downloadPaused"))
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setShowWhen(false)
+                .setProgress(100, progress, false) // Show paused progress
+                .build()
+
+            // Use setNotification for UIDT jobs instead of notificationManager.notify()
+            val service = serviceInstance
+            if (service != null) {
+                service.setNotification(
+                    jobState.params,
+                    jobState.notificationId,
+                    notification,
+                    JobService.JOB_END_NOTIFICATION_POLICY_DETACH
+                )
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Notification updated via setNotification")
+            } else {
+                // Fallback to regular notify if service not available
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(jobState.notificationId, notification)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Notification updated via notificationManager (fallback)")
+            }
         }
 
         /**
          * Resume a paused UIDT download.
          */
-        fun resumeJob(configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
+        fun resumeJob(context: Context, configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
             val jobState = activeJobs[configId] ?: return false
             downloadListener = listener
+
+            // Reset notification timing to allow immediate updates after resume
+            jobState.lastNotificationUpdateTime = 0L
+
+            // Update notification to show resuming/downloading state
+            if (showNotificationsEnabled) {
+                updateResumedNotification(context, jobState)
+            }
+
             return jobState.resumableDownloader.resume(configId, listener)
+        }
+
+        /**
+         * Update notification to show resumed/downloading state.
+         */
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        private fun updateResumedNotification(context: Context, jobState: JobState) {
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "updateResumedNotification called for notificationId=${jobState.notificationId}")
+            val channelId = UIDT_NOTIFICATION_CHANNEL_ID
+            val title = if (groupingEnabled && jobState.groupName.isNotEmpty()) {
+                jobState.groupName
+            } else {
+                getNotificationText("downloadTitle")
+            }
+
+            // Get current progress from download state
+            val configId = jobState.params.extras.getString(KEY_DOWNLOAD_ID) ?: ""
+            val downloadState = jobState.resumableDownloader.getState(configId)
+            val bytesDownloaded = downloadState?.bytesDownloaded?.get() ?: 0L
+            val bytesTotal = downloadState?.bytesTotal ?: -1L
+            val progress = if (bytesTotal > 0) {
+                ((bytesDownloaded.toDouble() / bytesTotal) * 100).toInt()
+            } else {
+                0
+            }
+
+            // Update tracking state so next onProgress knows current state
+            jobState.lastNotifiedProgress = progress
+
+            val builder = NotificationCompat.Builder(context, channelId)
+                .setContentTitle(title)
+                .setContentText(getNotificationText("downloadProgress", "progress" to progress))
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true) // Don't alert on every update
+                .setShowWhen(false) // Hide timestamp for cleaner UI
+                .setProgress(100, progress, bytesTotal <= 0)
+
+            val notification = builder.build()
+
+            val service = serviceInstance
+            if (service != null) {
+                service.setNotification(
+                    jobState.params,
+                    jobState.notificationId,
+                    notification,
+                    JobService.JOB_END_NOTIFICATION_POLICY_DETACH
+                )
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Resumed notification updated via setNotification")
+            } else {
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(jobState.notificationId, notification)
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Resumed notification updated via notificationManager (fallback)")
+            }
         }
 
         // Track active jobs for pause/resume
         private val activeJobs = ConcurrentHashMap<String, JobState>()
+
+        // Store service instance reference for notification updates
+        @Volatile
+        private var serviceInstance: UIDTDownloadJobService? = null
 
         data class JobState(
             val params: JobParameters,
             val resumableDownloader: ResumableDownloader,
             var notificationId: Int,
             val groupId: String = "",
-            val groupName: String = ""
+            val groupName: String = "",
+            var lastNotifiedProgress: Int = -1,
+            var lastNotificationUpdateTime: Long = 0
         )
+
+        /**
+         * Static version of updateSummaryNotification for use in companion object.
+         */
+        private fun updateSummaryNotificationStatic(context: Context, groupId: String, groupName: String) {
+            // Only show summary when grouping is enabled and notifications are shown
+            if (!groupingEnabled || groupId.isEmpty() || !showNotificationsEnabled) return
+
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Count active downloads for this specific group
+            val groupDownloads = activeJobs.values.count { it.groupId == groupId }
+            val summaryNotificationId = SUMMARY_NOTIFICATION_ID + groupId.hashCode()
+
+            if (groupDownloads == 0) {
+                // Remove summary for this group when no active downloads
+                notificationManager.cancel(summaryNotificationId)
+                return
+            }
+
+            val groupKey = "${NOTIFICATION_GROUP_KEY}_$groupId"
+            val title = groupName.ifEmpty { getNotificationText("groupTitle") }
+            val text = getNotificationText("groupText", "count" to groupDownloads)
+
+            val summaryNotification = NotificationCompat.Builder(context, UIDT_NOTIFICATION_CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setGroup(groupKey)
+                .setGroupSummary(true)
+                .setOngoing(true)
+                .build()
+
+            notificationManager.notify(summaryNotificationId, summaryNotification)
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
+        serviceInstance = this
         RNBackgroundDownloaderModuleImpl.logD(TAG, "UIDTDownloadJobService created")
         createNotificationChannel()
+    }
+
+    override fun onDestroy() {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "UIDTDownloadJobService destroyed")
+        serviceInstance = null
+        releaseWakeLock()
+        super.onDestroy()
     }
 
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
@@ -301,7 +616,8 @@ class UIDTDownloadJobService : JobService() {
         val headers = pendingHeaders.remove(configId) ?: emptyMap()
 
         // Create notification for UIDT job (required)
-        val notificationId = notificationIdCounter.incrementAndGet()
+        // Use stable notification ID based on configId so it's reused across app restarts
+        val notificationId = getNotificationIdForConfig(configId)
         val notification = createDownloadNotification(configId, groupId, groupName)
 
         // Set the notification for this job (required for UIDT)
@@ -389,16 +705,40 @@ class UIDTDownloadJobService : JobService() {
             }
 
             override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
-                // Update notification periodically (throttle to avoid too many updates)
+                // Skip notification update if download is paused
                 val jobState = activeJobs[id]
-                if (jobState != null && bytesTotal > 0) {
-                    val progress = ((bytesDownloaded.toDouble() / bytesTotal) * 100).toInt()
-                    if (progress % 5 == 0) { // Update every 5%
-                        updateNotification(id, "Downloading... $progress%", bytesDownloaded, bytesTotal)
+                if (jobState != null) {
+                    // Check if download is paused - don't update notification with progress
+                    val isPaused = jobState.resumableDownloader.isPaused(id)
+                    if (isPaused) {
+                        // Still notify external listener for state tracking, but don't update notification
+                        downloadListener?.onProgress(id, bytesDownloaded, bytesTotal)
+                        return
+                    }
+
+                    if (bytesTotal > 0) {
+                        val progress = ((bytesDownloaded.toDouble() / bytesTotal) * 100).toInt()
+                        val currentTime = System.currentTimeMillis()
+                        val timeSinceLastUpdate = currentTime - jobState.lastNotificationUpdateTime
+
+                        // Update notification when:
+                        // 1. Progress changed AND enough time has passed (synced with progressInterval)
+                        // 2. OR this is the first update (lastNotificationUpdateTime == 0)
+                        // 3. OR download is complete (progress == 100)
+                        val shouldUpdate = progress != jobState.lastNotifiedProgress &&
+                            (timeSinceLastUpdate >= notificationUpdateInterval ||
+                             jobState.lastNotificationUpdateTime == 0L ||
+                             progress == 100)
+
+                        if (shouldUpdate) {
+                            jobState.lastNotifiedProgress = progress
+                            jobState.lastNotificationUpdateTime = currentTime
+                            updateNotification(id, "Downloading... $progress%", bytesDownloaded, bytesTotal)
+                        }
                     }
                 }
 
-                // Notify external listener
+                // Notify external listener (always - JS handles its own throttling)
                 downloadListener?.onProgress(id, bytesDownloaded, bytesTotal)
             }
 
@@ -468,25 +808,41 @@ class UIDTDownloadJobService : JobService() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Background Downloads"
-            val descriptionText = "Shows progress for background downloads"
-            val importance = NotificationManager.IMPORTANCE_MIN
-            val channel = NotificationChannel(UIDT_NOTIFICATION_CHANNEL_ID, name, importance).apply {
-                description = descriptionText
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Create channel for visible notifications (IMPORTANCE_LOW)
+            val visibleChannel = NotificationChannel(
+                UIDT_NOTIFICATION_CHANNEL_ID,
+                "Background Downloads",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Shows progress for background downloads"
                 setShowBadge(false)
             }
+            notificationManager.createNotificationChannel(visibleChannel)
 
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            // Create channel for silent/hidden notifications (IMPORTANCE_MIN)
+            val silentChannel = NotificationChannel(
+                UIDT_NOTIFICATION_CHANNEL_SILENT_ID,
+                "Background Downloads (Silent)",
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "Silent notifications for background downloads"
+                setShowBadge(false)
+            }
+            notificationManager.createNotificationChannel(silentChannel)
         }
     }
 
     @Suppress("UNUSED_PARAMETER")
     private fun createDownloadNotification(configId: String, groupId: String = "", groupName: String = ""): Notification {
+        // Use silent channel when notifications are disabled
+        val channelId = if (showNotificationsEnabled) UIDT_NOTIFICATION_CHANNEL_ID else UIDT_NOTIFICATION_CHANNEL_SILENT_ID
+
         // When notifications are disabled, create minimal silent notification
         // (UIDT jobs require a notification, but we can minimize its visibility)
         if (!showNotificationsEnabled) {
-            return NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
+            return NotificationCompat.Builder(this, channelId)
                 .setContentTitle("")
                 .setContentText("")
                 .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -503,12 +859,14 @@ class UIDTDownloadJobService : JobService() {
         }
         val startingText = getNotificationText("downloadStarting")
 
-        val builder = NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)
             .setContentText(startingText)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            .setOnlyAlertOnce(true) // Don't alert on every update
+            .setShowWhen(false) // Hide timestamp for cleaner UI
             .setProgress(0, 0, true)
 
         // Only apply grouping when enabled and groupId is provided
@@ -550,6 +908,8 @@ class UIDTDownloadJobService : JobService() {
             .setGroup(groupKey)
             .setGroupSummary(true)
             .setOngoing(true)
+            .setOnlyAlertOnce(true) // Don't alert on every update
+            .setShowWhen(false) // Hide timestamp for cleaner UI
             .build()
 
         notificationManager.notify(summaryNotificationId, summaryNotification)
@@ -581,6 +941,8 @@ class UIDTDownloadJobService : JobService() {
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            .setOnlyAlertOnce(true) // Don't alert on every update
+            .setShowWhen(false) // Hide timestamp for cleaner UI
             .setProgress(100, progress, bytesTotal <= 0)
 
         // Only apply grouping when enabled and groupId is provided
@@ -617,11 +979,5 @@ class UIDTDownloadJobService : JobService() {
             }
         }
         wakeLock = null
-    }
-
-    override fun onDestroy() {
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "UIDTDownloadJobService destroyed")
-        releaseWakeLock()
-        super.onDestroy()
     }
 }

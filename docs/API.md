@@ -4,16 +4,39 @@ Complete API documentation for `@kesha-antonov/react-native-background-downloade
 
 ## Table of Contents
 
-- [Named Exports](#named-exports)
-- [createDownloadTask](#createdownloadtaskoptions)
-- [getExistingDownloadTasks](#getexistingdownloadtasks)
-- [createUploadTask](#createuploadtaskoptions)
-- [getExistingUploadTasks](#getexistinguploadtasks)
-- [setConfig](#setconfigconfig)
-- [completeHandler](#completehandlerjobid-string)
-- [DownloadTask](#downloadtask)
-- [UploadTask](#uploadtask)
-- [Constants](#constants)
+- [API Reference](#api-reference)
+  - [Table of Contents](#table-of-contents)
+  - [Named Exports](#named-exports)
+  - [`createDownloadTask(options)`](#createdownloadtaskoptions)
+    - [Options](#options)
+    - [Returns](#returns)
+  - [`getExistingDownloadTasks()`](#getexistingdownloadtasks)
+    - [Returns](#returns-1)
+  - [`createUploadTask(options)`](#createuploadtaskoptions)
+    - [Options](#options-1)
+    - [Returns](#returns-2)
+  - [`getExistingUploadTasks()`](#getexistinguploadtasks)
+    - [Returns](#returns-3)
+  - [`setConfig(config)`](#setconfigconfig)
+    - [Config Options](#config-options)
+    - [Example](#example)
+  - [`completeHandler(jobId: string)`](#completehandlerjobid-string)
+    - [Parameters](#parameters)
+  - [DownloadTask](#downloadtask)
+    - [Members](#members)
+    - [Callback Methods](#callback-methods)
+    - [Methods](#methods)
+      - [`pause(): Promise<void>`](#pause-promisevoid)
+      - [`resume(): Promise<void>`](#resume-promisevoid)
+      - [`stop(): Promise<void>`](#stop-promisevoid)
+      - [`start(): void`](#start-void)
+  - [UploadTask](#uploadtask)
+    - [Members](#members-1)
+    - [Callback Methods](#callback-methods-1)
+    - [Methods](#methods-1)
+  - [Constants](#constants)
+    - [`directories`](#directories)
+      - [`documents`](#documents)
 
 ## Named Exports
 
@@ -49,8 +72,6 @@ Download a file to destination.
 | `maxRedirects` | Number |          |  Android  | Maximum number of redirects to follow before passing URL to DownloadManager. If not specified or 0, no redirect resolution is performed. Helps avoid ERROR_TOO_MANY_REDIRECTS for URLs with many redirects (e.g., podcast URLs) |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
-| `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show a download notification or not |
-| `notificationTitle`     | String   |          |  Android  | Title of the download notification |
 
 ### Returns
 
@@ -89,8 +110,6 @@ Upload a file to a server.
 | `parameters`  | Record<string, string> |          |    All    | Additional form parameters to send with the upload |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this upload may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this upload may proceed over a metered network connection. By default, metered networks are allowed |
-| `isNotificationVisible`     | Boolean   |          |  Android  | Whether to show an upload notification or not |
-| `notificationTitle`     | String   |          |  Android  | Title of the upload notification |
 
 ### Returns
 
@@ -125,6 +144,27 @@ Sets global configuration for the downloader.
 | `logCallback`   | (log: { message: string, taskId?: string }) => void | Optional callback function to receive native debug logs in JavaScript. Only called when `isLogsEnabled` is true |
 | `maxParallelDownloads` | Number | **iOS only**. Sets the maximum number of simultaneous connections per host for the download session. Must be >= 1. Default is 4. Note: Android's DownloadManager does not support this configuration |
 | `allowsCellularAccess` | Boolean | Controls whether downloads are allowed over cellular (metered) connections. When set to `false`, downloads will only occur over WiFi. Default is `true`. This is a cross-platform abstraction - on iOS it sets `allowsCellularAccess`, on Android it sets `isAllowedOverMetered` |
+| `showNotificationsEnabled` | Boolean | **Android only**. Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs on Android 14+ require a notification, but it will be barely visible). Default is `false` |
+| `notificationsGrouping` | Object | **Android only**. Configuration for notification grouping. See below for details |
+
+**notificationsGrouping Options (Android only):**
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| `enabled` | Boolean | Enable notification grouping. Default is `false` |
+| `texts` | Object | Customizable notification texts. All fields are optional - defaults are used for any omitted fields |
+
+**notificationsGrouping.texts — Customizable Notification Strings:**
+
+| Key | Default | Placeholders | Description |
+| --- | ------- | ------------ | ----------- |
+| `downloadTitle` | `'Download'` | — | Title shown in individual download notifications |
+| `downloadStarting` | `'Starting download...'` | — | Notification text when a download begins |
+| `downloadProgress` | `'Downloading... {progress}%'` | `{progress}` — current percentage (0-100) | Text shown while download is in progress |
+| `downloadPaused` | `'Paused'` | — | Text shown when download is paused |
+| `downloadFinished` | `'Download complete'` | — | Text shown when download completes |
+| `groupTitle` | `'Downloads'` | — | Title for the group summary notification (when multiple downloads are active) |
+| `groupText` | `'{count} download(s) in progress'` | `{count}` — number of active downloads | Summary text showing how many downloads are running |
 
 ### Example
 
@@ -148,6 +188,23 @@ setConfig({
 // Or just enable native console logging without JS callback
 setConfig({
   isLogsEnabled: true
+})
+
+// Android: Enable notifications with custom texts
+setConfig({
+  showNotificationsEnabled: true,
+  notificationsGrouping: {
+    enabled: true,
+    texts: {
+      downloadTitle: 'My App Download',
+      downloadStarting: 'Preparing...',
+      downloadProgress: '{progress}% complete',
+      downloadPaused: 'Download paused',
+      downloadFinished: 'Done!',
+      groupTitle: 'Downloads',
+      groupText: '{count} files downloading',
+    },
+  },
 })
 ```
 
