@@ -1,5 +1,48 @@
 # Changelog
 
+## v4.5.0
+
+### ✨ New Features
+
+- **Android: Global Notification Configuration:** Added `showNotificationsEnabled` and `notificationsGrouping` config options for controlling UIDT notifications globally via `setConfig()`.
+- **Android: Customizable Paused Notification Text:** Added `downloadPaused` to `NotificationTexts` interface for customizing the "Paused" notification text.
+- **Android: Notification Update Throttling:** Notification updates are now synced with `progressInterval` for consistent UI/notification progress display.
+
+### 🐛 Bug Fixes
+
+- **Android: Paused Downloads Continuing in Background:** Fixed paused UIDT downloads continuing to download in background after app restart. Now UIDT job is fully cancelled on pause, with a detached "Paused" notification shown.
+- **Android: Duplicate Notifications After Resume:** Fixed duplicate notifications appearing when resuming downloads after app restart. Now uses stable notification IDs based on `configId.hashCode()`.
+- **Android: Notification Not Updating After Resume:** Fixed notification stuck on old progress after resuming. Now resets notification timing on resume and shows correct progress immediately.
+- **Android: Notification Updating While Paused:** Fixed notification progress updating even when download is paused.
+- **Android: Stale Notifications on App Close:** All download notifications are now cancelled when the app closes via `invalidate()`.
+
+### 💥 Breaking Changes
+
+- **Removed Per-Task Notification Options:** `isNotificationVisible` and `notificationTitle` removed from `DownloadParams` and `UploadParams`. Use global `setConfig({ showNotificationsEnabled, notificationsGrouping })` instead.
+
+### 🏗️ Architecture Changes
+
+- **Android: Pause Behavior on Android 14+:** Complete redesign of pause/resume for User-Initiated Data Transfer (UIDT) jobs:
+  - **Problem:** UIDT jobs continue running in background even after app closes, causing "paused" downloads to secretly continue downloading.
+  - **Solution:** On pause, the UIDT job is properly terminated via `jobFinished(params, false)`. Download state is persisted to disk for resumption via HTTP Range headers.
+  - **UX:** A detached "Paused" notification (using `JOB_END_NOTIFICATION_POLICY_DETACH`) remains visible after job termination. On resume, a new UIDT job is created.
+  - **Follows Google's UIDT best practices:** State saved even without `onStopJob`, `jobFinished()` called on completion, notifications updated periodically with throttling.
+- **Android: Separate Notification Channels:** Added separate channels for visible (`IMPORTANCE_LOW`) and silent (`IMPORTANCE_MIN`) notifications.
+
+### ✨ Improvements
+
+- **Android: Cleaner Notifications:** Added `setOnlyAlertOnce(true)` and `setShowWhen(false)` to all notifications for less intrusive updates.
+- **Example App: Persistent Notification Settings:** Show Notifications and Notification Grouping toggles are now persisted with MMKV.
+- **Example App: Android 13+ Permission Request:** Added POST_NOTIFICATIONS permission request when enabling notifications.
+
+### 📚 Documentation
+
+- Updated README with notification behavior during pause/resume
+- Updated API.md with new notification configuration options
+- Documented that notifications are removed when app closes
+
+---
+
 ## v4.4.5
 
 ### 🐛 Bug Fixes
