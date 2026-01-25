@@ -2,7 +2,7 @@ import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, Nativ
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
 import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
-import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES } from './config'
+import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, getNotificationTextsForNative, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 type RNBackgroundDownloaderModule = Spec & {
@@ -370,6 +370,8 @@ export function setConfig ({
   logCallback,
   maxParallelDownloads,
   allowsCellularAccess,
+  showNotificationsEnabled,
+  notificationsGrouping,
 }: Config) {
   config.headers = headers
 
@@ -392,6 +394,20 @@ export function setConfig ({
   if (allowsCellularAccess !== undefined)
     config.allowsCellularAccess = allowsCellularAccess
 
+  // Update showNotificationsEnabled
+  if (showNotificationsEnabled !== undefined)
+    config.showNotificationsEnabled = showNotificationsEnabled
+
+  // Update notification grouping config
+  if (notificationsGrouping !== undefined)
+    config.notificationsGrouping = {
+      enabled: notificationsGrouping.enabled ?? false,
+      texts: {
+        ...DEFAULT_NOTIFICATION_TEXTS,
+        ...notificationsGrouping.texts,
+      },
+    }
+
   config.isLogsEnabled = isLogsEnabled
   config.logCallback = logCallback
 
@@ -401,6 +417,7 @@ export function setConfig ({
       setLogsEnabled?: (enabled: boolean) => void
       setMaxParallelDownloads?: (max: number) => void
       setAllowsCellularAccess?: (allows: boolean) => void
+      setNotificationGroupingConfig?: (config: { enabled: boolean, showNotificationsEnabled: boolean, texts: Record<string, string> }) => void
     }
     if (nativeModule.setLogsEnabled)
       nativeModule.setLogsEnabled(isLogsEnabled)
@@ -409,6 +426,13 @@ export function setConfig ({
       nativeModule.setMaxParallelDownloads(config.maxParallelDownloads)
     if (nativeModule.setAllowsCellularAccess && allowsCellularAccess !== undefined)
       nativeModule.setAllowsCellularAccess(config.allowsCellularAccess)
+    // Update notification config on native side (Android)
+    if (nativeModule.setNotificationGroupingConfig && (notificationsGrouping !== undefined || showNotificationsEnabled !== undefined))
+      nativeModule.setNotificationGroupingConfig({
+        enabled: config.notificationsGrouping.enabled,
+        showNotificationsEnabled: config.showNotificationsEnabled ?? false,
+        texts: getNotificationTextsForNative(),
+      })
   } catch {
     // Ignore if native module is not available yet
   }

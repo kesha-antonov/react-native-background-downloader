@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, SectionList, SectionListData, TouchableOpacity } from 'react-native'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, SectionList, SectionListData, TouchableOpacity, Switch, Platform } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
@@ -58,14 +58,6 @@ const TaskIdStorage = {
     storage.remove(TASK_IDS_KEY)
   },
 }
-
-setConfig({
-  isLogsEnabled: true,
-  progressMinBytes: 1024 * 100, // 100 KB
-  logCallback: (log: string) => {
-    console.log('[RNBD]', log)
-  }
-})
 
 interface UrlItem {
   id: string
@@ -258,9 +250,13 @@ interface HeaderProps {
   files: string[]
   tasks: Map<string, DownloadTask>
   downloadsPath: string
+  notificationGroupingEnabled: boolean
+  onNotificationGroupingChange: (enabled: boolean) => void
+  showNotificationsEnabled: boolean
+  onShowNotificationsEnabledChange: (show: boolean) => void
 }
 
-const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, filesCount, files, tasks, downloadsPath }: HeaderProps) => {
+const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, filesCount, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange }: HeaderProps) => {
   const tasksCount = tasks.size
 
   // Convert tasks to array for display
@@ -268,6 +264,40 @@ const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files
 
   return (
     <View>
+      {/* Notification Settings Section (Android only) */}
+      {Platform.OS === 'android' && (
+        <View style={styles.settingsSection}>
+          <Text style={styles.settingsSectionTitle}>Notification Settings (Android)</Text>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Show Notifications</Text>
+              <Text style={styles.settingDescription}>Display download progress notifications</Text>
+            </View>
+            <Switch
+              value={showNotificationsEnabled}
+              onValueChange={onShowNotificationsEnabledChange}
+              trackColor={{ false: '#ccc', true: '#81c784' }}
+              thumbColor={showNotificationsEnabled ? '#4CAF50' : '#f4f3f4'}
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Group Notifications</Text>
+              <Text style={styles.settingDescription}>Group multiple downloads under one notification</Text>
+            </View>
+            <Switch
+              value={notificationGroupingEnabled}
+              onValueChange={onNotificationGroupingChange}
+              trackColor={{ false: '#ccc', true: '#81c784' }}
+              thumbColor={notificationGroupingEnabled ? '#4CAF50' : '#f4f3f4'}
+              disabled={!showNotificationsEnabled}
+            />
+          </View>
+        </View>
+      )}
+
       {tasksList.length > 0 && (
         <Animated.View
           style={styles.tasksSection}
@@ -364,6 +394,8 @@ const BasicExampleScreen = () => {
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
   const [destinations, setDestinations] = useState<Map<string, string>>(new Map())
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([])
+  const [notificationGroupingEnabled, setNotificationGroupingEnabled] = useState(false)
+  const [showNotificationsEnabled, setShowNotificationsEnabled] = useState(true)
 
   const updateTask = useCallback((task: DownloadTask) => {
     // Store the actual task instance, not a copy, to preserve methods
@@ -523,7 +555,14 @@ const BasicExampleScreen = () => {
       url: urlItem.url,
       destination,
       // Store destination in metadata so we can restore it after app restart
-      metadata: { destination },
+      // Also include groupId/groupName for notification grouping (Android)
+      metadata: {
+        destination,
+        ...(notificationGroupingEnabled && {
+          groupId: 'example-downloads',
+          groupName: 'Example Downloads',
+        }),
+      },
     }
 
     if (urlItem.maxRedirects)
@@ -534,7 +573,7 @@ const BasicExampleScreen = () => {
     task.start()
     setDownloadTasks(prev => new Map(prev).set(task.id, task))
     setDestinations(prev => new Map(prev).set(urlItem.id, destination))
-  }, [process, ensureDownloadsDirExists, getDownloadsDirPath, getFileNameFromUrl])
+  }, [process, ensureDownloadsDirExists, getDownloadsDirPath, getFileNameFromUrl, notificationGroupingEnabled])
 
   const stopDownload = useCallback((id: string) => {
     const task = downloadTasks.get(id)
@@ -619,6 +658,29 @@ const BasicExampleScreen = () => {
     }
   }, [getDownloadsDir, readStorage])
 
+  // Update notification grouping config when settings change
+  useEffect(() => {
+    setConfig({
+      isLogsEnabled: true,
+      progressMinBytes: 1024 * 100, // 100 KB
+      logCallback: (log: string) => {
+        console.log('[RNBD]', log)
+      },
+      showNotificationsEnabled: showNotificationsEnabled,
+      notificationsGrouping: {
+        enabled: notificationGroupingEnabled,
+        texts: {
+          downloadTitle: 'Download',
+          downloadStarting: 'Starting...',
+          downloadProgress: '{progress}%',
+          downloadFinished: 'Complete',
+          groupTitle: 'Downloads',
+          groupText: '{count} downloads in progress',
+        },
+      },
+    })
+  }, [notificationGroupingEnabled, showNotificationsEnabled])
+
   useEffect(() => {
     // Initialize URL list with persisted IDs after mount (when MMKV is ready)
     const initializedUrlList = urlDefinitions.map(def => ({
@@ -672,8 +734,21 @@ const BasicExampleScreen = () => {
   }, [downloadedFiles, downloadTasks, destinations])
 
   const renderHeader = useCallback(() => (
-    <Header onReset={reset} onClear={clearStorage} onRemoveTask={removeTask} onDeleteFile={deleteSingleFile} filesCount={completedFiles.length} files={completedFiles} tasks={downloadTasks} downloadsPath={downloadsPath} />
-  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath])
+    <Header
+      onReset={reset}
+      onClear={clearStorage}
+      onRemoveTask={removeTask}
+      onDeleteFile={deleteSingleFile}
+      filesCount={completedFiles.length}
+      files={completedFiles}
+      tasks={downloadTasks}
+      downloadsPath={downloadsPath}
+      notificationGroupingEnabled={notificationGroupingEnabled}
+      onNotificationGroupingChange={setNotificationGroupingEnabled}
+      showNotificationsEnabled={showNotificationsEnabled}
+      onShowNotificationsEnabledChange={setShowNotificationsEnabled}
+    />
+  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled])
 
   return (
     <FlatList
@@ -690,6 +765,42 @@ const BasicExampleScreen = () => {
 export default BasicExampleScreen
 
 const styles = StyleSheet.create({
+  settingsSection: {
+    margin: 12,
+    padding: 12,
+    backgroundColor: '#fff3e0',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ffcc80',
+  },
+  settingsSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#e65100',
+    marginBottom: 12,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffe0b2',
+  },
+  settingInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  settingLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+  },
+  settingDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
   tasksSection: {
     margin: 12,
     padding: 12,

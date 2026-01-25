@@ -269,7 +269,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
       pausedInfo.headers,
       pausedInfo.bytesDownloaded,
       pausedInfo.bytesTotal,
-      listener
+      listener,
+      pausedInfo.metadata
     )
 
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes via service")
@@ -293,7 +294,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
     headers: Map<String, String>,
     startByte: Long,
     totalBytes: Long,
-    listener: ResumableDownloader.DownloadListener
+    listener: ResumableDownloader.DownloadListener,
+    metadata: String = "{}"
   ) {
     // On Android 14+, use UIDT jobs for better background execution
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -308,7 +310,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
         destination = destination,
         headers = headers,
         startByte = startByte,
-        totalBytes = totalBytes
+        totalBytes = totalBytes,
+        metadata = metadata
       )
 
       if (scheduled) {
@@ -351,7 +354,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
     url: String,
     destination: String,
     headers: Map<String, String>,
-    listener: ResumableDownloader.DownloadListener
+    listener: ResumableDownloader.DownloadListener,
+    metadata: String = "{}"
   ) {
     startDownloadService(
       configId,
@@ -360,7 +364,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
       headers,
       0L,  // Start from beginning
       -1L, // Total bytes unknown
-      listener
+      listener,
+      metadata
     )
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Started ResumableDownloader for $configId (DownloadManager fallback)")
   }

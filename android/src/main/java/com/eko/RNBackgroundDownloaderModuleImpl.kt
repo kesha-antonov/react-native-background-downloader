@@ -240,6 +240,28 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     logD(NAME, "setAllowsCellularAccess: $allows")
   }
 
+  fun setNotificationGroupingConfig(config: ReadableMap) {
+    val enabled = if (config.hasKey("enabled")) config.getBoolean("enabled") else false
+    val showNotificationsEnabled = if (config.hasKey("showNotificationsEnabled")) config.getBoolean("showNotificationsEnabled") else false
+    val texts = if (config.hasKey("texts")) config.getMap("texts") else null
+
+    val textsMap = mutableMapOf<String, String>()
+    texts?.let {
+      val iterator = it.keySetIterator()
+      while (iterator.hasNextKey()) {
+        val key = iterator.nextKey()
+        textsMap[key] = it.getString(key) ?: ""
+      }
+    }
+
+    // Store the config for use by UIDTDownloadJobService
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      UIDTDownloadJobService.setNotificationGroupingConfig(enabled, showNotificationsEnabled, textsMap)
+    }
+
+    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, texts=$textsMap")
+  }
+
   fun initialize() {
     ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
     isInitialized = true
@@ -665,7 +687,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         configIdToHeaders[id] = headersMap
         configIdToMetadata[id] = metadataValue
       }
-      downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener)
+      downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener, metadataValue)
     }
 
     // On Android 16+ (API 36), DownloadManager has strict path restrictions and throws

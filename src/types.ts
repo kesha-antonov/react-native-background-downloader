@@ -6,6 +6,36 @@ export type Headers = Record<string, string | null>
 // External log callback for capturing logs in parent app
 export type LogCallback = (tag: string, message: string, ...args: unknown[]) => void
 
+/**
+ * Configuration for notification text with pluralization support.
+ * Use {count} placeholder for the number of downloads.
+ */
+export interface NotificationTexts {
+  /** Title for individual download notification (default: "Download") */
+  downloadTitle?: string
+  /** Text shown when download is starting (default: "Starting download...") */
+  downloadStarting?: string
+  /** Text pattern for download progress. Use {progress} for percentage (default: "Downloading... {progress}%") */
+  downloadProgress?: string
+  /** Text shown when download is finished (default: "Download complete") */
+  downloadFinished?: string
+  /** Title for group summary notification (default: "Downloads") */
+  groupTitle?: string
+  /** Text pattern for group summary. Use {count} for number of downloads.
+   * Can be a string or function for pluralization (default: "{count} download(s) in progress") */
+  groupText?: string | ((count: number) => string)
+}
+
+/**
+ * Configuration for notifications grouping.
+ */
+export interface NotificationsGroupingConfig {
+  /** Enable notification grouping (default: false) */
+  enabled: boolean
+  /** Custom notification texts with optional pluralization */
+  texts?: NotificationTexts
+}
+
 export interface Config {
   headers?: Headers
   progressInterval?: number
@@ -14,6 +44,10 @@ export interface Config {
   logCallback?: LogCallback
   maxParallelDownloads?: number
   allowsCellularAccess?: boolean
+  /** Show download notifications (Android only, default: false). When false, creates minimal silent notifications (UIDT requires a notification) */
+  showNotificationsEnabled?: boolean
+  /** Configuration for notifications grouping on Android */
+  notificationsGrouping?: NotificationsGroupingConfig
 }
 
 export type SetConfig = (config: Partial<Config>) => void
@@ -82,6 +116,10 @@ export type DownloadParams = {
   isNotificationVisible?: boolean
   notificationTitle?: string
   maxRedirects?: number
+  /** Group ID for notification grouping (only used when grouping is enabled) */
+  groupId?: string
+  /** Group name displayed in notification (only used when grouping is enabled) */
+  groupName?: string
 }
 
 export interface DownloadTask {

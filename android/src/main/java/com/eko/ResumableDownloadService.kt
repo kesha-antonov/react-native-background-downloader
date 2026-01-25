@@ -25,6 +25,9 @@ class ResumableDownloadService : Service() {
     private const val TAG = "ResumableDownloadSvc"
     private const val WAKELOCK_TAG = "ResumableDownloadService::WakeLock"
 
+    // Notification group for grouping all download notifications together
+    private const val NOTIFICATION_GROUP_KEY = "com.eko.DOWNLOAD_GROUP"
+
     // Action constants for Intent
     const val ACTION_START_DOWNLOAD = "com.eko.action.START_DOWNLOAD"
     const val ACTION_PAUSE_DOWNLOAD = "com.eko.action.PAUSE_DOWNLOAD"
@@ -372,6 +375,8 @@ class ResumableDownloadService : Service() {
       .setSmallIcon(android.R.drawable.stat_sys_download)
       .setPriority(NotificationCompat.PRIORITY_LOW)
       .setOngoing(true)
+      .setGroup(NOTIFICATION_GROUP_KEY)
+      .setGroupSummary(true)
       .build()
   }
 

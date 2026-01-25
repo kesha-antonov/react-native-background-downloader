@@ -562,6 +562,85 @@ task.start()
 
 </details>
 
+<details>
+<summary><strong>Notification Configuration (Android)</strong></summary>
+
+On Android 14+ (API 34), downloads use User-Initiated Data Transfer (UIDT) jobs which **require** notifications. Due to Android system requirements, notifications cannot be completely disabled when using UIDT jobs. However, you can control their visibility:
+
+- When `showNotificationsEnabled: true` - Full notifications with progress, title, and custom texts
+- When `showNotificationsEnabled: false` (default) - Minimal silent notifications with lowest priority that are barely noticeable
+
+**Basic configuration:**
+
+```javascript
+import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+// Enable notifications and notification grouping with custom texts
+setConfig({
+  showNotificationsEnabled: true, // Show full notifications (default: false - minimal silent notifications)
+  notificationsGrouping: {
+    enabled: true,           // Enable grouping (default: false)
+    texts: {
+      downloadTitle: 'Download',
+      downloadStarting: 'Starting download...',
+      downloadProgress: 'Downloading... {progress}%',
+      downloadFinished: 'Download complete',
+      groupTitle: 'Downloads',
+      groupText: '{count} downloads in progress',
+    },
+  },
+})
+
+// Use minimal silent notifications (default behavior)
+setConfig({
+  showNotificationsEnabled: false, // Minimal silent notifications (required by UIDT but barely visible)
+})
+```
+
+**Grouping downloads by category:**
+
+When notification grouping is enabled, you can group related downloads (e.g., by album, playlist, podcast) by passing `groupId` and `groupName` in the task metadata:
+
+```javascript
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+
+// Download album songs - they will be grouped under one notification
+const task = createDownloadTask({
+  id: 'song-1',
+  url: 'https://example.com/albums/summer-hits/track01.mp3',
+  destination: `${directories.documents}/track01.mp3`,
+  metadata: {
+    groupId: 'album-summer-hits',  // Unique identifier for the group
+    groupName: 'Summer Hits 2024', // Display name in notification
+  },
+})
+
+task.start()
+```
+
+**Configuration options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `showNotificationsEnabled` | boolean | `false` | Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs require a notification, but it will be barely visible). This is a top-level config option. |
+| `notificationsGrouping.enabled` | boolean | `false` | Enable notification grouping |
+| `notificationsGrouping.texts.downloadTitle` | string | `'Download'` | Title for individual download notifications |
+| `notificationsGrouping.texts.downloadStarting` | string | `'Starting download...'` | Text when download is starting |
+| `notificationsGrouping.texts.downloadProgress` | string | `'Downloading... {progress}%'` | Progress text. Use `{progress}` placeholder for percentage |
+| `notificationsGrouping.texts.downloadFinished` | string | `'Download complete'` | Text when download is finished |
+| `notificationsGrouping.texts.groupTitle` | string | `'Downloads'` | Title for group summary notification |
+| `notificationsGrouping.texts.groupText` | string | `'{count} download(s) in progress'` | Group summary text. Use `{count}` placeholder for number of downloads |
+
+**Notes:**
+- Notifications cannot be completely disabled on Android 14+ due to UIDT requirements
+- When `showNotificationsEnabled: false`, notifications are created with minimal visibility (lowest priority, empty content)
+- Notifications are automatically removed when downloads complete
+- This feature only affects Android 14+ (API 34) where UIDT jobs are used
+- On older Android versions, the standard DownloadManager notifications are shown
+- iOS uses system download notifications and doesn't support custom grouping
+
+</details>
+
 ## 📚 API
 
 For complete API documentation, see the **[API Reference](./docs/API.md)**.

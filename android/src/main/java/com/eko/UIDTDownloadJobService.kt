@@ -15,6 +15,7 @@ import android.os.PersistableBundle
 import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -47,10 +48,17 @@ class UIDTDownloadJobService : JobService() {
         const val KEY_DESTINATION = "destination"
         const val KEY_START_BYTE = "start_byte"
         const val KEY_TOTAL_BYTES = "total_bytes"
+        const val KEY_METADATA = "metadata"
         // Headers are stored separately due to PersistableBundle limitations
 
         // Notification channel for UIDT jobs
         private const val UIDT_NOTIFICATION_CHANNEL_ID = "uidt_download_channel"
+
+        // Notification group for grouping all download notifications together
+        private const val NOTIFICATION_GROUP_KEY = "com.eko.DOWNLOAD_GROUP"
+
+        // Summary notification ID (used to group all download notifications)
+        private const val SUMMARY_NOTIFICATION_ID = 19999
 
         // Atomic counter for notification IDs
         private val notificationIdCounter = AtomicInteger(20000)
@@ -62,6 +70,47 @@ class UIDTDownloadJobService : JobService() {
         @Volatile
         var downloadListener: ResumableDownloader.DownloadListener? = null
 
+        // Notification grouping configuration (disabled by default)
+        @Volatile
+        private var groupingEnabled = false
+
+        // Whether to show notifications at all (disabled by default)
+        @Volatile
+        private var showNotificationsEnabled = false
+
+        // Notification texts configuration
+        private val notificationTexts = mutableMapOf(
+            "downloadTitle" to "Download",
+            "downloadStarting" to "Starting download...",
+            "downloadProgress" to "Downloading... {progress}%",
+            "downloadFinished" to "Download complete",
+            "groupTitle" to "Downloads",
+            "groupText" to "{count} download(s) in progress"
+        )
+
+        /**
+         * Configure notification grouping and texts.
+         * @param enabled Whether to enable notification grouping
+         * @param show Whether to show notifications at all
+         * @param texts Map of notification text keys to values
+         */
+        fun setNotificationGroupingConfig(enabled: Boolean, showNotificationsEnabled: Boolean, texts: Map<String, String>) {
+            groupingEnabled = enabled
+            this.showNotificationsEnabled = showNotificationsEnabled
+            texts.forEach { (key, value) ->
+                notificationTexts[key] = value
+            }
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Notification config updated: grouping=$enabled, showNotificationsEnabled=$showNotificationsEnabled, texts=$texts")
+        }
+
+        private fun getNotificationText(key: String, vararg replacements: Pair<String, Any>): String {
+            var text = notificationTexts[key] ?: ""
+            for ((placeholder, value) in replacements) {
+                text = text.replace("{$placeholder}", value.toString())
+            }
+            return text
+        }
+
         /**
          * Schedule a UIDT download job.
          *
@@ -72,6 +121,7 @@ class UIDTDownloadJobService : JobService() {
          * @param headers HTTP headers for the request
          * @param startByte Byte position to resume from (0 for new downloads)
          * @param totalBytes Total expected bytes (-1 if unknown)
+         * @param metadata JSON metadata with course info for notification grouping
          * @return true if job was scheduled successfully
          */
         fun scheduleDownload(
@@ -81,7 +131,8 @@ class UIDTDownloadJobService : JobService() {
             destination: String,
             headers: Map<String, String>,
             startByte: Long = 0,
-            totalBytes: Long = -1
+            totalBytes: Long = -1,
+            metadata: String = "{}"
         ): Boolean {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 RNBackgroundDownloaderModuleImpl.logW(TAG, "UIDT requires Android 14+, falling back to foreground service")
@@ -103,6 +154,7 @@ class UIDTDownloadJobService : JobService() {
                 putString(KEY_DESTINATION, destination)
                 putLong(KEY_START_BYTE, startByte)
                 putLong(KEY_TOTAL_BYTES, totalBytes)
+                putString(KEY_METADATA, metadata)
             }
 
             // Build network request - require internet connectivity
@@ -205,7 +257,9 @@ class UIDTDownloadJobService : JobService() {
         data class JobState(
             val params: JobParameters,
             val resumableDownloader: ResumableDownloader,
-            var notificationId: Int
+            var notificationId: Int,
+            val groupId: String = "",
+            val groupName: String = ""
         )
     }
 
@@ -231,12 +285,24 @@ class UIDTDownloadJobService : JobService() {
         val startByte = extras.getLong(KEY_START_BYTE, 0)
         val totalBytes = extras.getLong(KEY_TOTAL_BYTES, -1)
 
+        // Extract group info from metadata (for notification grouping)
+        val metadataJson = extras.getString(KEY_METADATA) ?: "{}"
+        var groupId = ""
+        var groupName = ""
+        try {
+            val json = JSONObject(metadataJson)
+            groupId = json.optString("groupId", "")
+            groupName = json.optString("groupName", "")
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to parse metadata: ${e.message}")
+        }
+
         // Retrieve headers
         val headers = pendingHeaders.remove(configId) ?: emptyMap()
 
         // Create notification for UIDT job (required)
         val notificationId = notificationIdCounter.incrementAndGet()
-        val notification = createDownloadNotification(configId)
+        val notification = createDownloadNotification(configId, groupId, groupName)
 
         // Set the notification for this job (required for UIDT)
         setNotification(
@@ -253,7 +319,7 @@ class UIDTDownloadJobService : JobService() {
         val resumableDownloader = ResumableDownloader()
 
         // Store job state
-        activeJobs[configId] = JobState(params, resumableDownloader, notificationId)
+        activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName)
 
         // Create listener that will notify completion
         val jobListener = createJobListener(configId, params)
@@ -339,9 +405,26 @@ class UIDTDownloadJobService : JobService() {
             override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
                 RNBackgroundDownloaderModuleImpl.logD(TAG, "UIDT download complete: $id")
 
+                // Save group info and notification id before removing from activeJobs
+                val jobState = activeJobs[id]
+                val groupId = jobState?.groupId ?: ""
+                val groupName = jobState?.groupName ?: ""
+                val notificationId = jobState?.notificationId
+
+                // Cancel individual notification
+                if (notificationId != null) {
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    notificationManager.cancel(notificationId)
+                }
+
                 // Clean up
                 activeJobs.remove(id)
                 releaseWakeLock()
+
+                // Update summary notification for this group (only if grouping enabled)
+                if (groupingEnabled && groupId.isNotEmpty()) {
+                    updateSummaryNotification(groupId, groupName)
+                }
 
                 // Signal job completion
                 jobFinished(params, false)
@@ -353,9 +436,26 @@ class UIDTDownloadJobService : JobService() {
             override fun onError(id: String, error: String, errorCode: Int) {
                 RNBackgroundDownloaderModuleImpl.logE(TAG, "UIDT download error: $id - $error ($errorCode)")
 
+                // Save group info and notification id before removing from activeJobs
+                val jobState = activeJobs[id]
+                val groupId = jobState?.groupId ?: ""
+                val groupName = jobState?.groupName ?: ""
+                val notificationId = jobState?.notificationId
+
+                // Cancel individual notification
+                if (notificationId != null) {
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    notificationManager.cancel(notificationId)
+                }
+
                 // Clean up
                 activeJobs.remove(id)
                 releaseWakeLock()
+
+                // Update summary notification for this group (only if grouping enabled)
+                if (groupingEnabled && groupId.isNotEmpty()) {
+                    updateSummaryNotification(groupId, groupName)
+                }
 
                 // Signal job completion with no reschedule
                 jobFinished(params, false)
@@ -370,7 +470,7 @@ class UIDTDownloadJobService : JobService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Background Downloads"
             val descriptionText = "Shows progress for background downloads"
-            val importance = NotificationManager.IMPORTANCE_LOW
+            val importance = NotificationManager.IMPORTANCE_MIN
             val channel = NotificationChannel(UIDT_NOTIFICATION_CHANNEL_ID, name, importance).apply {
                 description = descriptionText
                 setShowBadge(false)
@@ -382,18 +482,83 @@ class UIDTDownloadJobService : JobService() {
     }
 
     @Suppress("UNUSED_PARAMETER")
-    private fun createDownloadNotification(configId: String): Notification {
-        return NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Background Download")
-            .setContentText("Starting download...")
+    private fun createDownloadNotification(configId: String, groupId: String = "", groupName: String = ""): Notification {
+        // When notifications are disabled, create minimal silent notification
+        // (UIDT jobs require a notification, but we can minimize its visibility)
+        if (!showNotificationsEnabled) {
+            return NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
+                .setContentTitle("")
+                .setContentText("")
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setOngoing(true)
+                .setSilent(true)
+                .build()
+        }
+
+        val title = if (groupingEnabled && groupName.isNotEmpty()) {
+            groupName
+        } else {
+            getNotificationText("downloadTitle")
+        }
+        val startingText = getNotificationText("downloadStarting")
+
+        val builder = NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(startingText)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setProgress(0, 0, true)
+
+        // Only apply grouping when enabled and groupId is provided
+        if (groupingEnabled && groupId.isNotEmpty()) {
+            val groupKey = "${NOTIFICATION_GROUP_KEY}_$groupId"
+            builder.setGroup(groupKey)
+            // Update summary notification for this group
+            updateSummaryNotification(groupId, groupName)
+        }
+
+        return builder.build()
+    }
+
+    private fun updateSummaryNotification(groupId: String, groupName: String) {
+        // Only show summary when grouping is enabled and notifications are shown
+        if (!groupingEnabled || groupId.isEmpty() || !showNotificationsEnabled) return
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // Count active downloads for this specific group
+        val groupDownloads = activeJobs.values.count { it.groupId == groupId }
+        val summaryNotificationId = SUMMARY_NOTIFICATION_ID + groupId.hashCode()
+
+        if (groupDownloads == 0) {
+            // Remove summary for this group when no active downloads
+            notificationManager.cancel(summaryNotificationId)
+            return
+        }
+
+        val groupKey = "${NOTIFICATION_GROUP_KEY}_$groupId"
+        val title = groupName.ifEmpty { getNotificationText("groupTitle") }
+        val text = getNotificationText("groupText", "count" to groupDownloads)
+
+        val summaryNotification = NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setGroup(groupKey)
+            .setGroupSummary(true)
+            .setOngoing(true)
             .build()
+
+        notificationManager.notify(summaryNotificationId, summaryNotification)
     }
 
     private fun updateNotification(configId: String, text: String, bytesDownloaded: Long, bytesTotal: Long) {
+        // Skip notification updates when notifications are disabled
+        if (!showNotificationsEnabled) return
+
         val jobState = activeJobs[configId] ?: return
 
         val progress = if (bytesTotal > 0) {
@@ -402,17 +567,32 @@ class UIDTDownloadJobService : JobService() {
             0
         }
 
-        val notification = NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Background Download")
-            .setContentText(text)
+        val title = if (groupingEnabled && jobState.groupName.isNotEmpty()) {
+            jobState.groupName
+        } else {
+            getNotificationText("downloadTitle")
+        }
+
+        val progressText = getNotificationText("downloadProgress", "progress" to progress)
+
+        val builder = NotificationCompat.Builder(this, UIDT_NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(progressText)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setProgress(100, progress, bytesTotal <= 0)
-            .build()
+
+        // Only apply grouping when enabled and groupId is provided
+        if (groupingEnabled && jobState.groupId.isNotEmpty()) {
+            val groupKey = "${NOTIFICATION_GROUP_KEY}_${jobState.groupId}"
+            builder.setGroup(groupKey)
+            // Update summary notification for this group
+            updateSummaryNotification(jobState.groupId, jobState.groupName)
+        }
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(jobState.notificationId, notification)
+        notificationManager.notify(jobState.notificationId, builder.build())
     }
 
     private fun acquireWakeLock() {
