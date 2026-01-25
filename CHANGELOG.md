@@ -22,6 +22,12 @@
 
 ### 🏗️ Architecture Changes
 
+- **Android: UIDT Code Refactoring:** Extracted 980-line monolithic `UIDTDownloadJobService.kt` into modular components:
+  - `uidt/UIDTJobState.kt` - Data classes, constants, job registry
+  - `uidt/UIDTNotificationManager.kt` - All notification logic
+  - `uidt/UIDTJobManager.kt` - Job scheduling, cancel, pause, resume
+  - `utils/ProgressUtils.kt` - Progress calculation utilities
+  - Backward compatibility maintained via companion object delegates
 - **Android: Pause Behavior on Android 14+:** Complete redesign of pause/resume for User-Initiated Data Transfer (UIDT) jobs:
   - **Problem:** UIDT jobs continue running in background even after app closes, causing "paused" downloads to secretly continue downloading.
   - **Solution:** On pause, the UIDT job is properly terminated via `jobFinished(params, false)`. Download state is persisted to disk for resumption via HTTP Range headers.
