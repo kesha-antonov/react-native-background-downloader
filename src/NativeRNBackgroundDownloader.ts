@@ -83,6 +83,7 @@ export interface Spec extends TurboModule {
   pauseTask(id: string): Promise<void>
   resumeTask(id: string): Promise<void>
   stopTask(id: string): Promise<void>
+  updateTaskHeaders(id: string, headers: UnsafeObject): Promise<boolean>
 
   completeHandler(jobId: string): Promise<void>
 

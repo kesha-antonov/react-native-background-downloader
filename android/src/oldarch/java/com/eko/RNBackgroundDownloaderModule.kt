@@ -63,6 +63,11 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun updateTaskHeaders(id: String, headers: ReadableMap, promise: Promise) {
+        impl.updateTaskHeaders(id, headers, promise)
+    }
+
+    @ReactMethod
     fun completeHandler(jobId: String, promise: Promise) {
         try {
             impl.completeHandler(jobId)

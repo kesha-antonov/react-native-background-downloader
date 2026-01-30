@@ -903,6 +903,30 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
   }
 
+  /**
+   * Update headers for a paused download task.
+   * This allows changing auth tokens before resuming a download.
+   */
+  fun updateTaskHeaders(configId: String, headers: ReadableMap, promise: Promise) {
+    try {
+      synchronized(sharedLock) {
+        val headersMap = HeaderUtils.toMap(headers)
+
+        // Update the in-memory headers map
+        configIdToHeaders[configId] = headersMap
+
+        // Update paused download state if it exists
+        downloader.updatePausedDownloadHeaders(configId, headersMap)
+
+        logD(NAME, "Updated headers for task: $configId")
+        promise.resolve(true)
+      }
+    } catch (e: Exception) {
+      logE(NAME, "Failed to update task headers: ${Log.getStackTraceString(e)}")
+      promise.resolve(false)
+    }
+  }
+
   fun getExistingDownloadTasks(promise: Promise) {
     val foundTasks = Arguments.createArray()
     val processedIds = mutableSetOf<String>()

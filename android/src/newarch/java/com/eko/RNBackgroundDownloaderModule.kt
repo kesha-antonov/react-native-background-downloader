@@ -57,6 +57,10 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    override fun updateTaskHeaders(id: String, headers: com.facebook.react.bridge.ReadableMap, promise: com.facebook.react.bridge.Promise) {
+        impl.updateTaskHeaders(id, headers, promise)
+    }
+
     override fun completeHandler(jobId: String, promise: com.facebook.react.bridge.Promise) {
         try {
             impl.completeHandler(jobId)

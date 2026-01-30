@@ -52,6 +52,8 @@ static CompletionHandler storedCompletionHandler;
     NSMutableSet<NSString *> *idsToPauseSet;
     // Tracks tasks that have already been retried once after a decode error (-1015)
     NSMutableSet<NSString *> *decodeErrorRetriedIds;
+    // Stores updated headers for paused tasks (set via updateTaskHeaders)
+    NSMutableDictionary<NSString *, NSDictionary *> *idToUpdatedHeadersMap;
     float progressInterval;
     int64_t progressMinBytes;
     NSDate *lastProgressReportedAt;
@@ -227,6 +229,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         progressMinBytes = progressMinBytesScope > 0 ? progressMinBytesScope : 0;
         lastProgressReportedAt = [[NSDate alloc] init];
         decodeErrorRetriedIds = [[NSMutableSet alloc] init];
+        idToUpdatedHeadersMap = [[NSMutableDictionary alloc] init];
         isSessionActivated = NO;
         pendingDownloads = [[NSMutableArray alloc] init];
 
@@ -632,6 +635,7 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
 
             NSData *resumeData = self->idToResumeDataMap[identifier];
             NSURLSessionDownloadTask *task = self->idToTaskMap[identifier];
+            NSDictionary *updatedHeaders = idToUpdatedHeadersMap[identifier];
 
             // If no resume data in memory, try to load from file
             if (resumeData == nil) {
@@ -643,10 +647,36 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
             }
 
             if (resumeData != nil) {
-                // Task was paused with resume data, create new task from resume data
+                // Task was paused with resume data
                 DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] resuming with resume data for %@", identifier);
 
-                NSURLSessionDownloadTask *newTask = [urlSession downloadTaskWithResumeData:resumeData];
+                NSURLSessionDownloadTask *newTask = nil;
+
+                // If updated headers are set, create a fresh request with Range header
+                // This is needed when auth tokens change while paused
+                if (updatedHeaders != nil && [updatedHeaders count] > 0) {
+                    RNBGDTaskConfig *taskConfig = [self findConfigById:identifier];
+                    if (taskConfig != nil && taskConfig.bytesDownloaded > 0) {
+                        DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] using updated headers with Range for %@", identifier);
+                        NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
+                        [request setValue:identifier forHTTPHeaderField:@"configId"];
+                        for (NSString *headerKey in updatedHeaders) {
+                            [request setValue:[updatedHeaders valueForKey:headerKey] forHTTPHeaderField:headerKey];
+                        }
+                        // Add Range header to resume from where we left off
+                        NSString *rangeValue = [NSString stringWithFormat:@"bytes=%lld-", taskConfig.bytesDownloaded];
+                        [request setValue:rangeValue forHTTPHeaderField:@"Range"];
+                        newTask = [urlSession downloadTaskWithRequest:request];
+                    } else {
+                        // No bytes downloaded, just use resume data (shouldn't normally happen)
+                        newTask = [urlSession downloadTaskWithResumeData:resumeData];
+                    }
+                    // Clear updated headers after use
+                    [idToUpdatedHeadersMap removeObjectForKey:identifier];
+                } else {
+                    newTask = [urlSession downloadTaskWithResumeData:resumeData];
+                }
+
                 if (newTask != nil) {
                     // Get the task config from the old task or find by id
                     RNBGDTaskConfig *taskConfig = nil;
@@ -733,6 +763,8 @@ RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)res
             // Delete resume data file when stopping
             [self deleteResumeDataForTaskId:identifier];
             [idsToPauseSet removeObject:identifier];
+            // Clean up any updated headers
+            [idToUpdatedHeadersMap removeObjectForKey:identifier];
         }
         resolve(nil);
     } @catch (NSException *exception) {
@@ -747,6 +779,36 @@ RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)res
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(stopTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     [self stopTaskInternal:id resolve:resolve reject:reject];
+}
+#endif
+
+- (void)updateTaskHeadersInternal:(NSString *)identifier headers:(NSDictionary *)headers resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    DLog(identifier, @"[RNBackgroundDownloader] - [updateTaskHeaders]");
+    @try {
+        @synchronized (sharedLock) {
+            // Store updated headers for this task
+            // These will be used when resuming instead of the headers from resume data
+            if (headers != nil && [headers count] > 0) {
+                idToUpdatedHeadersMap[identifier] = headers;
+                DLog(identifier, @"[RNBackgroundDownloader] - [updateTaskHeaders] stored %lu headers for %@", (unsigned long)[headers count], identifier);
+            } else {
+                [idToUpdatedHeadersMap removeObjectForKey:identifier];
+                DLog(identifier, @"[RNBackgroundDownloader] - [updateTaskHeaders] cleared headers for %@", identifier);
+            }
+        }
+        resolve(@YES);
+    } @catch (NSException *exception) {
+        reject(@"ERR_UPDATE_HEADERS", exception.reason, nil);
+    }
+}
+
+- (void)updateTaskHeaders:(NSString *)identifier headers:(NSDictionary *)headers resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    [self updateTaskHeadersInternal:identifier headers:headers resolve:resolve reject:reject];
+}
+
+#ifndef RCT_NEW_ARCH_ENABLED
+RCT_EXPORT_METHOD(updateTaskHeaders:(NSString *)id headers:(NSDictionary *)headers resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    [self updateTaskHeadersInternal:id headers:headers resolve:resolve reject:reject];
 }
 #endif
 

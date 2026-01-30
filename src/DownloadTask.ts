@@ -131,8 +131,27 @@ export class DownloadTask {
 
   // methods
 
-  setDownloadParams (downloadParams: DownloadParams) {
+  /**
+   * Update download parameters.
+   * If the task is paused, this will also update headers in the native layer.
+   * If the task is in-progress or completed, only the local JS object is updated.
+   *
+   * @param downloadParams - The new download parameters
+   * @returns Promise<boolean> - true if native headers were updated, false otherwise
+   */
+  async setDownloadParams (downloadParams: DownloadParams): Promise<boolean> {
     this.downloadParams = downloadParams
+
+    // If task is paused, update headers in native layer
+    if (this.state === 'PAUSED' && downloadParams.headers) {
+      const headers = this.headersToUnsafeObject(downloadParams.headers)
+      if (headers) {
+        log('DownloadTask: setDownloadParams updating native headers', this.id)
+        return getNativeModule().updateTaskHeaders(this.id, headers)
+      }
+    }
+
+    return false
   }
 
   async pause (): Promise<void> {

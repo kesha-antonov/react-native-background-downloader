@@ -249,6 +249,19 @@ class Downloader(private val context: Context, private val storageManager: com.e
   }
 
   /**
+   * Update headers for a paused download.
+   * This allows changing auth tokens before resuming.
+   */
+  fun updatePausedDownloadHeaders(configId: String, headers: Map<String, String>) {
+    val pausedInfo = pausedDownloads[configId] ?: return
+
+    pausedDownloads[configId] = pausedInfo.copy(headers = headers)
+    savePausedDownloads()
+
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Updated headers for paused download $configId")
+  }
+
+  /**
    * Resume a paused download using the background service with HTTP Range headers.
    */
   fun resume(configId: String, listener: ResumableDownloader.DownloadListener): Boolean {
