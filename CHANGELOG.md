@@ -1,5 +1,27 @@
 # Changelog
 
+## v4.5.2
+
+### ✨ New Features
+
+- **Update Headers on Paused Downloads:** Added ability to update headers (e.g., refresh auth tokens) on paused download tasks before resuming. Use `task.setDownloadParams()` to update headers while paused, then `task.resume()` to continue the download with new headers.
+  - **Use case:** User pauses a large download, returns hours/days later when auth token has expired. Now you can refresh the token and resume without restarting the download.
+  - **iOS:** Creates a fresh request with HTTP Range header and updated headers on resume
+  - **Android:** Updates both in-memory headers and persisted paused download state
+
+### 🏗️ Architecture Changes
+
+- **JS: `setDownloadParams()` Now Async:** The `DownloadTask.setDownloadParams()` method is now async and returns `Promise<boolean>` indicating whether native headers were updated (true when task is paused).
+- **Native: Added `updateTaskHeaders` Method:** New native method on iOS and Android to update headers for paused tasks.
+
+### 📚 Documentation
+
+- Added "Updating headers on paused downloads" section to README
+- Added `setDownloadParams()` method documentation to API.md
+- Added iOS "Updating Headers on Paused Downloads" section to PLATFORM_NOTES.md
+
+---
+
 ## v4.5.1
 
 ### 🏗️ Architecture Changes
