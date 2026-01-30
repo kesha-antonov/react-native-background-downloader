@@ -366,6 +366,42 @@ await task.stop()
 
 </details>
 
+<details>
+<summary><strong>Updating headers on paused downloads</strong></summary>
+
+If your download uses authentication tokens that expire, you can update the headers of a paused download before resuming it. This is useful when auth tokens refresh while a download is paused:
+
+```javascript
+import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
+
+// Get paused downloads
+const tasks = await getExistingDownloadTasks()
+
+for (const task of tasks) {
+  if (task.state === 'PAUSED') {
+    // Update headers with new auth token before resuming
+    await task.setDownloadParams({
+      ...task.downloadParams,
+      headers: {
+        ...task.downloadParams?.headers,
+        Authorization: 'Bearer new-refreshed-token'
+      }
+    })
+
+    // Now resume with the updated headers
+    await task.resume()
+  }
+}
+```
+
+**Notes:**
+- `setDownloadParams()` is async and returns `true` if native headers were updated
+- Headers are only updated in the native layer when the task is in `PAUSED` state
+- On iOS, the download will resume using HTTP Range headers with the new headers
+- On Android, both in-memory and persisted paused state are updated
+
+</details>
+
 ## ⚙️ Advanced Configuration
 
 <details>

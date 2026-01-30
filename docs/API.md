@@ -253,6 +253,35 @@ Use these methods to stay updated on what's happening with the task. All callbac
 
 ### Methods
 
+#### `setDownloadParams(params): Promise<boolean>`
+
+Updates the download parameters. If the task is paused, this will also update headers in the native layer, allowing you to refresh authentication tokens before resuming.
+
+**Parameters:**
+- `params` (DownloadParams) - The new download parameters. Same structure as options passed to `createDownloadTask()`
+
+**Returns:** `Promise<boolean>` - Resolves to `true` if native headers were updated (task was paused), `false` otherwise.
+
+**Example:**
+```javascript
+// Update auth token on a paused download before resuming
+if (task.state === 'PAUSED') {
+  const updated = await task.setDownloadParams({
+    ...task.downloadParams,
+    headers: {
+      ...task.downloadParams?.headers,
+      Authorization: 'Bearer new-refreshed-token'
+    }
+  })
+  console.log('Headers updated:', updated) // true
+  await task.resume()
+}
+```
+
+> **Note:** When headers are updated on a paused task:
+> - **iOS:** The download resumes using a fresh request with HTTP Range header and the new headers
+> - **Android:** Both in-memory headers and persisted paused download state are updated
+
 #### `pause(): Promise<void>`
 
 Pauses the download. Returns a promise that resolves when the pause operation is complete.
