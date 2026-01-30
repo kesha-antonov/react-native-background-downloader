@@ -25,6 +25,12 @@ You must implement `handleEventsForBackgroundURLSession` in your AppDelegate for
 
 You can configure the maximum number of simultaneous connections per host using `setConfig({ maxParallelDownloads: 8 })`. Default is 4.
 
+### Updating Headers on Paused Downloads
+
+Use `task.setDownloadParams()` to update headers while a task is paused. This is useful when auth tokens expire while a download is paused - you can refresh the token and update headers before resuming without restarting the download from scratch.
+
+See the [Updating headers on paused downloads](../README.md#-usage) section in the README for usage examples.
+
 ---
 
 ## Android Notes

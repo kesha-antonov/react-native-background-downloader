@@ -400,6 +400,8 @@ for (const task of tasks) {
 - On iOS, the download will resume using HTTP Range headers with the new headers
 - On Android, both in-memory and persisted paused state are updated
 
+> **Use case:** User pauses a large download, closes the app, and returns hours or days later. By then, the auth token has expired. This feature allows refreshing the token and updating headers before resuming, without restarting the download from scratch.
+
 </details>
 
 ## ⚙️ Advanced Configuration
