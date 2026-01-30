@@ -1,7 +1,7 @@
 import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
-import { Config, DownloadParams, Headers, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
+import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
 import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, getNotificationTextsForNative, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
@@ -443,10 +443,10 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
   const downloads = await nativeModule.getExistingDownloadTasks()
   const downloadTasks: DownloadTask[] = downloads.map(downloadInfo => {
     // Parse metadata from JSON string to object
-    let metadata = {}
+    let metadata: Metadata = {}
     if (downloadInfo.metadata)
       try {
-        metadata = JSON.parse(downloadInfo.metadata)
+        metadata = JSON.parse(downloadInfo.metadata) as Metadata
       } catch {
         // Keep empty object if parsing fails
       }
@@ -548,10 +548,10 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
   const uploads = await nativeModule.getExistingUploadTasks()
   const uploadTasks: UploadTask[] = uploads.map(uploadInfo => {
     // Parse metadata from JSON string to object
-    let metadata = {}
+    let metadata: Metadata = {}
     if (uploadInfo.metadata)
       try {
-        metadata = JSON.parse(uploadInfo.metadata)
+        metadata = JSON.parse(uploadInfo.metadata) as Metadata
       } catch {
         // Keep empty object if parsing fails
       }
