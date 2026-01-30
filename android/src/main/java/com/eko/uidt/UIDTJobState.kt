@@ -83,6 +83,19 @@ object UIDTConstants {
 }
 
 /**
+ * Data class representing the state of a UIDT job for external queries.
+ */
+data class UIDTJobInfo(
+    val id: String,
+    val status: Int,
+    val bytesDownloaded: Long,
+    val bytesTotal: Long,
+    val url: String,
+    val destination: String,
+    val metadata: String
+)
+
+/**
  * Singleton for managing active UIDT jobs state.
  */
 object UIDTJobRegistry {
@@ -113,5 +126,40 @@ object UIDTJobRegistry {
     fun getJobDownloadState(configId: String): ResumableDownloader.DownloadState? {
         val jobState = activeJobs[configId] ?: return null
         return jobState.resumableDownloader.getState(configId)
+    }
+
+    /**
+     * Returns a snapshot of all currently active UIDT jobs.
+     * Used by the module to populate getExistingDownloads on Android 14+.
+     *
+     * Status values match DownloadManager constants for JS consistency:
+     * - STATUS_RUNNING = 2 (1 << 1)
+     * - STATUS_PAUSED = 4 (1 << 2)
+     */
+    fun getAllActiveJobs(): List<UIDTJobInfo> {
+        return activeJobs.map { (configId, jobState) ->
+            val state = jobState.resumableDownloader.getState(configId)
+            val isPaused = jobState.resumableDownloader.isPaused(configId)
+
+            // Map to DownloadManager constants so JS logic stays consistent
+            // STATUS_RUNNING = 2, STATUS_PAUSED = 4
+            val status = if (isPaused) 4 else 2
+
+            // Retrieve URL/Dest from the job extras
+            val extras = jobState.params.extras
+            val url = extras.getString(UIDTConstants.KEY_URL) ?: ""
+            val destination = extras.getString(UIDTConstants.KEY_DESTINATION) ?: ""
+            val metadata = extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
+
+            UIDTJobInfo(
+                id = configId,
+                status = status,
+                bytesDownloaded = state?.bytesDownloaded?.get() ?: 0L,
+                bytesTotal = state?.bytesTotal ?: -1L,
+                url = url,
+                destination = destination,
+                metadata = metadata
+            )
+        }
     }
 }

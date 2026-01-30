@@ -962,7 +962,41 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         logE(NAME, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
       }
 
-      // Phase 2: Add paused downloads (persisted across app restarts)
+      // Phase 2: Query active UIDT jobs (Android 14+)
+      // On Android 14+, downloads may use UIDT instead of DownloadManager
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        try {
+          val uidtJobs = UIDTDownloadJobService.getAllActiveJobs()
+
+          for (job in uidtJobs) {
+            // Skip if already processed from DownloadManager
+            if (processedIds.contains(job.id)) {
+              continue
+            }
+
+            val params = Arguments.createMap()
+            params.putString("id", job.id)
+            params.putString("metadata", job.metadata)
+
+            val state = stateMap[job.status] ?: DownloadConstants.TASK_RUNNING
+            params.putInt("state", state)
+
+            params.putDouble("bytesDownloaded", job.bytesDownloaded.toDouble())
+            params.putDouble("bytesTotal", job.bytesTotal.toDouble())
+            params.putString("destination", job.destination)
+
+            val percent = if (job.bytesTotal > 0) job.bytesDownloaded.toDouble() / job.bytesTotal else 0.0
+
+            foundTasks.pushMap(params)
+            processedIds.add(job.id)
+            progressReporter.setPercent(job.id, percent)
+          }
+        } catch (e: Exception) {
+          logE(NAME, "getExistingDownloadTasks UIDT: ${Log.getStackTraceString(e)}")
+        }
+      }
+
+      // Phase 3: Add paused downloads (persisted across app restarts)
       val pausedDownloads = downloader.getAllPausedDownloads()
       for ((configId, pausedInfo) in pausedDownloads) {
         if (processedIds.contains(configId)) {
@@ -981,7 +1015,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         processedIds.add(configId)
       }
 
-      // Phase 3: Add active resumable downloads (in-progress via ResumableDownloader)
+      // Phase 4: Add active resumable downloads (in-progress via ResumableDownloader)
       val resumableDownloader = downloader.resumableDownloader
       // Check for any paused resumable downloads that weren't in the persisted state
       // (e.g., paused during current session but not yet persisted)

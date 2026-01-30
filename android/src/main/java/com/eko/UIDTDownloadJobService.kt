@@ -8,6 +8,7 @@ import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import com.eko.uidt.JobState
 import com.eko.uidt.UIDTConstants
+import com.eko.uidt.UIDTJobInfo
 import com.eko.uidt.UIDTJobManager
 import com.eko.uidt.UIDTJobRegistry
 import com.eko.uidt.UIDTNotificationManager
@@ -105,6 +106,12 @@ class UIDTDownloadJobService : JobService() {
          * Cancel notification for a specific download.
          */
         fun cancelNotification(context: Context, configId: String) = UIDTNotificationManager.cancelNotification(context, configId)
+
+        /**
+         * Returns a snapshot of all currently active UIDT jobs.
+         * Used by the module to populate getExistingDownloads on Android 14+.
+         */
+        fun getAllActiveJobs(): List<UIDTJobInfo> = UIDTJobRegistry.getAllActiveJobs()
 
         /**
          * Set download listener.
