@@ -222,11 +222,15 @@ object UIDTJobManager {
     /**
      * Configure notification settings.
      */
-    fun setNotificationConfig(enabled: Boolean, showNotifications: Boolean, texts: Map<String, String>) {
+    fun setNotificationConfig(enabled: Boolean, showNotifications: Boolean, mode: String, texts: Map<String, String>) {
         config.groupingEnabled = enabled
         config.showNotificationsEnabled = showNotifications
+        config.mode = when (mode) {
+            "summaryOnly" -> NotificationGroupingMode.SUMMARY_ONLY
+            else -> NotificationGroupingMode.INDIVIDUAL
+        }
         config.updateTexts(texts)
-        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Notification config updated: grouping=$enabled, showNotificationsEnabled=$showNotifications, texts=$texts")
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Notification config updated: grouping=$enabled, showNotificationsEnabled=$showNotifications, mode=${config.mode}, texts=$texts")
     }
 
     /**

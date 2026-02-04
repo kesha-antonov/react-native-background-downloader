@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, Switch, Platform, PermissionsAndroid, Alert } from 'react-native'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, Switch, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
@@ -23,6 +23,7 @@ const storage = createMMKV({ id: 'download-example-storage' })
 const TASK_IDS_KEY = 'taskIds'
 const SHOW_NOTIFICATIONS_KEY = 'showNotificationsEnabled'
 const NOTIFICATION_GROUPING_KEY = 'notificationGroupingEnabled'
+const SUMMARY_ONLY_MODE_KEY = 'summaryOnlyMode'
 
 const TaskIdStorage = {
   load: (): Record<string, string> => {
@@ -256,9 +257,12 @@ interface HeaderProps {
   onNotificationGroupingChange: (enabled: boolean) => void
   showNotificationsEnabled: boolean
   onShowNotificationsEnabledChange: (show: boolean) => void
+  summaryOnlyMode: boolean
+  onSummaryOnlyModeChange: (enabled: boolean) => void
+  onBatchDownload: () => void
 }
 
-const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange }: HeaderProps) => {
+const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange, summaryOnlyMode, onSummaryOnlyModeChange, onBatchDownload }: HeaderProps) => {
   // Convert tasks to array for display
   const tasksList = Array.from(tasks.values())
 
@@ -294,6 +298,39 @@ const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files
               thumbColor={notificationGroupingEnabled ? '#4CAF50' : '#f4f3f4'}
               disabled={!showNotificationsEnabled}
             />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Summary Only Mode</Text>
+              <Text style={styles.settingDescription}>Show only 1 summary notification with aggregate progress</Text>
+            </View>
+            <Switch
+              value={summaryOnlyMode}
+              onValueChange={onSummaryOnlyModeChange}
+              trackColor={{ false: '#ccc', true: '#81c784' }}
+              thumbColor={summaryOnlyMode ? '#4CAF50' : '#f4f3f4'}
+              disabled={!showNotificationsEnabled || !notificationGroupingEnabled}
+            />
+          </View>
+
+          <View style={styles.batchDownloadSection}>
+            <Text style={styles.batchDownloadTitle}>Test Batch Downloads</Text>
+            <Text style={styles.batchDownloadDescription}>
+              Start 5 downloads simultaneously to test notification grouping.
+              {summaryOnlyMode
+                ? ' With summaryOnly mode, you will see only ONE notification.'
+                : notificationGroupingEnabled
+                  ? ' You will see grouped notifications.'
+                  : ' You will see individual notifications.'}
+            </Text>
+            <TouchableOpacity
+              style={[styles.batchDownloadButton, !showNotificationsEnabled && styles.batchDownloadButtonDisabled]}
+              onPress={onBatchDownload}
+            >
+              <Ionicons name="cloud-download" size={20} color="#fff" />
+              <Text style={styles.batchDownloadButtonText}>Start 5 Downloads</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -400,6 +437,9 @@ const BasicExampleScreen = () => {
   const [showNotificationsEnabled, setShowNotificationsEnabled] = useState(() => {
     return storage.getBoolean(SHOW_NOTIFICATIONS_KEY) ?? false
   })
+  const [summaryOnlyMode, setSummaryOnlyMode] = useState(() => {
+    return storage.getBoolean(SUMMARY_ONLY_MODE_KEY) ?? false
+  })
 
   // Handle notification grouping toggle with persistence
   const handleNotificationGroupingChange = useCallback((enabled: boolean) => {
@@ -409,6 +449,7 @@ const BasicExampleScreen = () => {
     setConfig({
       notificationsGrouping: {
         enabled,
+        mode: summaryOnlyMode ? 'summaryOnly' : 'individual',
         texts: {
           downloadTitle: 'Download',
           downloadStarting: 'Starting...',
@@ -420,7 +461,29 @@ const BasicExampleScreen = () => {
       },
       showNotificationsEnabled,
     })
-  }, [showNotificationsEnabled])
+  }, [showNotificationsEnabled, summaryOnlyMode])
+
+  // Handle summaryOnly mode toggle with persistence
+  const handleSummaryOnlyModeChange = useCallback((enabled: boolean) => {
+    setSummaryOnlyMode(enabled)
+    storage.set(SUMMARY_ONLY_MODE_KEY, enabled)
+    // Apply to native immediately via setConfig
+    setConfig({
+      notificationsGrouping: {
+        enabled: notificationGroupingEnabled,
+        mode: enabled ? 'summaryOnly' : 'individual',
+        texts: {
+          downloadTitle: 'Download',
+          downloadStarting: 'Starting...',
+          downloadProgress: 'Downloading... {progress}%',
+          downloadFinished: 'Complete',
+          groupTitle: 'Batch Download',
+          groupText: '{count} files downloading',
+        },
+      },
+      showNotificationsEnabled,
+    })
+  }, [showNotificationsEnabled, notificationGroupingEnabled])
 
   // Request POST_NOTIFICATIONS permission on Android 13+
   const requestNotificationPermission = useCallback(async (): Promise<boolean> => {
@@ -428,6 +491,13 @@ const BasicExampleScreen = () => {
     if (Platform.Version < 33) return true // Not needed below Android 13
 
     try {
+      // First check if already granted
+      const hasPermission = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+      )
+      if (hasPermission) return true
+
+      // Request permission
       const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
         {
@@ -437,7 +507,26 @@ const BasicExampleScreen = () => {
           buttonNegative: 'Deny',
         }
       )
-      return result === PermissionsAndroid.RESULTS.GRANTED
+
+      if (result === PermissionsAndroid.RESULTS.GRANTED) {
+        return true
+      }
+
+      // If denied or never_ask_again, offer to open settings
+      if (result === PermissionsAndroid.RESULTS.DENIED || result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+        Alert.alert(
+          'Permission Required',
+          'Notification permission is required. Please enable it in app settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open Settings',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        )
+      }
+      return false
     } catch (e) {
       console.warn('Failed to request notification permission:', e)
       return false
@@ -449,11 +538,7 @@ const BasicExampleScreen = () => {
     if (show) {
       const granted = await requestNotificationPermission()
       if (!granted) {
-        Alert.alert(
-          'Permission Required',
-          'Notification permission is required to show download progress. Please enable it in app settings.',
-          [{ text: 'OK' }]
-        )
+        // Alert is already shown by requestNotificationPermission
         return
       }
     }
@@ -463,6 +548,7 @@ const BasicExampleScreen = () => {
     setConfig({
       notificationsGrouping: {
         enabled: notificationGroupingEnabled,
+        mode: summaryOnlyMode ? 'summaryOnly' : 'individual',
         texts: {
           downloadTitle: 'Download',
           downloadStarting: 'Starting...',
@@ -474,7 +560,7 @@ const BasicExampleScreen = () => {
       },
       showNotificationsEnabled: show,
     })
-  }, [requestNotificationPermission, notificationGroupingEnabled])
+  }, [requestNotificationPermission, notificationGroupingEnabled, summaryOnlyMode])
 
   const updateTask = useCallback((task: DownloadTask) => {
     // Store the actual task instance, not a copy, to preserve methods
@@ -649,6 +735,45 @@ const BasicExampleScreen = () => {
     setDestinations(prev => new Map(prev).set(urlItem.id, destination))
   }, [process, ensureDownloadsDirExists, getDownloadsDirPath, getFileNameFromUrl, notificationGroupingEnabled])
 
+  // Batch download - start multiple downloads to test summaryOnly mode
+  const startBatchDownload = useCallback(() => {
+    ensureDownloadsDirExists()
+    const batchUrls = [
+      'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+      'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+      'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
+      'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+      'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
+    ]
+
+    // Use single timestamp for both groupId and taskIds to avoid race conditions
+    const timestamp = Date.now()
+    const batchGroupId = `batch-${timestamp}`
+
+    batchUrls.forEach((url, index) => {
+      const taskId = `${batchGroupId}-${index}`
+      const fileName = `batch-song-${index + 1}.mp3`
+      const destination = getDownloadsDirPath() + '/' + fileName
+
+      const task = createDownloadTask({
+        id: taskId,
+        url,
+        destination,
+        metadata: {
+          destination,
+          groupId: batchGroupId,
+          groupName: 'Batch Download',
+        },
+      })
+      process(task)
+      task.start()
+      setDownloadTasks(prev => new Map(prev).set(task.id, task))
+      setDestinations(prev => new Map(prev).set(taskId, destination))
+    })
+
+    toast(`Started ${batchUrls.length} downloads`)
+  }, [process, ensureDownloadsDirExists, getDownloadsDirPath])
+
   const stopDownload = useCallback((id: string) => {
     const task = downloadTasks.get(id)
     if (task) {
@@ -743,17 +868,18 @@ const BasicExampleScreen = () => {
       showNotificationsEnabled,
       notificationsGrouping: {
         enabled: notificationGroupingEnabled,
+        mode: summaryOnlyMode ? 'summaryOnly' : 'individual',
         texts: {
           downloadTitle: 'Download',
           downloadStarting: 'Starting...',
           downloadProgress: 'Downloading... {progress}%',
           downloadFinished: 'Complete',
-          groupTitle: 'Downloads',
-          groupText: '{count} downloads in progress',
+          groupTitle: 'Batch Download',
+          groupText: '{count} files downloading',
         },
       },
     })
-  }, [notificationGroupingEnabled, showNotificationsEnabled])
+  }, [notificationGroupingEnabled, showNotificationsEnabled, summaryOnlyMode])
 
   useEffect(() => {
     // Initialize URL list with persisted IDs after mount (when MMKV is ready)
@@ -823,8 +949,11 @@ const BasicExampleScreen = () => {
       onNotificationGroupingChange={handleNotificationGroupingChange}
       showNotificationsEnabled={showNotificationsEnabled}
       onShowNotificationsEnabledChange={handleShowNotificationsChange}
+      summaryOnlyMode={summaryOnlyMode}
+      onSummaryOnlyModeChange={handleSummaryOnlyModeChange}
+      onBatchDownload={startBatchDownload}
     />
-  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange])
+  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange, summaryOnlyMode, handleSummaryOnlyModeChange, startBatchDownload])
 
   return (
     <FlatList
@@ -876,6 +1005,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 2,
+  },
+  batchDownloadSection: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#ffcc80',
+  },
+  batchDownloadTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#e65100',
+    marginBottom: 4,
+  },
+  batchDownloadDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+  },
+  batchDownloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ff9800',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    gap: 8,
+  },
+  batchDownloadButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  batchDownloadButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   tasksSection: {
     margin: 12,

@@ -89,8 +89,8 @@ class UIDTDownloadJobService : JobService() {
         /**
          * Configure notification grouping and texts.
          */
-        fun setNotificationGroupingConfig(enabled: Boolean, showNotificationsEnabled: Boolean, texts: Map<String, String>) =
-            UIDTJobManager.setNotificationConfig(enabled, showNotificationsEnabled, texts)
+        fun setNotificationGroupingConfig(enabled: Boolean, showNotificationsEnabled: Boolean, mode: String, texts: Map<String, String>) =
+            UIDTJobManager.setNotificationConfig(enabled, showNotificationsEnabled, mode, texts)
 
         /**
          * Set notification update interval.
@@ -154,10 +154,12 @@ class UIDTDownloadJobService : JobService() {
         val metadataJson = extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
         var groupId = ""
         var groupName = ""
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStartJob: configId=$configId, metadataJson=$metadataJson")
         try {
             val json = JSONObject(metadataJson)
             groupId = json.optString("groupId", "")
             groupName = json.optString("groupName", "")
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Parsed metadata: groupId='$groupId', groupName='$groupName'")
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to parse metadata: ${e.message}")
         }
@@ -172,17 +174,22 @@ class UIDTDownloadJobService : JobService() {
         // Set the notification for this job (required for UIDT)
         setNotification(params, notificationId, notification, JOB_END_NOTIFICATION_POLICY_DETACH)
 
-        // Update summary notification if grouping enabled
-        UIDTNotificationManager.updateSummaryNotification(this, groupId, groupName)
-
         // Acquire wake lock
         acquireWakeLock()
 
         // Create ResumableDownloader for this job
         val resumableDownloader = ResumableDownloader()
 
-        // Store job state
+        // Unmark group as finalized if it was previously (in case of new batch with same groupId)
+        if (groupId.isNotEmpty()) {
+            UIDTJobRegistry.unmarkGroupFinalized(groupId)
+        }
+
+        // Store job state BEFORE updating summary (so count includes this job)
         UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName)
+
+        // Update summary notification if grouping enabled (now includes new job in count)
+        UIDTNotificationManager.updateSummaryNotificationForGroup(this, groupId, groupName)
 
         // Create listener that will notify completion
         val jobListener = createJobListener(configId, params, groupId, groupName)
@@ -295,24 +302,44 @@ class UIDTDownloadJobService : JobService() {
             }
 
             override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
-                RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "UIDT download complete: $id")
+                RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "UIDT download complete: $id, groupId=$groupId")
 
                 val jobState = UIDTJobRegistry.activeJobs[id]
                 val notificationId = jobState?.notificationId
 
-                // Cancel individual notification
-                if (notificationId != null) {
-                    UIDTNotificationManager.cancelNotification(this@UIDTDownloadJobService, notificationId)
-                }
+                RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onComplete: notificationId=$notificationId, jobState groupId=${jobState?.groupId}")
 
-                // Clean up
+                // Clean up - remove from activeJobs first
                 UIDTJobRegistry.activeJobs.remove(id)
                 releaseWakeLock()
 
-                // Update summary notification for this group
-                UIDTNotificationManager.updateSummaryNotification(this@UIDTDownloadJobService, groupId, groupName)
+                // Check if this was the last job in the group
+                val remainingInGroup = UIDTJobRegistry.activeJobs.values.count { it.groupId == groupId }
+                RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Jobs remaining in group '$groupId': $remainingInGroup, activeJobs count=${UIDTJobRegistry.activeJobs.size}")
 
-                // Signal job completion
+                if (remainingInGroup == 0 && groupId.isNotEmpty()) {
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Last job in group completed. Marking finalized and cancelling summary.")
+                    // Mark group as finalized FIRST to prevent race conditions
+                    // where delayed progress callbacks might recreate the notification
+                    UIDTJobRegistry.markGroupFinalized(groupId)
+                    // Last job in group - cancel summary notification
+                    UIDTNotificationManager.cancelSummaryNotification(this@UIDTDownloadJobService, groupId)
+                } else if (groupId.isEmpty()) {
+                    RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "groupId is empty in onComplete for $id")
+                } else {
+                    // Update summary notification for this group (update count/progress)
+                    UIDTNotificationManager.updateSummaryNotificationForGroup(this@UIDTDownloadJobService, groupId, groupName)
+                }
+
+                // Use setNotification with REMOVE policy to tell Android to remove the UIDT-controlled notification
+                // This is required because UIDT notifications are managed by the system, not NotificationManager
+                if (notificationId != null) {
+                    val emptyNotification = UIDTNotificationManager.createEmptyNotification(this@UIDTDownloadJobService)
+                    setNotification(params, notificationId, emptyNotification, JOB_END_NOTIFICATION_POLICY_REMOVE)
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Set REMOVE policy for notification $notificationId")
+                }
+
+                // Signal job completion - this triggers the REMOVE policy
                 jobFinished(params, false)
 
                 // Notify external listener
@@ -325,19 +352,32 @@ class UIDTDownloadJobService : JobService() {
                 val jobState = UIDTJobRegistry.activeJobs[id]
                 val notificationId = jobState?.notificationId
 
-                // Cancel individual notification
-                if (notificationId != null) {
-                    UIDTNotificationManager.cancelNotification(this@UIDTDownloadJobService, notificationId)
-                }
-
-                // Clean up
+                // Clean up - remove from activeJobs first
                 UIDTJobRegistry.activeJobs.remove(id)
                 releaseWakeLock()
 
-                // Update summary notification for this group
-                UIDTNotificationManager.updateSummaryNotification(this@UIDTDownloadJobService, groupId, groupName)
+                // Check if this was the last job in the group
+                val remainingInGroup = UIDTJobRegistry.activeJobs.values.count { it.groupId == groupId }
+                RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Jobs remaining in group '$groupId' after error: $remainingInGroup")
 
-                // Signal job completion with no reschedule
+                if (remainingInGroup == 0 && groupId.isNotEmpty()) {
+                    // Mark group as finalized FIRST to prevent race conditions
+                    UIDTJobRegistry.markGroupFinalized(groupId)
+                    // Last job in group - cancel summary notification
+                    UIDTNotificationManager.cancelSummaryNotification(this@UIDTDownloadJobService, groupId)
+                } else {
+                    // Update summary notification for this group (update count/progress)
+                    UIDTNotificationManager.updateSummaryNotificationForGroup(this@UIDTDownloadJobService, groupId, groupName)
+                }
+
+                // Use setNotification with REMOVE policy to tell Android to remove the UIDT-controlled notification
+                if (notificationId != null) {
+                    val emptyNotification = UIDTNotificationManager.createEmptyNotification(this@UIDTDownloadJobService)
+                    setNotification(params, notificationId, emptyNotification, JOB_END_NOTIFICATION_POLICY_REMOVE)
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Set REMOVE policy for notification $notificationId (error)")
+                }
+
+                // Signal job completion with no reschedule - this triggers the REMOVE policy
                 jobFinished(params, false)
 
                 // Notify external listener

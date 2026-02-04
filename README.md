@@ -636,6 +636,85 @@ setConfig({
 })
 ```
 
+**Notification grouping modes:**
+
+When downloading many files (e.g., thousands of photos), you can use the `mode` option to control how notifications are displayed:
+
+| Mode | Description |
+|------|-------------|
+| `'individual'` | Default. Shows all individual notifications in a group |
+| `'summaryOnly'` | Shows only the summary notification with aggregate progress. Individual notifications are minimized to near-invisible state |
+
+```javascript
+import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+
+// For bulk downloads (e.g., syncing thousands of photos)
+// Use 'summaryOnly' mode to show only ONE notification with aggregate progress
+setConfig({
+  showNotificationsEnabled: true,
+  notificationsGrouping: {
+    enabled: true,
+    mode: 'summaryOnly', // Only show summary notification, minimize individual ones
+    texts: {
+      groupTitle: 'Syncing Photos',
+      groupText: '{count} files downloading',
+    },
+  },
+})
+```
+
+**Example: Batch downloading multiple files with grouped notifications:**
+
+```javascript
+import { setConfig, createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+
+// Configure for bulk downloads with single summary notification
+setConfig({
+  showNotificationsEnabled: true,
+  notificationsGrouping: {
+    enabled: true,
+    mode: 'summaryOnly',
+    texts: {
+      groupTitle: 'Photo Sync',
+      groupText: '{count} photos downloading',
+    },
+  },
+})
+
+// Download multiple files - they all share ONE notification
+const photos = [
+  { id: 'photo-1', url: 'https://example.com/photo1.jpg' },
+  { id: 'photo-2', url: 'https://example.com/photo2.jpg' },
+  { id: 'photo-3', url: 'https://example.com/photo3.jpg' },
+  // ... potentially thousands of files
+]
+
+const GROUP_ID = 'photo-sync-batch'
+
+for (const photo of photos) {
+  const task = createDownloadTask({
+    id: photo.id,
+    url: photo.url,
+    destination: `${directories.documents}/${photo.id}.jpg`,
+    groupId: GROUP_ID,        // Required for grouping
+    groupName: 'Photo Sync',  // Displayed in notification
+  })
+    .progress(({ bytesDownloaded, bytesTotal }) => {
+      // Progress tracked per file, but notification shows aggregate
+    })
+    .done(() => {
+      console.log(`Downloaded ${photo.id}`)
+    })
+    .error(({ error }) => {
+      console.error(`Failed ${photo.id}:`, error)
+    })
+
+  task.start()
+}
+
+// User sees: ONE notification showing "45% - 3 files" instead of 3 separate notifications
+```
+
 **Grouping downloads by category:**
 
 When notification grouping is enabled, you can group related downloads (e.g., by album, playlist, podcast) by passing `groupId` and `groupName` in the task metadata:
@@ -674,6 +753,7 @@ This ensures users always see the download status without unexpected background 
 |--------|------|---------|-------------|
 | `showNotificationsEnabled` | boolean | `false` | Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs require a notification, but it will be barely visible). This is a top-level config option. |
 | `notificationsGrouping.enabled` | boolean | `false` | Enable notification grouping |
+| `notificationsGrouping.mode` | `'individual'` \| `'summaryOnly'` | `'individual'` | Notification display mode. Use `'summaryOnly'` for bulk downloads to show only aggregate progress |
 | `notificationsGrouping.texts` | object | See below | Customizable notification texts |
 
 **Notification texts (`notificationsGrouping.texts`):**
@@ -696,6 +776,7 @@ This ensures users always see the download status without unexpected background 
 - This feature only affects Android 14+ (API 34) where UIDT jobs are used
 - On older Android versions, the standard DownloadManager notifications are shown
 - iOS uses system download notifications and doesn't support custom grouping
+- **Use `mode: 'summaryOnly'` when downloading many files** to prevent notification spam and potential crashes
 
 </details>
 

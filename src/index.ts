@@ -402,6 +402,7 @@ export function setConfig ({
   if (notificationsGrouping !== undefined)
     config.notificationsGrouping = {
       enabled: notificationsGrouping.enabled ?? false,
+      mode: notificationsGrouping.mode ?? 'individual',
       texts: {
         ...DEFAULT_NOTIFICATION_TEXTS,
         ...notificationsGrouping.texts,
@@ -417,7 +418,7 @@ export function setConfig ({
       setLogsEnabled?: (enabled: boolean) => void
       setMaxParallelDownloads?: (max: number) => void
       setAllowsCellularAccess?: (allows: boolean) => void
-      setNotificationGroupingConfig?: (config: { enabled: boolean, showNotificationsEnabled: boolean, texts: Record<string, string> }) => void
+      setNotificationGroupingConfig?: (config: { enabled: boolean, showNotificationsEnabled: boolean, mode: string, texts: Record<string, string> }) => void
     }
     if (nativeModule.setLogsEnabled)
       nativeModule.setLogsEnabled(isLogsEnabled)
@@ -431,6 +432,7 @@ export function setConfig ({
       nativeModule.setNotificationGroupingConfig({
         enabled: config.notificationsGrouping.enabled,
         showNotificationsEnabled: config.showNotificationsEnabled ?? false,
+        mode: config.notificationsGrouping.mode,
         texts: getNotificationTextsForNative(),
       })
   } catch {

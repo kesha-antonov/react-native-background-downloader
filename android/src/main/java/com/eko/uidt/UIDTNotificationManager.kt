@@ -60,6 +60,20 @@ object UIDTNotificationManager {
                 setShowBadge(false)
             }
             notificationManager.createNotificationChannel(silentChannel)
+
+            // Create ultra-silent channel for summaryOnly mode (IMPORTANCE_MIN, no alert)
+            val ultraSilentChannel = NotificationChannel(
+                UIDTConstants.NOTIFICATION_CHANNEL_ULTRA_SILENT_ID,
+                "Background Downloads (Grouped)",
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "Ultra-silent notifications for grouped background downloads"
+                setShowBadge(false)
+                enableLights(false)
+                enableVibration(false)
+                setSound(null, null)
+            }
+            notificationManager.createNotificationChannel(ultraSilentChannel)
         }
     }
 
@@ -72,10 +86,13 @@ object UIDTNotificationManager {
         groupId: String = "",
         groupName: String = ""
     ): Notification {
-        val channelId = if (config.showNotificationsEnabled) {
-            UIDTConstants.NOTIFICATION_CHANNEL_ID
-        } else {
-            UIDTConstants.NOTIFICATION_CHANNEL_SILENT_ID
+        val isSummaryOnlyMode = config.mode == NotificationGroupingMode.SUMMARY_ONLY
+
+        // Determine channel based on mode and settings
+        val channelId = when {
+            !config.showNotificationsEnabled -> UIDTConstants.NOTIFICATION_CHANNEL_SILENT_ID
+            isSummaryOnlyMode && config.groupingEnabled && groupId.isNotEmpty() -> UIDTConstants.NOTIFICATION_CHANNEL_ULTRA_SILENT_ID
+            else -> UIDTConstants.NOTIFICATION_CHANNEL_ID
         }
 
         // When notifications are disabled, create minimal silent notification
@@ -88,6 +105,21 @@ object UIDTNotificationManager {
                 .setPriority(NotificationCompat.PRIORITY_MIN)
                 .setOngoing(true)
                 .setSilent(true)
+                .build()
+        }
+
+        // In summaryOnly mode with grouping, create minimal individual notifications
+        if (isSummaryOnlyMode && config.groupingEnabled && groupId.isNotEmpty()) {
+            val groupKey = "${UIDTConstants.NOTIFICATION_GROUP_KEY}_$groupId"
+            return NotificationCompat.Builder(context, channelId)
+                .setContentTitle("")
+                .setContentText("")
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setOngoing(true)
+                .setSilent(true)
+                .setGroup(groupKey)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
                 .build()
         }
 
@@ -127,6 +159,17 @@ object UIDTNotificationManager {
         bytesTotal: Long
     ) {
         if (!config.showNotificationsEnabled) return
+
+        val isSummaryOnlyMode = config.mode == NotificationGroupingMode.SUMMARY_ONLY
+
+        // In summaryOnly mode, skip updating individual notifications - only update summary
+        if (isSummaryOnlyMode && config.groupingEnabled && jobState.groupId.isNotEmpty()) {
+            // Update group progress tracking
+            UIDTJobRegistry.updateGroupProgress(jobState.groupId, "", bytesDownloaded, bytesTotal)
+            // Update the summary notification with aggregate progress
+            updateSummaryNotificationWithProgress(context, jobState.groupId, jobState.groupName)
+            return
+        }
 
         val progress = ProgressUtils.calculateProgress(bytesDownloaded, bytesTotal)
 
@@ -242,9 +285,34 @@ object UIDTNotificationManager {
 
     /**
      * Update the summary notification for a download group.
+     * Automatically chooses between regular and progress-based summary
+     * depending on the notification mode.
+     */
+    fun updateSummaryNotificationForGroup(context: Context, groupId: String, groupName: String) {
+        if (!config.groupingEnabled || groupId.isEmpty() || !config.showNotificationsEnabled) return
+        // Skip if group is finalized (all downloads complete) to prevent race conditions
+        if (UIDTJobRegistry.isGroupFinalized(groupId)) {
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Skipping summary update for finalized group: $groupId")
+            return
+        }
+
+        if (config.mode == NotificationGroupingMode.SUMMARY_ONLY) {
+            updateSummaryNotificationWithProgress(context, groupId, groupName)
+        } else {
+            updateSummaryNotification(context, groupId, groupName)
+        }
+    }
+
+    /**
+     * Update the summary notification for a download group.
      */
     fun updateSummaryNotification(context: Context, groupId: String, groupName: String) {
         if (!config.groupingEnabled || groupId.isEmpty() || !config.showNotificationsEnabled) return
+        // Skip if group is finalized (all downloads complete) to prevent race conditions
+        if (UIDTJobRegistry.isGroupFinalized(groupId)) {
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Skipping summary update for finalized group: $groupId")
+            return
+        }
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -255,6 +323,7 @@ object UIDTNotificationManager {
         if (groupDownloads == 0) {
             // Remove summary for this group when no active downloads
             notificationManager.cancel(summaryNotificationId)
+            UIDTJobRegistry.clearGroupProgress(groupId)
             return
         }
 
@@ -278,6 +347,65 @@ object UIDTNotificationManager {
     }
 
     /**
+     * Update the summary notification with aggregate progress (for summaryOnly mode).
+     */
+    fun updateSummaryNotificationWithProgress(context: Context, groupId: String, groupName: String) {
+        if (!config.groupingEnabled || groupId.isEmpty() || !config.showNotificationsEnabled) return
+        if (config.mode != NotificationGroupingMode.SUMMARY_ONLY) return
+        // Skip if group is finalized (all downloads complete) to prevent race conditions
+        if (UIDTJobRegistry.isGroupFinalized(groupId)) {
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Skipping summary progress update for finalized group: $groupId")
+            return
+        }
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // Count active downloads for this specific group
+        val groupDownloads = UIDTJobRegistry.activeJobs.values.count { it.groupId == groupId }
+        val summaryNotificationId = UIDTConstants.SUMMARY_NOTIFICATION_ID + groupId.hashCode()
+
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "updateSummaryNotificationWithProgress: groupId=$groupId, groupDownloads=$groupDownloads, summaryNotificationId=$summaryNotificationId")
+
+        if (groupDownloads == 0) {
+            // Remove summary for this group when no active downloads
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelling summary notification $summaryNotificationId for empty group $groupId")
+            notificationManager.cancel(summaryNotificationId)
+            UIDTJobRegistry.clearGroupProgress(groupId)
+            return
+        }
+
+        val groupProgress = UIDTJobRegistry.groupProgress[groupId]
+        val groupKey = "${UIDTConstants.NOTIFICATION_GROUP_KEY}_$groupId"
+        val title = groupName.ifEmpty { config.getText("groupTitle") }
+
+        // Build progress text based on available info
+        val text = if (groupProgress != null && groupProgress.totalBytes > 0) {
+            "${groupProgress.progressPercent}% - ${groupDownloads} file${if (groupDownloads != 1) "s" else ""}"
+        } else {
+            config.getText("groupText", "count" to groupDownloads)
+        }
+
+        val progress = groupProgress?.progressPercent ?: 0
+        val indeterminate = groupProgress == null || groupProgress.totalBytes <= 0
+
+        val summaryNotification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setGroup(groupKey)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setProgress(100, progress, indeterminate)
+            .build()
+
+        notificationManager.notify(summaryNotificationId, summaryNotification)
+    }
+
+    /**
      * Cancel notification for a specific download.
      */
     fun cancelNotification(context: Context, configId: String) {
@@ -293,6 +421,44 @@ object UIDTNotificationManager {
     fun cancelNotification(context: Context, notificationId: Int) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(notificationId)
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled notification by ID: $notificationId")
+    }
+
+    /**
+     * Cancel summary notification for a group.
+     * Also cancels all notifications in the group to prevent Android from auto-recreating the summary.
+     */
+    fun cancelSummaryNotification(context: Context, groupId: String) {
+        if (groupId.isEmpty()) return
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val summaryNotificationId = UIDTConstants.SUMMARY_NOTIFICATION_ID + groupId.hashCode()
+
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "cancelSummaryNotification called for group '$groupId', hashCode=${groupId.hashCode()}, summaryNotificationId=$summaryNotificationId")
+
+        // First, cancel all active status bar notifications to ensure the group is completely removed
+        // This prevents Android from auto-recreating a group summary from orphaned child notifications
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val groupKey = "${UIDTConstants.NOTIFICATION_GROUP_KEY}_$groupId"
+            try {
+                val activeNotifications = notificationManager.activeNotifications
+                RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Found ${activeNotifications.size} active notifications")
+                for (notification in activeNotifications) {
+                    val notifGroup = notification.notification?.group
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Active notification id=${notification.id}, group=$notifGroup, target=$groupKey")
+                    if (notifGroup == groupKey) {
+                        notificationManager.cancel(notification.id)
+                        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled orphaned group notification: ${notification.id}")
+                    }
+                }
+            } catch (e: Exception) {
+                RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "Failed to cancel orphaned notifications: ${e.message}")
+            }
+        }
+
+        // Then cancel the summary notification
+        notificationManager.cancel(summaryNotificationId)
+        UIDTJobRegistry.clearGroupProgress(groupId)
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled summary notification $summaryNotificationId for group $groupId")
     }
 
     /**

@@ -18,11 +18,20 @@ data class JobState(
 )
 
 /**
+ * Mode for notification display when grouping is enabled.
+ */
+enum class NotificationGroupingMode {
+    INDIVIDUAL,  // Show all notifications (default, current behavior)
+    SUMMARY_ONLY  // Show only summary notification, minimize individual ones
+}
+
+/**
  * Configuration for notification display.
  */
 data class NotificationConfig(
     var groupingEnabled: Boolean = false,
     var showNotificationsEnabled: Boolean = false,
+    var mode: NotificationGroupingMode = NotificationGroupingMode.INDIVIDUAL,
     var updateInterval: Long = 500L,
     val texts: MutableMap<String, String> = mutableMapOf(
         "downloadTitle" to "Download",
@@ -50,6 +59,19 @@ data class NotificationConfig(
 }
 
 /**
+ * Tracks aggregate progress for a download group.
+ */
+data class GroupProgress(
+    var totalFiles: Int = 0,
+    var completedFiles: Int = 0,
+    var totalBytes: Long = 0L,
+    var downloadedBytes: Long = 0L
+) {
+    val progressPercent: Int
+        get() = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+}
+
+/**
  * Constants for UIDT jobs.
  */
 object UIDTConstants {
@@ -71,6 +93,9 @@ object UIDTConstants {
 
     // Notification channel for UIDT jobs (silent/hidden notifications)
     const val NOTIFICATION_CHANNEL_SILENT_ID = "uidt_download_channel_silent"
+
+    // Notification channel for UIDT jobs (ultra-silent for summaryOnly mode)
+    const val NOTIFICATION_CHANNEL_ULTRA_SILENT_ID = "uidt_download_channel_ultra_silent"
 
     // Notification group for grouping all download notifications together
     const val NOTIFICATION_GROUP_KEY = "com.eko.DOWNLOAD_GROUP"
@@ -116,6 +141,13 @@ object UIDTJobRegistry {
     // Notification configuration
     val notificationConfig = NotificationConfig()
 
+    // Group progress tracking for each groupId
+    val groupProgress = ConcurrentHashMap<String, GroupProgress>()
+
+    // Track groups that have been finalized (all jobs completed)
+    // This prevents race conditions where progress updates recreate cancelled notifications
+    val finalizedGroups = ConcurrentHashMap.newKeySet<String>()
+
     fun isActiveJob(configId: String): Boolean = activeJobs.containsKey(configId)
 
     fun isPausedJob(configId: String): Boolean {
@@ -126,6 +158,72 @@ object UIDTJobRegistry {
     fun getJobDownloadState(configId: String): ResumableDownloader.DownloadState? {
         val jobState = activeJobs[configId] ?: return null
         return jobState.resumableDownloader.getState(configId)
+    }
+
+    /**
+     * Update aggregate progress for a group.
+     */
+    fun updateGroupProgress(groupId: String, configId: String, bytesDownloaded: Long, bytesTotal: Long) {
+        if (groupId.isEmpty()) return
+
+        val progress = groupProgress.getOrPut(groupId) { GroupProgress() }
+        // We track per-file progress by summing from all active jobs in the group
+        var totalDownloaded = 0L
+        var totalTotal = 0L
+        var fileCount = 0
+
+        activeJobs.values.filter { it.groupId == groupId }.forEach { job ->
+            val state = job.resumableDownloader.getState(activeJobs.entries.find { it.value == job }?.key ?: return@forEach)
+            totalDownloaded += state?.bytesDownloaded?.get() ?: 0L
+            if (state?.bytesTotal ?: -1L > 0) {
+                totalTotal += state?.bytesTotal ?: 0L
+            }
+            fileCount++
+        }
+
+        progress.downloadedBytes = totalDownloaded
+        progress.totalBytes = totalTotal
+        progress.totalFiles = fileCount
+    }
+
+    /**
+     * Mark a file as completed in a group.
+     */
+    fun markFileCompleted(groupId: String) {
+        if (groupId.isEmpty()) return
+        val progress = groupProgress[groupId] ?: return
+        progress.completedFiles++
+    }
+
+    /**
+     * Clear group progress when all downloads complete.
+     */
+    fun clearGroupProgress(groupId: String) {
+        groupProgress.remove(groupId)
+    }
+
+    /**
+     * Mark a group as finalized (all downloads complete).
+     * This prevents race conditions where delayed progress updates might recreate the notification.
+     */
+    fun markGroupFinalized(groupId: String) {
+        if (groupId.isNotEmpty()) {
+            finalizedGroups.add(groupId)
+        }
+    }
+
+    /**
+     * Check if a group is finalized.
+     */
+    fun isGroupFinalized(groupId: String): Boolean {
+        return finalizedGroups.contains(groupId)
+    }
+
+    /**
+     * Unmark a group as finalized (when new downloads start).
+     */
+    fun unmarkGroupFinalized(groupId: String) {
+        finalizedGroups.remove(groupId)
     }
 
     /**

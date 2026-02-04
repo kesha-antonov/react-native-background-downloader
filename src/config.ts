@@ -1,4 +1,4 @@
-import { Headers, NotificationsGroupingConfig, NotificationTexts } from './types'
+import { Headers, NotificationGroupingMode, NotificationsGroupingConfig, NotificationTexts } from './types'
 
 export const DEFAULT_PROGRESS_INTERVAL = 1000
 export const DEFAULT_PROGRESS_MIN_BYTES = 1024 * 1024 // 1MB
@@ -28,7 +28,7 @@ interface ConfigState {
   maxParallelDownloads: number
   allowsCellularAccess: boolean
   showNotificationsEnabled: boolean
-  notificationsGrouping: NotificationsGroupingConfig
+  notificationsGrouping: NotificationsGroupingConfig & { mode: NotificationGroupingMode }
 }
 
 export const config: ConfigState = {
@@ -42,6 +42,7 @@ export const config: ConfigState = {
   showNotificationsEnabled: false,
   notificationsGrouping: {
     enabled: false,
+    mode: 'individual',
     texts: DEFAULT_NOTIFICATION_TEXTS,
   },
 }

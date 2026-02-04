@@ -18,6 +18,7 @@ import com.eko.utils.StorageManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
@@ -60,6 +61,47 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     fun logE(tag: String, message: String) {
       if (isLogsEnabled) Log.e(tag, message)
+    }
+
+    /**
+     * Convert a ReadableMap to JSONObject.
+     * Handles nested maps and arrays properly.
+     */
+    fun readableMapToJsonObject(map: ReadableMap?): JSONObject? {
+      if (map == null) return null
+      val json = JSONObject()
+      val iterator = map.keySetIterator()
+      while (iterator.hasNextKey()) {
+        val key = iterator.nextKey()
+        when (map.getType(key)) {
+          ReadableType.Null -> json.put(key, JSONObject.NULL)
+          ReadableType.Boolean -> json.put(key, map.getBoolean(key))
+          ReadableType.Number -> json.put(key, map.getDouble(key))
+          ReadableType.String -> json.put(key, map.getString(key))
+          ReadableType.Map -> json.put(key, readableMapToJsonObject(map.getMap(key)))
+          ReadableType.Array -> json.put(key, readableArrayToJsonArray(map.getArray(key)))
+        }
+      }
+      return json
+    }
+
+    /**
+     * Convert a ReadableArray to JSONArray.
+     */
+    private fun readableArrayToJsonArray(array: ReadableArray?): org.json.JSONArray? {
+      if (array == null) return null
+      val json = org.json.JSONArray()
+      for (i in 0 until array.size()) {
+        when (array.getType(i)) {
+          ReadableType.Null -> json.put(JSONObject.NULL)
+          ReadableType.Boolean -> json.put(array.getBoolean(i))
+          ReadableType.Number -> json.put(array.getDouble(i))
+          ReadableType.String -> json.put(array.getString(i))
+          ReadableType.Map -> json.put(readableMapToJsonObject(array.getMap(i)))
+          ReadableType.Array -> json.put(readableArrayToJsonArray(array.getArray(i)))
+        }
+      }
+      return json
     }
   }
 
@@ -243,6 +285,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun setNotificationGroupingConfig(config: ReadableMap) {
     val enabled = if (config.hasKey("enabled")) config.getBoolean("enabled") else false
     val showNotificationsEnabled = if (config.hasKey("showNotificationsEnabled")) config.getBoolean("showNotificationsEnabled") else false
+    val mode = if (config.hasKey("mode")) config.getString("mode") ?: "individual" else "individual"
     val texts = if (config.hasKey("texts")) config.getMap("texts") else null
 
     val textsMap = mutableMapOf<String, String>()
@@ -256,10 +299,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Store the config for use by UIDTDownloadJobService
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      UIDTDownloadJobService.setNotificationGroupingConfig(enabled, showNotificationsEnabled, textsMap)
+      UIDTDownloadJobService.setNotificationGroupingConfig(enabled, showNotificationsEnabled, mode, textsMap)
     }
 
-    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, texts=$textsMap")
+    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, mode=$mode, texts=$textsMap")
   }
 
   fun initialize() {
@@ -579,12 +622,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       when (options.getType("metadata")) {
         ReadableType.String -> options.getString("metadata")
         ReadableType.Map -> {
-          // If passed as object, convert to JSON string
+          // If passed as object, convert to JSON string properly
           try {
             val map = options.getMap("metadata")
-            Arguments.toBundle(map)?.let {
-              JSONObject(it.toString()).toString()
-            } ?: "{}"
+            readableMapToJsonObject(map)?.toString() ?: "{}"
           } catch (e: Exception) {
             logW(NAME, "Failed to convert metadata map to string: ${e.message}")
             "{}"
@@ -1233,9 +1274,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         ReadableType.Map -> {
           try {
             val map = options.getMap("metadata")
-            Arguments.toBundle(map)?.let {
-              JSONObject(it.toString()).toString()
-            } ?: "{}"
+            readableMapToJsonObject(map)?.toString() ?: "{}"
           } catch (e: Exception) {
             logW(NAME, "Failed to convert metadata map to string: ${e.message}")
             "{}"
