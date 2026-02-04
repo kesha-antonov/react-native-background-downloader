@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import com.eko.uidt.JobState
+import com.eko.uidt.NotificationGroupingMode
 import com.eko.uidt.UIDTConstants
 import com.eko.uidt.UIDTJobInfo
 import com.eko.uidt.UIDTJobManager
@@ -258,6 +259,8 @@ class UIDTDownloadJobService : JobService() {
                 // Update notification with size info
                 val jobState = UIDTJobRegistry.activeJobs[id]
                 if (jobState != null) {
+                    // Store total bytes for summary progress calculation
+                    jobState.bytesTotal = expectedBytes
                     UIDTNotificationManager.updateProgressNotification(this@UIDTDownloadJobService, jobState, 0, expectedBytes)
                 }
 
@@ -268,6 +271,12 @@ class UIDTDownloadJobService : JobService() {
             override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
                 val jobState = UIDTJobRegistry.activeJobs[id]
                 if (jobState != null) {
+                    // Always update progress tracking in JobState for summary calculation
+                    jobState.bytesDownloaded = bytesDownloaded
+                    if (bytesTotal > 0) {
+                        jobState.bytesTotal = bytesTotal
+                    }
+
                     // Check if download is paused - don't update notification with progress
                     val isPaused = jobState.resumableDownloader.isPaused(id)
                     if (isPaused) {
@@ -276,10 +285,12 @@ class UIDTDownloadJobService : JobService() {
                         return
                     }
 
+                    val config = UIDTJobRegistry.notificationConfig
+                    val isSummaryOnlyMode = config.mode == NotificationGroupingMode.SUMMARY_ONLY
+
                     if (bytesTotal > 0) {
                         val progress = ProgressUtils.calculateProgress(bytesDownloaded, bytesTotal)
                         val currentTime = System.currentTimeMillis()
-                        val config = UIDTJobRegistry.notificationConfig
 
                         val shouldUpdate = ProgressUtils.shouldUpdateProgress(
                             progress,
@@ -292,7 +303,18 @@ class UIDTDownloadJobService : JobService() {
                         if (shouldUpdate) {
                             jobState.lastNotifiedProgress = progress
                             jobState.lastNotificationUpdateTime = currentTime
-                            UIDTNotificationManager.updateProgressNotification(this@UIDTDownloadJobService, jobState, bytesDownloaded, bytesTotal)
+
+                            if (isSummaryOnlyMode && config.groupingEnabled && jobState.groupId.isNotEmpty()) {
+                                // In summaryOnly mode, update only the summary notification
+                                UIDTNotificationManager.updateSummaryNotificationForGroup(
+                                    this@UIDTDownloadJobService, jobState.groupId, jobState.groupName
+                                )
+                            } else {
+                                // Update individual notification
+                                UIDTNotificationManager.updateProgressNotification(
+                                    this@UIDTDownloadJobService, jobState, bytesDownloaded, bytesTotal
+                                )
+                            }
                         }
                     }
                 }

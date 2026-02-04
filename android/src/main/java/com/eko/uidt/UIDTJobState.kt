@@ -14,7 +14,10 @@ data class JobState(
     val groupId: String = "",
     val groupName: String = "",
     var lastNotifiedProgress: Int = -1,
-    var lastNotificationUpdateTime: Long = 0
+    var lastNotificationUpdateTime: Long = 0,
+    // Track download progress for summary notification
+    @Volatile var bytesDownloaded: Long = 0L,
+    @Volatile var bytesTotal: Long = -1L
 )
 
 /**

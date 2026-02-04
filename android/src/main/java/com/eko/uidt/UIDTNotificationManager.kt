@@ -360,11 +360,12 @@ object UIDTNotificationManager {
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // Count active downloads for this specific group
-        val groupDownloads = UIDTJobRegistry.activeJobs.values.count { it.groupId == groupId }
+        // Get all active jobs for this group and calculate aggregate progress
+        val groupJobs = UIDTJobRegistry.activeJobs.entries.filter { it.value.groupId == groupId }
+        val groupDownloads = groupJobs.size
         val summaryNotificationId = UIDTConstants.SUMMARY_NOTIFICATION_ID + groupId.hashCode()
 
-        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "updateSummaryNotificationWithProgress: groupId=$groupId, groupDownloads=$groupDownloads, summaryNotificationId=$summaryNotificationId")
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "updateSummaryNotificationWithProgress: groupId=$groupId, groupDownloads=$groupDownloads")
 
         if (groupDownloads == 0) {
             // Remove summary for this group when no active downloads
@@ -374,35 +375,73 @@ object UIDTNotificationManager {
             return
         }
 
-        val groupProgress = UIDTJobRegistry.groupProgress[groupId]
+        // Calculate aggregate progress from all active jobs in the group
+        var totalBytesDownloaded = 0L
+        var totalBytesTotal = 0L
+        var hasKnownTotal = false
+
+        for ((_, jobState) in groupJobs) {
+            // Use JobState's tracked progress (updated on every progress callback)
+            totalBytesDownloaded += jobState.bytesDownloaded
+            if (jobState.bytesTotal > 0) {
+                totalBytesTotal += jobState.bytesTotal
+                hasKnownTotal = true
+            }
+        }
+
         val groupKey = "${UIDTConstants.NOTIFICATION_GROUP_KEY}_$groupId"
         val title = groupName.ifEmpty { config.getText("groupTitle") }
 
-        // Build progress text based on available info
-        val text = if (groupProgress != null && groupProgress.totalBytes > 0) {
-            "${groupProgress.progressPercent}% - ${groupDownloads} file${if (groupDownloads != 1) "s" else ""}"
+        // Calculate progress percentage
+        val progress = if (hasKnownTotal && totalBytesTotal > 0) {
+            ((totalBytesDownloaded * 100) / totalBytesTotal).toInt().coerceIn(0, 100)
+        } else {
+            0
+        }
+        val indeterminate = !hasKnownTotal || totalBytesTotal <= 0
+
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Summary progress: downloaded=$totalBytesDownloaded, total=$totalBytesTotal, progress=$progress%, indeterminate=$indeterminate")
+
+        // Build progress text
+        val text = if (hasKnownTotal && totalBytesTotal > 0) {
+            "$progress% - $groupDownloads file${if (groupDownloads != 1) "s" else ""}"
         } else {
             config.getText("groupText", "count" to groupDownloads)
         }
 
-        val progress = groupProgress?.progressPercent ?: 0
-        val indeterminate = groupProgress == null || groupProgress.totalBytes <= 0
-
-        val summaryNotification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+        // Create a standalone progress notification (NOT part of the group)
+        // This ensures progress bar is visible in collapsed view
+        val progressNotification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setGroup(groupKey)
-            .setGroupSummary(true)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            // Don't set group - this notification stands alone with full progress visibility
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, indeterminate)
             .build()
 
-        notificationManager.notify(summaryNotificationId, summaryNotification)
+        notificationManager.notify(summaryNotificationId, progressNotification)
+
+        // Create a hidden group summary to collapse all individual UIDT notifications
+        // This prevents individual notifications from cluttering the notification shade
+        val hiddenGroupSummaryId = summaryNotificationId + 1
+        val hiddenGroupSummary = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ULTRA_SILENT_ID)
+            .setContentTitle("")
+            .setContentText("")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setGroup(groupKey)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setSilent(true)
+            .setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .build()
+
+        notificationManager.notify(hiddenGroupSummaryId, hiddenGroupSummary)
     }
 
     /**
@@ -434,6 +473,10 @@ object UIDTNotificationManager {
         val summaryNotificationId = UIDTConstants.SUMMARY_NOTIFICATION_ID + groupId.hashCode()
 
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "cancelSummaryNotification called for group '$groupId', hashCode=${groupId.hashCode()}, summaryNotificationId=$summaryNotificationId")
+
+        // Also cancel the hidden group summary
+        val hiddenGroupSummaryId = summaryNotificationId + 1
+        notificationManager.cancel(hiddenGroupSummaryId)
 
         // First, cancel all active status bar notifications to ensure the group is completely removed
         // This prevents Android from auto-recreating a group summary from orphaned child notifications
