@@ -66,6 +66,13 @@ static CompletionHandler storedCompletionHandler;
     // Controls whether debug logs are sent to JS
     BOOL isLogsEnabled;
 
+#ifdef RCT_NEW_ARCH_ENABLED
+    // Queue of events that arrived before the TurboModule event emitter callback was set.
+    // This prevents crashes (std::bad_function_call / SIGABRT) when NSURLSession delegate
+    // callbacks fire before JS has registered event listeners.
+    NSMutableArray<NSDictionary *> *pendingEmitEvents;
+#endif
+
     // Upload-specific instance variables
     NSMutableDictionary<NSNumber *, RNBGDUploadTaskConfig *> *uploadTaskToConfigMap;
     NSMutableDictionary<NSString *, NSURLSessionUploadTask *> *idToUploadTaskMap;
@@ -232,6 +239,10 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         idToUpdatedHeadersMap = [[NSMutableDictionary alloc] init];
         isSessionActivated = NO;
         pendingDownloads = [[NSMutableArray alloc] init];
+
+#ifdef RCT_NEW_ARCH_ENABLED
+        pendingEmitEvents = [[NSMutableArray alloc] init];
+#endif
 
         // Initialize upload-specific data structures
         NSData *uploadTaskToConfigMapData = [mmkv getDataForKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
@@ -1140,6 +1151,36 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     }
 }
 
+#ifdef RCT_NEW_ARCH_ENABLED
+#pragma mark - Safe event emission (New Architecture)
+
+// Safely emit an event, queuing it if the TurboModule event emitter callback
+// has not been registered yet. This prevents std::bad_function_call crashes
+// when NSURLSession delegate callbacks fire before JS has registered listeners
+// (e.g., background session delivering completions from a prior app session).
+- (void)safeEmitEvent:(NSString *)eventName value:(id)value {
+    @synchronized (pendingEmitEvents) {
+        if (_eventEmitterCallback) {
+            _eventEmitterCallback(std::string([eventName UTF8String]), value);
+        } else {
+            [pendingEmitEvents addObject:@{@"name": eventName, @"value": value}];
+        }
+    }
+}
+
+- (void)setEventEmitterCallback:(EventEmitterCallbackWrapper *)eventEmitterCallbackWrapper {
+    @synchronized (pendingEmitEvents) {
+        [super setEventEmitterCallback:eventEmitterCallbackWrapper];
+
+        // Flush any events that arrived before the callback was set
+        for (NSDictionary *event in pendingEmitEvents) {
+            _eventEmitterCallback(std::string([event[@"name"] UTF8String]), event[@"value"]);
+        }
+        [pendingEmitEvents removeAllObjects];
+    }
+}
+#endif
+
 #pragma mark - NSURLSessionDownloadDelegate methods
 - (void)URLSession:(nonnull NSURLSession *)session downloadTask:(nonnull NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(nonnull NSURL *)location {
     @synchronized (sharedLock) {
@@ -1170,7 +1211,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 - (void)sendDownloadCompletionEvent:(RNBGDTaskConfig *)taskConfig task:(NSURLSessionDownloadTask *)task error:(NSError *)error {
     if (error) {
 #ifdef RCT_NEW_ARCH_ENABLED
-        [self emitOnDownloadFailed:@{
+        [self safeEmitEvent:@"onDownloadFailed" value:@{
             @"id": taskConfig.id,
             @"error": [error localizedDescription],
             @"errorCode": @(error.code)
@@ -1184,7 +1225,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 #endif
     } else {
 #ifdef RCT_NEW_ARCH_ENABLED
-        [self emitOnDownloadComplete:@{
+        [self safeEmitEvent:@"onDownloadComplete" value:@{
             @"id": taskConfig.id,
             @"location": taskConfig.destination,
             @"bytesDownloaded": @(task.countOfBytesReceived),
@@ -1243,7 +1284,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         responseHeaders = @{};
     }
 #ifdef RCT_NEW_ARCH_ENABLED
-    [self emitOnDownloadBegin:@{
+    [self safeEmitEvent:@"onDownloadBegin" value:@{
         @"id": taskConfig.id,
         @"expectedBytes": @(expectedBytes),
         @"headers": responseHeaders
@@ -1290,7 +1331,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     NSDate *now = [NSDate date];
     if ([now timeIntervalSinceDate:lastProgressReportedAt] > progressInterval) {
 #ifdef RCT_NEW_ARCH_ENABLED
-        [self emitOnDownloadProgress:[progressReports allValues]];
+        [self safeEmitEvent:@"onDownloadProgress" value:[progressReports allValues]];
 #else
         [self sendEventWithName:@"downloadProgress" body:[progressReports allValues]];
 #endif
@@ -1385,7 +1426,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
         // Handle failure
 #ifdef RCT_NEW_ARCH_ENABLED
-        [self emitOnDownloadFailed:@{
+        [self safeEmitEvent:@"onDownloadFailed" value:@{
             @"id": taskConfig.id,
             @"error": [error localizedDescription],
             @"errorCode": @(error.code)
@@ -1764,7 +1805,7 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
         if (!taskConfig.reportedBegin) {
             taskConfig.reportedBegin = YES;
 #ifdef RCT_NEW_ARCH_ENABLED
-            [self emitOnUploadBegin:@{
+            [self safeEmitEvent:@"onUploadBegin" value:@{
                 @"id": taskConfig.id,
                 @"expectedBytes": @(totalBytesExpectedToSend)
             }];
@@ -1801,7 +1842,7 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
             NSDate *now = [NSDate date];
             if ([now timeIntervalSinceDate:lastUploadProgressReportedAt] > progressInterval) {
 #ifdef RCT_NEW_ARCH_ENABLED
-                [self emitOnUploadProgress:[uploadProgressReports allValues]];
+                [self safeEmitEvent:@"onUploadProgress" value:[uploadProgressReports allValues]];
 #else
                 [self sendEventWithName:@"uploadProgress" body:[uploadProgressReports allValues]];
 #endif
@@ -1847,7 +1888,7 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
 
             DLog(taskConfig.id, @"[RNBackgroundDownloader] - [handleUploadCompletion] error: %@", error);
 #ifdef RCT_NEW_ARCH_ENABLED
-            [self emitOnUploadFailed:@{
+            [self safeEmitEvent:@"onUploadFailed" value:@{
                 @"id": taskConfig.id,
                 @"error": [error localizedDescription],
                 @"errorCode": @(error.code)
@@ -1873,7 +1914,7 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
 
             DLog(taskConfig.id, @"[RNBackgroundDownloader] - [handleUploadCompletion] success, responseCode: %ld", (long)responseCode);
 #ifdef RCT_NEW_ARCH_ENABLED
-            [self emitOnUploadComplete:@{
+            [self safeEmitEvent:@"onUploadComplete" value:@{
                 @"id": taskConfig.id,
                 @"responseCode": @(responseCode),
                 @"responseBody": responseBody,
