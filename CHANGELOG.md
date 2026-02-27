@@ -1,5 +1,23 @@
 # Changelog
 
+## v4.5.3
+
+### ✨ New Features
+
+- **Android: Notification Grouping Mode (`summaryOnly`):** Added `mode` option to `NotificationsGroupingConfig`. Set `mode: 'summaryOnly'` to show only the summary notification for a group while individual download notifications are minimized (ultra-silent, no alert). Useful for keeping the notification shade clean during large batch downloads.
+  - `'individual'` (default) — all notifications shown, current behavior unchanged
+  - `'summaryOnly'` — only the group summary notification is shown with aggregate progress; individual notifications are invisible/silent
+- **Android: Progress-Based Summary Notification:** In `summaryOnly` mode, the group summary notification now displays aggregate progress (total bytes downloaded / total bytes) across all downloads in the group.
+- **Android: Auto-Remove Completed Downloads from Group:** Completed downloads are now automatically removed from notification groups, keeping the summary accurate.
+
+### 🏗️ Architecture Changes
+
+- **JS: `NotificationGroupingMode` Type:** New exported type `'individual' | 'summaryOnly'` for the `mode` field in `NotificationsGroupingConfig`.
+- **Android: Ultra-Silent Notification Channel:** Added `NOTIFICATION_CHANNEL_ULTRA_SILENT_ID` (`IMPORTANCE_MIN`) channel used for individual notifications in `summaryOnly` mode.
+- **Android: `updateSummaryNotificationForGroup()`:** New method that dispatches to the correct summary update strategy based on grouping mode.
+
+---
+
 ## v4.5.2
 
 ### ✨ New Features
