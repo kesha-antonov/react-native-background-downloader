@@ -15,7 +15,18 @@ Platform-specific information, requirements, and troubleshooting for `@kesha-ant
 
 ### Background Session Handling
 
-iOS uses `NSURLSession` with background configuration. Downloads continue even after your app is terminated by the system. When your app is relaunched, you can reconnect to these downloads using `getExistingDownloadTasks()`.
+iOS uses `NSURLSession` with background configuration. Downloads continue even after your app is terminated **by the OS** (e.g. due to memory pressure). When your app is relaunched, you can reconnect to these downloads using `getExistingDownloadTasks()`.
+
+### Force-Kill Limitation
+
+> **Important:** If the user explicitly **force-kills** the app via the iOS App Switcher (swipe up to dismiss), iOS immediately cancels all `NSURLSession` background tasks. This is an [intentional iOS system behaviour](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background) and cannot be overridden by any third-party library.
+>
+> In short:
+> - App sent to background (home button / swipe home) → downloads **continue** ✅
+> - App terminated by the OS (memory pressure, system reboot) → downloads **continue** ✅
+> - App **force-killed** by the user via App Switcher → downloads **stop** ❌
+>
+> If continuous background downloading is critical regardless of force-kill, consider scheduling a silent push notification to wake the app after it is relaunched, then reconnect to the task with `getExistingDownloadTasks()` to capture any progress that occurred before the kill.
 
 ### AppDelegate Setup Required
 

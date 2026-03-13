@@ -15,14 +15,14 @@
 <h1 align="center">React Native Background Downloader</h1>
 
 <p align="center">
-  Download and upload large files on iOS & Android — even when your app is in the background or terminated.
+  Download and upload large files on iOS & Android — even when your app is in the background or terminated by the OS.
 </p>
 
 ---
 
 ## ✨ Features
 
-- 📥 **Background Downloads** - Downloads continue even when app is in background or terminated
+- 📥 **Background Downloads** - Downloads continue even when app is in background or terminated by the OS
 - 📤 **Background Uploads** - Upload files reliably in the background
 - ⏸️ **Pause/Resume** - Full pause and resume support on both iOS and Android
 - 🔄 **Re-attach to Downloads** - Reconnect to ongoing downloads after app restart
@@ -37,7 +37,7 @@
 **The Problem:** Standard network requests in React Native are tied to your app's lifecycle. When the user switches to another app or the OS terminates your app to free memory, your downloads stop. For small files this is fine, but for large files (videos, podcasts, documents) this creates a frustrating user experience.
 
 **The Solution:** Both iOS and Android provide system-level APIs for background file transfers:
-- **iOS:** [`NSURLSession`](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background) - handles downloads in a separate process, continuing even after your app is terminated
+- **iOS:** [`NSURLSession`](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background) - handles downloads in a separate process, continuing even after your app is terminated by the OS. Note: if the user explicitly force-kills the app via the App Switcher, iOS cancels all background tasks — this is an iOS system limitation that cannot be overridden
 - **Android:** A combination of [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) for system-managed downloads, [Foreground Services](https://developer.android.com/develop/background-work/services/foreground-services) for pause/resume support, and [MMKV](https://github.com/Tencent/MMKV) for persistent state storage
 
 **The Challenge:** These APIs are powerful but complex. Downloads run in a separate process, so your app might restart from scratch while downloads are still in progress. Keeping your UI in sync with background downloads requires careful state management.
