@@ -36,6 +36,8 @@ android {
         versionName '1.0'
 
         // Support for 16KB memory page sizes (Android 15+)
+        // Note: MMKV 2.x dropped armeabi-v7a support. If your app targets armeabi-v7a,
+        // downgrade to MMKV 1.x in your app's build.gradle (see README for details).
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
@@ -78,8 +80,8 @@ dependencies {
     // MMKV dependency for persistent download state storage
     // Uses compileOnly to avoid duplicate class errors when app also uses react-native-mmkv
     // The app must provide MMKV dependency (either directly or via react-native-mmkv)
-    // MMKV 2.0.0+ is required for 16KB memory page size support (Android 15+)
-    compileOnly 'com.tencent:mmkv-shared:2.0.0'
+    // MMKV 1.3.14+ supports both armeabi-v7a (32-bit) and 16KB page sizes (Android 15+)
+    compileOnly 'com.tencent:mmkv-shared:1.3.16'
 
     implementation 'com.google.code.gson:gson:2.12.1'
 }

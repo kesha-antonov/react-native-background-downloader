@@ -31,8 +31,9 @@ describe('16KB Memory Page Size Support', () => {
 
     // Should use updated MMKV version that supports 16KB page sizes
     // Note: Uses compileOnly to avoid duplicate class errors with react-native-mmkv
-    // MMKV 2.0.0+ supports 16KB page sizes
-    expect(buildGradleContent).toMatch(/mmkv-shared:2\.[0-9]+\.[0-9]+/)
+    // MMKV 1.3.14+ (LTS) supports both armeabi-v7a and 16KB page sizes
+    // MMKV 2.0.0+ also supports 16KB page sizes but dropped armeabi-v7a
+    expect(buildGradleContent).toMatch(/mmkv-shared:[0-9]+\.[0-9]+\.[0-9]+/)
   })
 
   test('should have gradle.properties configured for 16KB support', () => {
@@ -104,10 +105,16 @@ describe('16KB Memory Page Size Support', () => {
 
     if (mmkvMatch) {
       const version = mmkvMatch[1]
-      const [major] = version.split('.').map(Number)
+      const [major, minor, patch] = version.split('.').map(Number)
 
-      // Ensure we're using MMKV 2.0.0 or later (required for 16KB page size support)
-      expect(major).toBeGreaterThanOrEqual(2)
+      // MMKV 1.3.14+ supports 16KB page sizes AND armeabi-v7a (32-bit)
+      // MMKV 2.0.0+ also supports 16KB page sizes but dropped armeabi-v7a
+      // We use 1.3.x LTS for maximum device coverage
+      const supports16kb =
+        major >= 2 ||
+        (major === 1 && minor > 3) ||
+        (major === 1 && minor === 3 && patch >= 14)
+      expect(supports16kb).toBe(true)
     }
   })
 })

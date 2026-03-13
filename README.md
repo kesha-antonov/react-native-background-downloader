@@ -53,6 +53,7 @@
 - [📦 Installation](#-installation)
   - [Expo Projects](#expo-projects)
   - [Bare React Native Projects](#bare-react-native-projects)
+    - [MMKV version comparison](#mmkv-version-comparison)
 - [🚀 Usage](#-usage)
   - [Downloading a file](#downloading-a-file)
   - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
@@ -113,7 +114,7 @@ export default {
   expo: {
     plugins: [
       ["@kesha-antonov/react-native-background-downloader", {
-        mmkvVersion: "2.2.4",  // Customize MMKV version on Android
+        mmkvVersion: "1.3.16",  // Customize MMKV version on Android
         skipMmkvDependency: true  // Skip if you want to add MMKV manually
       }]
     ]
@@ -123,7 +124,7 @@ export default {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `mmkvVersion` | string | `'2.2.4'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. |
+| `mmkvVersion` | string | `'1.3.16'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. |
 | `skipMmkvDependency` | boolean | `false` | Skip adding MMKV dependency. Set to `true` if you're using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) to avoid duplicate class errors. The plugin auto-detects `react-native-mmkv` but you can use this option to explicitly skip. |
 
 </details>
@@ -214,11 +215,29 @@ Add MMKV to your `android/app/build.gradle`:
 
 ```gradle
 dependencies {
-    implementation 'com.tencent:mmkv-shared:2.2.4'
+    implementation 'com.tencent:mmkv-shared:1.3.16'
 }
 ```
 
-> **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, skip this step — it already includes MMKV.
+> **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, skip this step — it already includes MMKV. Note that `react-native-mmkv` v4.x uses [Margelo's fork of MMKV](https://github.com/margelo/MMKV) (`io.github.zhongwuzw:mmkv`) which re-adds armeabi-v7a (32-bit ARM) support that was dropped in the official MMKV 2.x release.
+
+> **⚠️ armeabi-v7a (32-bit ARM) users:** MMKV 2.x dropped 32-bit ABI support (since v2.0.0). If you need armeabi-v7a support and get a CMake error like `No compatible library found for //mmkv/mmkv`, use the MMKV 1.3.x LTS series instead — it supports both armeabi-v7a **and** 16KB page sizes (since v1.3.14):
+> ```gradle
+> dependencies {
+>     implementation 'com.tencent:mmkv-shared:1.3.16'
+> }
+> ```
+
+#### MMKV version comparison
+
+| Dependency | armeabi-v7a (32-bit) | arm64-v8a | 16KB page size | Recommended for |
+|---|:---:|:---:|:---:|---|
+| `com.tencent:mmkv-shared:1.3.16` (**default**) | ✅ | ✅ | ✅ (since 1.3.14) | Most apps — broadest device coverage |
+| `com.tencent:mmkv-shared:2.x` | ❌ | ✅ | ✅ | 64-bit only apps (no legacy devices) |
+| `io.github.zhongwuzw:mmkv:2.3.0` ([Margelo fork](https://github.com/margelo/MMKV)) | ✅ | ✅ | ✅ | Used automatically by `react-native-mmkv` v4.x — skip manual dependency |
+| `react-native-mmkv` (already in project) | ✅ | ✅ | ✅ | If you already use `react-native-mmkv` — skip Step 4 entirely |
+
+**TL;DR:** Use the default `1.3.16`. If you already have `react-native-mmkv` in your project, skip Step 4.
 
 ## 🚀 Usage
 
@@ -836,6 +855,8 @@ This can happen with slow-responding servers. The library automatically adds kee
 <summary><strong>Duplicate class errors with react-native-mmkv (Android)</strong></summary>
 
 If you're using `react-native-mmkv`, you don't need to add the MMKV dependency manually - it's already included. The library uses `compileOnly` to avoid conflicts.
+
+`react-native-mmkv` v4.x uses [Margelo's fork of MMKV](https://github.com/margelo/MMKV) (`io.github.zhongwuzw:mmkv`) which re-adds armeabi-v7a (32-bit ARM) support, so you have full ABI coverage including 32-bit devices when using `react-native-mmkv`.
 </details>
 
 <details>
