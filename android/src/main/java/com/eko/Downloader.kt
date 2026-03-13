@@ -111,8 +111,18 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
   /**
    * Set the download listener for resumable downloads.
+   * Also sets the UIDT listener on Android 14+ so that ongoing UIDT jobs
+   * (e.g. ones that survived app termination) can forward events to JS after
+   * the app is reopened.
    */
   fun setResumableDownloadListener(listener: ResumableDownloader.DownloadListener) {
+    // For UIDT jobs (Android 14+), set the listener directly on the registry.
+    // This reconnects event forwarding after app restart when UIDT jobs are
+    // already running but UIDTJobRegistry.downloadListener was null in the
+    // fresh process.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      UIDTDownloadJobService.downloadListener = listener
+    }
     executeWhenServiceReady {
       downloadService?.setDownloadListener(listener)
     }

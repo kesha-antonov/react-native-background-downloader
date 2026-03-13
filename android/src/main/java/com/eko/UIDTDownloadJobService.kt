@@ -148,7 +148,7 @@ class UIDTDownloadJobService : JobService() {
         }
         val url = extras.getString(UIDTConstants.KEY_URL) ?: return false
         val destination = extras.getString(UIDTConstants.KEY_DESTINATION) ?: return false
-        val startByte = extras.getLong(UIDTConstants.KEY_START_BYTE, 0)
+        val startByteFromExtras = extras.getLong(UIDTConstants.KEY_START_BYTE, 0)
         val totalBytes = extras.getLong(UIDTConstants.KEY_TOTAL_BYTES, -1)
 
         // Extract group info from metadata (for notification grouping)
@@ -165,8 +165,36 @@ class UIDTDownloadJobService : JobService() {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to parse metadata: ${e.message}")
         }
 
-        // Retrieve headers
-        val headers = UIDTJobRegistry.pendingHeaders.remove(configId) ?: emptyMap()
+        // Resolve headers and start byte.
+        // In-memory pendingHeaders is populated in the same process (scheduleDownload / onStopJob).
+        // The disk-persisted resume state is the fallback for a fresh process after a restart.
+        val inMemoryHeaders = UIDTJobRegistry.pendingHeaders.remove(configId)
+        val diskResumeState = UIDTJobRegistry.loadResumeState(this, configId)
+        // Clear disk state now that we've consumed it.
+        UIDTJobRegistry.clearResumeState(this, configId)
+
+        val headers: Map<String, String>
+        val startByte: Long
+        when {
+            inMemoryHeaders != null -> {
+                // Same-process restart: use in-memory headers.
+                // Prefer the disk byte position if it is more advanced than the extras
+                // (written by onStopJob with the actual download offset).
+                headers = inMemoryHeaders
+                startByte = if (diskResumeState != null && diskResumeState.second > startByteFromExtras)
+                    diskResumeState.second else startByteFromExtras
+            }
+            diskResumeState != null -> {
+                // Cross-process restart: use the persisted state.
+                headers = diskResumeState.first
+                startByte = diskResumeState.second
+            }
+            else -> {
+                headers = emptyMap()
+                startByte = startByteFromExtras
+            }
+        }
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStartJob: configId=$configId, startByte=$startByte, headers=${headers.size}")
 
         // Create notification for UIDT job (required)
         val notificationId = UIDTNotificationManager.getNotificationIdForConfig(configId)
@@ -233,8 +261,12 @@ class UIDTDownloadJobService : JobService() {
                 // Save state for potential resume
                 val state = jobState.resumableDownloader.getState(configId)
                 if (state != null) {
-                    // Store resume info
+                    val bytesDownloaded = state.bytesDownloaded.get()
+                    // Keep in-memory headers so the same-process reschedule works.
                     UIDTJobRegistry.pendingHeaders[configId] = state.headers
+                    // Persist to disk so a fresh process can resume from the right position.
+                    UIDTJobRegistry.saveResumeState(this, configId, state.headers, bytesDownloaded)
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStopJob: saved resume state for $configId at $bytesDownloaded bytes")
                 }
             }
             UIDTJobRegistry.activeJobs.remove(configId)
@@ -364,6 +396,9 @@ class UIDTDownloadJobService : JobService() {
                 // Signal job completion - this triggers the REMOVE policy
                 jobFinished(params, false)
 
+                // Clear persisted resume state - no longer needed after successful completion
+                UIDTJobRegistry.clearResumeState(this@UIDTDownloadJobService, id)
+
                 // Notify external listener
                 UIDTJobRegistry.downloadListener?.onComplete(id, location, bytesDownloaded, bytesTotal)
             }
@@ -401,6 +436,9 @@ class UIDTDownloadJobService : JobService() {
 
                 // Signal job completion with no reschedule - this triggers the REMOVE policy
                 jobFinished(params, false)
+
+                // Clear persisted resume state - no longer needed after failure
+                UIDTJobRegistry.clearResumeState(this@UIDTDownloadJobService, id)
 
                 // Notify external listener
                 UIDTJobRegistry.downloadListener?.onError(id, error, errorCode)

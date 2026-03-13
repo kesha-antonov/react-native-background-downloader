@@ -66,6 +66,9 @@ object UIDTJobManager {
 
         // Store headers for later retrieval (PersistableBundle can't store Map<String, String>)
         UIDTJobRegistry.pendingHeaders[configId] = headers
+        // Also persist to disk so headers survive process death and are available
+        // in onStartJob even when the process is restarted by the JobScheduler.
+        UIDTJobRegistry.saveResumeState(context, configId, headers, startByte)
 
         // Create extras bundle
         val extras = PersistableBundle().apply {
@@ -155,6 +158,8 @@ object UIDTJobManager {
         jobScheduler.cancel(jobId)
         UIDTJobRegistry.pendingHeaders.remove(configId)
         UIDTJobRegistry.activeJobs.remove(configId)
+        // Clear persisted resume state so stale headers/bytes don't affect future downloads
+        UIDTJobRegistry.clearResumeState(context, configId)
 
         // Update summary notification if grouping was enabled
         if (jobState != null && config.groupingEnabled && jobState.groupId.isNotEmpty()) {

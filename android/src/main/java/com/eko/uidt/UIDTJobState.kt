@@ -1,7 +1,10 @@
 package com.eko.uidt
 
 import android.app.job.JobParameters
+import android.content.Context
+import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.ResumableDownloader
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -127,6 +130,65 @@ data class UIDTJobInfo(
  * Singleton for managing active UIDT jobs state.
  */
 object UIDTJobRegistry {
+
+    private const val PREFS_NAME = "rnbd_uidt_resume"
+    private const val KEY_BYTES_PREFIX = "bytes_"
+    private const val KEY_HEADERS_PREFIX = "headers_"
+
+    /**
+     * Persist UIDT resume state (headers + byte position) to disk so it
+     * survives process death and can be used when the job is rescheduled in a
+     * new process.
+     */
+    fun saveResumeState(context: Context, configId: String, headers: Map<String, String>, bytesDownloaded: Long) {
+        try {
+            val headersJson = JSONObject(headers as Map<*, *>).toString()
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putLong("$KEY_BYTES_PREFIX$configId", bytesDownloaded)
+                .putString("$KEY_HEADERS_PREFIX$configId", headersJson)
+                .apply()
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Saved UIDT resume state for $configId: bytes=$bytesDownloaded")
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to save UIDT resume state for $configId: ${e.message}")
+        }
+    }
+
+    /**
+     * Load persisted UIDT resume state for a download.
+     * Returns (headers, bytesDownloaded) or null if no state was saved.
+     */
+    fun loadResumeState(context: Context, configId: String): Pair<Map<String, String>, Long>? {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val bytesDownloaded = prefs.getLong("$KEY_BYTES_PREFIX$configId", -1L)
+            val headersJson = prefs.getString("$KEY_HEADERS_PREFIX$configId", null)
+            if (bytesDownloaded < 0 || headersJson == null) return null
+            val json = JSONObject(headersJson)
+            val headers = mutableMapOf<String, String>()
+            for (key in json.keys()) headers[key] = json.getString(key)
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Loaded UIDT resume state for $configId: bytes=$bytesDownloaded, headers=${headers.size}")
+            return Pair(headers, bytesDownloaded)
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to load UIDT resume state for $configId: ${e.message}")
+            return null
+        }
+    }
+
+    /**
+     * Clear persisted UIDT resume state for a download once it is no longer needed.
+     */
+    fun clearResumeState(context: Context, configId: String) {
+        try {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .remove("$KEY_BYTES_PREFIX$configId")
+                .remove("$KEY_HEADERS_PREFIX$configId")
+                .apply()
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cleared UIDT resume state for $configId")
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to clear UIDT resume state for $configId: ${e.message}")
+        }
+    }
+
     // Track active jobs for pause/resume
     val activeJobs = ConcurrentHashMap<String, JobState>()
 
