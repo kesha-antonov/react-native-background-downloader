@@ -1,5 +1,24 @@
 # Changelog
 
+## v4.5.4
+
+### 🐛 Bug Fixes
+
+- **iOS: SIGABRT Crash on New Architecture (TurboModules):** Fixed a crash where `NSURLSession` delegate callbacks fired before the JS side had registered event listeners (e.g. background session delivering completions from a prior app session on launch). Added a `safeEmitEvent:` helper that queues events when the emitter callback is not yet set and flushes the queue once `setEventEmitterCallback:` is called. All 8 emit call sites (download + upload) are updated. (PR #153 by [@isaacrowntree](https://github.com/isaacrowntree))
+- **Android: UIDT Downloads Not Starting on VPN Networks (fix #154):** Removed `NET_CAPABILITY_NOT_VPN` from UIDT `JobScheduler` network requirements so that VPN networks (e.g. Proton VPN, full-tunnel VPNs) are accepted. Previously the job never started when a kill-switch VPN was active because `JobScheduler` only considered non-VPN interfaces.
+- **Android: UIDT Downloads Not Resuming After App Restart (fix #156):** Fixed headers and start-byte resolution for UIDT jobs after a cross-process restart. In-memory `pendingHeaders` are used when available (same-process); the disk-persisted resume state is used as a fallback for a fresh process. Also reconnects UIDT event forwarding to JS on Android 14+ when the app is reopened while downloads are already in progress.
+- **Cross-Platform: Stale Progress Event After Download Completes/Fails:** Fixed a race condition where a buffered progress event could arrive in JS after `downloadComplete` or `downloadFailed`.
+  - **iOS:** Clears `progressReports` entry for the task before dispatching `sendDownloadCompletionEvent`.
+  - **Android (ResumableDownloader/UIDT):** Calls `clearPendingReport` before `emitComplete` / `emitFailed`.
+  - **Android (DownloadManager):** Calls `clearPendingReport` inside the synchronized block before `onSuccessfulDownload` / `onFailedDownload` to close the race with the polling thread.
+
+### 📚 Documentation
+
+- **iOS Force-Kill Limitation (fix #155):** Clarified that user-initiated force-kills via the iOS App Switcher cancel all `NSURLSession` background tasks — this is an intentional iOS system behaviour that cannot be overridden. Added a dedicated "Force-Kill Limitation" section to `PLATFORM_NOTES.md` with a summary table and a workaround suggestion (silent push + `getExistingDownloadTasks()`).
+- **MMKV Version Downgraded to 1.3.16 (fix #150):** Changed the default MMKV version from `2.2.4` to `1.3.16` (LTS) to restore `armeabi-v7a` (32-bit ARM) support that was dropped in MMKV 2.x. Added an MMKV version comparison table to the README covering official 1.x/2.x and the Margelo fork used by `react-native-mmkv` v4.x.
+
+---
+
 ## v4.5.3
 
 ### ✨ New Features
