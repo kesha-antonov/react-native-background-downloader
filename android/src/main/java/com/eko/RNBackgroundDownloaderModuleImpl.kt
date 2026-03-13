@@ -225,6 +225,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
+      // Drop any buffered progress for this task so it cannot arrive in JS after downloadComplete
+      progressReporter.clearPendingReport(id)
       eventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal)
 
       // Clean up all download state
@@ -234,6 +236,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     override fun onError(id: String, error: String, errorCode: Int) {
+      // Drop any buffered progress for this task so it cannot arrive in JS after downloadFailed
+      progressReporter.clearPendingReport(id)
       eventEmitter.emitFailed(id, error, errorCode)
 
       // Clean up all download state
@@ -385,6 +389,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           stopTaskProgress(config.id)
 
           synchronized(sharedLock) {
+            // Drop any buffered progress that slipped past stopTaskProgress's clearPendingReport
+            // (the polling thread may have re-added it between clearPendingReport and this lock)
+            progressReporter.clearPendingReport(config.id)
             when (status) {
               DownloadManager.STATUS_SUCCESSFUL -> {
                 onSuccessfulDownload(config, downloadStatus)

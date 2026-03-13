@@ -1202,6 +1202,9 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             [self sendDebugLog:[NSString stringWithFormat:@"didFinishDownloadingToURL: error - %@", error.localizedDescription] taskId:taskConfig.id];
         }
 
+        // Drop any buffered progress for this task so it cannot arrive in JS after downloadComplete
+        [progressReports removeObjectForKey:taskConfig.id];
+
         [self sendDownloadCompletionEvent:taskConfig task:downloadTask error:error];
 
         [self removeTaskFromMap:downloadTask];
