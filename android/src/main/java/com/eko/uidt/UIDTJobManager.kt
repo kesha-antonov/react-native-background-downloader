@@ -77,9 +77,14 @@ object UIDTJobManager {
             putString(UIDTConstants.KEY_METADATA, metadata)
         }
 
-        // Build network request - require internet connectivity
+        // Build network request - require internet connectivity.
+        // Remove NET_CAPABILITY_NOT_VPN (added by Builder default) so that VPN networks
+        // (e.g. Proton VPN, full-tunnel VPNs) are accepted. Without this, the JobScheduler
+        // only considers non-VPN networks; a kill-switch VPN blocks that traffic and the
+        // job never starts, causing callbacks to never fire.
         val networkRequest = NetworkRequest.Builder()
             .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
 
         // Build the job with UIDT flag
