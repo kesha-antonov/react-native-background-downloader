@@ -124,8 +124,8 @@ export default {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `mmkvVersion` | string | `'1.3.16'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. |
-| `skipMmkvDependency` | boolean | `false` | Skip adding MMKV dependency. Set to `true` if you're using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) to avoid duplicate class errors. The plugin auto-detects `react-native-mmkv` but you can use this option to explicitly skip. |
+| `mmkvVersion` | string | `'1.3.16'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. See [MMKV version comparison](#mmkv-version-comparison) for details. |
+| `skipMmkvDependency` | boolean | `false` | Skip adding MMKV dependency. Set to `true` if you're using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) to avoid duplicate class errors. The plugin auto-detects `react-native-mmkv` but you can use this option to explicitly skip. See [MMKV version comparison](#mmkv-version-comparison). |
 
 </details>
 
