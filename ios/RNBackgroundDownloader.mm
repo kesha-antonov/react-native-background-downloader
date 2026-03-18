@@ -122,6 +122,35 @@ RCT_EXPORT_MODULE();
 }
 #endif
 
+- (BOOL)isSessionUsable {
+    return urlSession != nil;
+}
+
+- (void)resetSessionIfNeeded {
+    @synchronized (sharedLock) {
+        if (urlSession == nil) {
+            DLog(nil, @"[RNBackgroundDownloader] - [resetSessionIfNeeded] creating new session");
+            [self sendDebugLog:@"resetSessionIfNeeded: creating new session" taskId:nil];
+
+            NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
+            NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
+
+            sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessionIdentifier];
+            sessionConfig.HTTPMaximumConnectionsPerHost = kMaxConnectionsPerHost;
+            sessionConfig.timeoutIntervalForRequest = kRequestTimeoutSeconds;
+            sessionConfig.timeoutIntervalForResource = kResourceTimeoutSeconds;
+            sessionConfig.discretionary = NO;
+            sessionConfig.sessionSendsLaunchEvents = YES;
+            sessionConfig.shouldUseExtendedBackgroundIdleMode = YES;
+            sessionConfig.allowsExpensiveNetworkAccess = YES;
+
+            urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+            isSessionActivated = NO;
+            [self activateSession];
+        }
+    }
+}
+
 // Helper method to send debug logs to JS
 - (void)sendDebugLog:(NSString *)message taskId:(NSString *)taskId {
     // Only send logs if logging is enabled
@@ -548,21 +577,123 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 }
 
 // Internal method to execute the download after session is activated
-- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier url:(NSString *)url destination:(NSString *)destination metadata:(NSString *)metadata {
+- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request
+                        identifier:(NSString *)identifier
+                               url:(NSString *)url
+                       destination:(NSString *)destination
+                          metadata:(NSString *)metadata {
+    [self executeDownloadWithRequest:request
+                          identifier:identifier
+                                 url:url
+                         destination:destination
+                            metadata:metadata
+                         retryOnFail:YES];
+}
+
+- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request
+                        identifier:(NSString *)identifier
+                               url:(NSString *)url
+                       destination:(NSString *)destination
+                          metadata:(NSString *)metadata
+                       retryOnFail:(BOOL)retryOnFail {
     @synchronized (sharedLock) {
         DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest]");
-        [self sendDebugLog:@"executeDownloadWithRequest: creating download task" taskId:identifier];
+        [self sendDebugLog:@"executeDownloadWithRequest: preparing to create download task" taskId:identifier];
 
-        NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
+        if (urlSession == nil) {
+            [self sendDebugLog:@"executeDownloadWithRequest: urlSession is nil, resetting session" taskId:identifier];
+            [self resetSessionIfNeeded];
+        }
+
+        if (urlSession == nil || !isSessionActivated) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest] session unavailable, re-queueing");
+            [self sendDebugLog:@"executeDownloadWithRequest: session unavailable, re-queueing" taskId:identifier];
+
+            __weak RNBackgroundDownloader *weakSelf = self;
+            dispatch_block_t retryBlock = ^{
+                RNBackgroundDownloader *strongSelf = weakSelf;
+                if (strongSelf) {
+                    [strongSelf executeDownloadWithRequest:request
+                                                identifier:identifier
+                                                       url:url
+                                               destination:destination
+                                                  metadata:metadata
+                                               retryOnFail:retryOnFail];
+                }
+            };
+            [pendingDownloads addObject:retryBlock];
+            return;
+        }
+
+        NSURLSessionDownloadTask *task = nil;
+
+        @try {
+            task = [urlSession downloadTaskWithRequest:request];
+        } @catch (NSException *exception) {
+            NSString *reason = exception.reason ?: @"unknown";
+            [self sendDebugLog:[NSString stringWithFormat:@"executeDownloadWithRequest: exception while creating task: %@", reason]
+                        taskId:identifier];
+
+            BOOL looksLikeInvalidated =
+                [reason localizedCaseInsensitiveContainsString:@"invalidated"] ||
+                [reason localizedCaseInsensitiveContainsString:@"session that has been invalidated"];
+
+            if (retryOnFail && looksLikeInvalidated) {
+                [self sendDebugLog:@"executeDownloadWithRequest: resetting invalidated session and retrying once"
+                            taskId:identifier];
+
+                if (urlSession != nil) {
+                    @try {
+                        [urlSession finishTasksAndInvalidate];
+                    } @catch (__unused NSException *ignored) {}
+                    urlSession = nil;
+                }
+
+                isSessionActivated = NO;
+                [self resetSessionIfNeeded];
+
+                __weak RNBackgroundDownloader *weakSelf = self;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    RNBackgroundDownloader *strongSelf = weakSelf;
+                    if (strongSelf) {
+                        [strongSelf executeDownloadWithRequest:request
+                                                    identifier:identifier
+                                                           url:url
+                                                   destination:destination
+                                                      metadata:metadata
+                                                   retryOnFail:NO];
+                    }
+                });
+                return;
+            }
+
+#ifdef RCT_NEW_ARCH_ENABLED
+            [self safeEmitEvent:@"onDownloadFailed" value:@{
+                @"id": identifier ?: @"",
+                @"error": reason,
+                @"errorCode": @(-1)
+            }];
+#else
+            [self sendEventWithName:@"downloadFailed" body:@{
+                @"id": identifier ?: @"",
+                @"error": reason,
+                @"errorCode": @(-1)
+            }];
+#endif
+            return;
+        }
+
         if (task == nil) {
             DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create download task");
             [self sendDebugLog:@"executeDownloadWithRequest: ERROR - failed to create download task" taskId:identifier];
             return;
         }
 
-        [self sendDebugLog:[NSString stringWithFormat:@"executeDownloadWithRequest: task created with taskIdentifier=%lu", (unsigned long)task.taskIdentifier] taskId:identifier];
+        [self sendDebugLog:[NSString stringWithFormat:@"executeDownloadWithRequest: task created with taskIdentifier=%lu",
+                            (unsigned long)task.taskIdentifier]
+                    taskId:identifier];
 
-        RNBGDTaskConfig *taskConfig = [[RNBGDTaskConfig alloc] initWithDictionary: @{
+        RNBGDTaskConfig *taskConfig = [[RNBGDTaskConfig alloc] initWithDictionary:@{
             @"id": identifier,
             @"url": url,
             @"destination": destination,
@@ -570,7 +701,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         }];
 
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
-        [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+        [mmkv setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         self->idToTaskMap[identifier] = task;
         idToPercentMap[identifier] = @0.0;
