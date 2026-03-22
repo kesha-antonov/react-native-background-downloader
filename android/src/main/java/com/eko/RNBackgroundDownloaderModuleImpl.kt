@@ -988,43 +988,73 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             do {
               val downloadStatus = downloader.getDownloadStatus(cursor)
               val downloadId = downloadStatus.getString("downloadId")?.toLong()
+              var localUri = downloadStatus.getString("localUri")
 
-              if (downloadId != null && downloadIdToConfig.containsKey(downloadId)) {
-                val config = downloadIdToConfig[downloadId]
+              if (downloadId == null) {
+                continue
+              }
 
-                if (config != null) {
-                  val status = downloadStatus.getInt("status")
-                  // Handle completed downloads - file is already at final destination
-                  if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    val localUri = downloadStatus.getString("localUri")
-                    if (localUri != null) {
-                      // Verify the file exists at the destination
-                      val destFile = File(config.destination)
-                      if (!destFile.exists()) {
-                        logE(NAME, "Completed download file not found at destination: ${config.destination}")
-                      }
+              // Try to find config by downloadId first (normal case)
+              var config = downloadIdToConfig[downloadId]
+
+              // If not found by downloadId, try to match by destination path
+              // This handles the case where the app was force-stopped and DownloadManager
+              // reassigned new IDs to existing downloads
+              if (config == null && localUri != null) {
+                // Normalize the localUri (remove "file://" prefix if present)
+                localUri = localUri.replace("file://", "")
+
+                // Search for a config with matching destination
+                for ((_, candidateConfig) in downloadIdToConfig) {
+                  if (candidateConfig.destination == localUri) {
+                    config = candidateConfig
+                    // Update the mapping with the new downloadId
+                    downloadIdToConfig[downloadId] = config
+                    // Remove old mapping if it exists
+                    val oldDownloadId = configIdToDownloadId[config.id]
+                    if (oldDownloadId != null && oldDownloadId != downloadId) {
+                      downloadIdToConfig.remove(oldDownloadId)
+                    }
+                    configIdToDownloadId[config.id] = downloadId
+                    saveDownloadIdToConfigMap()
+                    logD(NAME, "Matched download by destination: ${config.id} (downloadId updated from $oldDownloadId to $downloadId)")
+                    break
+                  }
+                }
+              }
+
+              if (config != null) {
+                val status = downloadStatus.getInt("status")
+                // Handle completed downloads - file is already at final destination
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                  if (localUri != null) {
+                    // Verify the file exists at the destination
+                    val destFile = File(config.destination)
+                    if (!destFile.exists()) {
+                      logE(NAME, "Completed download file not found at destination: ${config.destination}")
                     }
                   }
-
-                  val params = Arguments.createMap()
-
-                  params.putString("id", config.id)
-                  params.putString("metadata", config.metadata)
-                  val state = stateMap[status] ?: 0
-                  params.putInt("state", state)
-
-                  val bytesDownloaded = downloadStatus.getDouble("bytesDownloaded")
-                  params.putDouble("bytesDownloaded", bytesDownloaded)
-                  val bytesTotal = downloadStatus.getDouble("bytesTotal")
-                  params.putDouble("bytesTotal", bytesTotal)
-                  val percent = if (bytesTotal > 0) bytesDownloaded / bytesTotal else 0.0
-
-                  foundTasks.pushMap(params)
-                  processedIds.add(config.id)
-                  configIdToDownloadId[config.id] = downloadId
-                  progressReporter.setPercent(config.id, percent)
                 }
-              } else if (downloadId != null) {
+
+                val params = Arguments.createMap()
+
+                params.putString("id", config.id)
+                params.putString("metadata", config.metadata)
+                val state = stateMap[status] ?: 0
+                params.putInt("state", state)
+
+                val bytesDownloaded = downloadStatus.getDouble("bytesDownloaded")
+                params.putDouble("bytesDownloaded", bytesDownloaded)
+                val bytesTotal = downloadStatus.getDouble("bytesTotal")
+                params.putDouble("bytesTotal", bytesTotal)
+                val percent = if (bytesTotal > 0) bytesDownloaded / bytesTotal else 0.0
+
+                foundTasks.pushMap(params)
+                processedIds.add(config.id)
+                configIdToDownloadId[config.id] = downloadId
+                progressReporter.setPercent(config.id, percent)
+              } else {
+                // No config found - this is a download not managed by our app, cancel it
                 downloader.cancel(downloadId)
               }
             } while (cursor.moveToNext())
