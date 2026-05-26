@@ -34,6 +34,20 @@ iOS uses `NSURLSession` with background configuration. Downloads continue even a
 
 You must implement `handleEventsForBackgroundURLSession` in your AppDelegate for background downloads to work properly. See the [Installation guide](../README.md#ios---extra-mandatory-step) for details.
 
+### URLSession Invalidation Race Condition (#157)
+
+In some cases — particularly on fresh installs or immediately after a hot reload — you may see this error in logs:
+
+```
+BackgroundSession attempted to create a NSURLSessionDownloadTask in a session that has been invalidated
+```
+
+**Cause:** A race condition between `activateSession` (which calls `getTasksWithCompletionHandler` asynchronously) and an immediate call to `createDownloadTask`. The session gets invalidated between the activation check and the actual task creation.
+
+**Fix (built-in):** The library catches this exception, resets the session, and automatically re-queues the download to retry once the new session finishes activating. No action needed — the download will start correctly.
+
+**Best practice:** Call `getExistingDownloadTasks()` at app startup before scheduling new downloads. This pre-warms the session and eliminates the race condition entirely.
+
 ### Max Parallel Downloads
 
 You can configure the maximum number of simultaneous connections per host using `setConfig({ maxParallelDownloads: 8 })`. Default is 4.

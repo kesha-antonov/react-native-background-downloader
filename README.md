@@ -28,6 +28,8 @@
 - 🔄 **Re-attach to Downloads** - Reconnect to ongoing downloads after app restart
 - 📊 **Progress Tracking** - Real-time progress updates with customizable intervals
 - 🔒 **Custom Headers** - Support for authentication and custom request headers
+- 🖼️ **Image Compression** - Optionally re-encode downloaded images to JPEG in the background after download
+- 🔔 **Rich Notifications** - Android download notifications with custom text, grouping, and thumbnail image (Android 14+)
 - 📱 **Expo Support** - Config plugin for easy Expo integration
 - ⚡ **New Architecture** - Full TurboModules support for React Native
 - 📝 **TypeScript** - Complete TypeScript definitions included
@@ -620,6 +622,67 @@ task.start()
 </details>
 
 <details>
+<summary><strong>Image compression after download</strong></summary>
+
+Pass `compressValue` (0–1) to re-encode a downloaded image as JPEG after the download completes. This runs on a background thread and is safe when the app is minimized.
+
+```javascript
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+
+const task = createDownloadTask({
+  id: 'photo-1',
+  url: 'https://example.com/photo.jpg',
+  destination: `${directories.documents}/photo.jpg`,
+  compressValue: 0.7,  // 70% JPEG quality — reduces file size while keeping good quality
+})
+
+task.done(({ location }) => {
+  console.log('Downloaded and compressed to:', location)
+}).start()
+```
+
+**Notes:**
+- `compressValue: 0.8` = 80% quality (good balance), `0.5` = 50% (smaller file), `0.9` = 90% (near-lossless)
+- Applied to JPEG, PNG, and WebP files. Non-image files (ZIP, MP4, etc.) are skipped silently
+- The output format is always JPEG — PNG/WebP files are converted
+- The file at `destination` is overwritten in-place. Keep the original elsewhere if needed
+- Works in the background on both iOS and Android even when the app is minimized
+
+</details>
+
+<details>
+<summary><strong>Notification thumbnail image (Android)</strong></summary>
+
+On Android 14+, you can show a local image as the large icon in the download notification. This is useful for showing a thumbnail of the content being downloaded (e.g., an album cover, video thumbnail, or course image).
+
+```javascript
+import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import RNFS from 'react-native-fs'
+
+// Typical usage: download a thumbnail first, then use it in the main download notification
+const thumbnailPath = `${RNFS.CachesDirectoryPath}/cover.jpg`
+
+// Assuming you've already saved the thumbnail to thumbnailPath...
+const task = createDownloadTask({
+  id: 'lecture-video',
+  url: 'https://example.com/lecture.mp4',
+  destination: `${directories.documents}/lecture.mp4`,
+  notificationImageUrl: thumbnailPath,  // Absolute local path to the image
+})
+
+task.start()
+```
+
+**Notes:**
+- Android only. Has no effect on iOS
+- Requires `showNotificationsEnabled: true` in `setConfig` — otherwise notifications are minimal and the image is not shown
+- The path must be readable by the app at the time the download starts (use app cache or documents directory)
+- The image is loaded once at download start and persists for the lifetime of the notification (progress, paused, resumed states all show the same image)
+- Very large images are automatically scaled down to ~256px to avoid memory issues in the system notification process
+
+</details>
+
+<details>
 <summary><strong>Notification Configuration (Android)</strong></summary>
 
 On Android 14+ (API 34), downloads use User-Initiated Data Transfer (UIDT) jobs which **require** notifications. Due to Android system requirements, notifications cannot be completely disabled when using UIDT jobs. However, you can control their visibility:
@@ -862,7 +925,22 @@ If you're using `react-native-mmkv`, you don't need to add the MMKV dependency m
 <details>
 <summary><strong>EXC_BAD_ACCESS crash on iOS with react-native-mmkv</strong></summary>
 
-This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
+This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '~> 2.3'` to your Podfile.
+</details>
+
+<details>
+<summary><strong>iOS crash: "attempted to create a NSURLSessionDownloadTask in a session that has been invalidated"</strong></summary>
+
+**Error:**
+```
+BackgroundSession attempted to create a NSURLSessionDownloadTask in a session that has been invalidated
+```
+
+**Cause:** A race condition between session activation and download task creation. The background `NSURLSession` can become invalidated between the moment the session is marked as "active" and the moment a download task is actually created.
+
+**Fix:** This is handled automatically in the library. When the invalidated-session exception is caught, the session is reset and the download is re-queued to retry automatically once the new session is ready. No action needed — if you see this in logs, the download will start correctly on the next attempt.
+
+**Workaround (older versions):** Call `getExistingDownloadTasks()` at app startup before calling `createDownloadTask()`. This forces the session to activate before any new tasks are created, reducing the chance of the race condition.
 </details>
 
 <details>

@@ -20,8 +20,8 @@ Pod::Spec.new do |s|
   install_modules_dependencies(s)
 
   # MMKV is used for persistent download state storage on iOS
-  # Using MMKV (Objective-C wrapper) which depends on MMKVCore
-  s.dependency 'MMKV'
+  # Pinned to ~> 2.3 for compatibility with react-native-mmkv which requires MMKVCore ~> 2.3 (#162)
+  s.dependency 'MMKV', '~> 2.3'
 
   # Enable codegen for new architecture
   if ENV['RCT_NEW_ARCH_ENABLED'] == '1'

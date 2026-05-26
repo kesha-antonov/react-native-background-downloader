@@ -567,7 +567,39 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest]");
         [self sendDebugLog:@"executeDownloadWithRequest: creating download task" taskId:identifier];
 
-        NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
+        // Guard: if the session has been invalidated between activation and task creation (#157),
+        // reset it and re-queue the download to retry after the new session activates.
+        if (urlSession == nil) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest] session nil, re-registering");
+            [self sendDebugLog:@"executeDownloadWithRequest: session nil, re-registering and retrying" taskId:identifier];
+            isSessionActivated = NO;
+            [self lazyRegisterSession];
+            __weak RNBackgroundDownloader *weakSelf = self;
+            [pendingDownloads addObject:^{
+                [weakSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata compressValue:compressValue];
+            }];
+            return;
+        }
+
+        NSURLSessionDownloadTask __strong *task = nil;
+        @try {
+            task = [urlSession downloadTaskWithRequest:request];
+        } @catch (NSException *exception) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest] exception: %@", exception.reason);
+            [self sendDebugLog:[NSString stringWithFormat:@"executeDownloadWithRequest: exception creating task: %@", exception.reason] taskId:identifier];
+            // Session was invalidated between the activation check and task creation (#157/#158).
+            // Reset the session and re-queue; the download will retry after the new session activates.
+            if ([exception.reason containsString:@"invalidated"]) {
+                [self unregisterSession];
+                [self lazyRegisterSession];
+                __weak RNBackgroundDownloader *weakSelf = self;
+                [pendingDownloads addObject:^{
+                    [weakSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata compressValue:compressValue];
+                }];
+            }
+            return;
+        }
+
         if (task == nil) {
             DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create download task");
             [self sendDebugLog:@"executeDownloadWithRequest: ERROR - failed to create download task" taskId:identifier];
