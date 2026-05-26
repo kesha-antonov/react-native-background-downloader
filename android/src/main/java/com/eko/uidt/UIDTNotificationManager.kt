@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.job.JobService
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
@@ -21,6 +23,27 @@ object UIDTNotificationManager {
 
     private val config: NotificationConfig
         get() = UIDTJobRegistry.notificationConfig
+
+    /**
+     * Load a notification large icon from a local file path.
+     * Scales down to ~256dp to avoid excessive memory use in the status bar.
+     */
+    private fun loadNotificationBitmap(path: String): Bitmap? {
+        if (path.isEmpty()) return null
+        return try {
+            val opts = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeFile(path, opts)
+            val targetPx = 256
+            opts.inSampleSize = maxOf(1, minOf(opts.outWidth, opts.outHeight) / targetPx)
+            opts.inJustDecodeBounds = false
+            BitmapFactory.decodeFile(path, opts)
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "loadNotificationBitmap failed for $path: ${e.message}")
+            null
+        }
+    }
 
     /**
      * Generate a stable notification ID for a configId.
@@ -84,7 +107,8 @@ object UIDTNotificationManager {
         context: Context,
         configId: String,
         groupId: String = "",
-        groupName: String = ""
+        groupName: String = "",
+        notificationImageUrl: String = ""
     ): Notification {
         val isSummaryOnlyMode = config.mode == NotificationGroupingMode.SUMMARY_ONLY
 
@@ -140,6 +164,8 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(0, 0, true)
 
+        loadNotificationBitmap(notificationImageUrl)?.let { builder.setLargeIcon(it) }
+
         // Apply grouping when enabled and groupId is provided
         if (config.groupingEnabled && groupId.isNotEmpty()) {
             val groupKey = "${UIDTConstants.NOTIFICATION_GROUP_KEY}_$groupId"
@@ -191,6 +217,8 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
 
+        loadNotificationBitmap(jobState.notificationImageUrl)?.let { builder.setLargeIcon(it) }
+
         // Apply grouping when enabled
         if (config.groupingEnabled && jobState.groupId.isNotEmpty()) {
             val groupKey = "${UIDTConstants.NOTIFICATION_GROUP_KEY}_${jobState.groupId}"
@@ -210,7 +238,8 @@ object UIDTNotificationManager {
         configId: String,
         notificationId: Int,
         progress: Int,
-        groupName: String
+        groupName: String,
+        notificationImageUrl: String = ""
     ) {
         val title = if (config.groupingEnabled && groupName.isNotEmpty()) {
             groupName
@@ -218,7 +247,7 @@ object UIDTNotificationManager {
             config.getText("downloadTitle")
         }
 
-        val notification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(config.getText("downloadPaused"))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -227,7 +256,10 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, false)
-            .build()
+
+        loadNotificationBitmap(notificationImageUrl)?.let { builder.setLargeIcon(it) }
+
+        val notification = builder.build()
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(notificationId, notification)
@@ -264,6 +296,8 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
+
+        loadNotificationBitmap(jobState.notificationImageUrl)?.let { builder.setLargeIcon(it) }
 
         val notification = builder.build()
 

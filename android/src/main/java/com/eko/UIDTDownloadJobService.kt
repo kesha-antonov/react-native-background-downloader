@@ -196,9 +196,12 @@ class UIDTDownloadJobService : JobService() {
         }
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStartJob: configId=$configId, startByte=$startByte, headers=${headers.size}")
 
+        // Retrieve notification image URL if provided
+        val notificationImageUrl = UIDTJobRegistry.pendingNotificationImages.remove(configId) ?: ""
+
         // Create notification for UIDT job (required)
         val notificationId = UIDTNotificationManager.getNotificationIdForConfig(configId)
-        val notification = UIDTNotificationManager.createDownloadNotification(this, configId, groupId, groupName)
+        val notification = UIDTNotificationManager.createDownloadNotification(this, configId, groupId, groupName, notificationImageUrl)
 
         // Set the notification for this job (required for UIDT)
         setNotification(params, notificationId, notification, JOB_END_NOTIFICATION_POLICY_DETACH)
@@ -215,7 +218,7 @@ class UIDTDownloadJobService : JobService() {
         }
 
         // Store job state BEFORE updating summary (so count includes this job)
-        UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName)
+        UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName, notificationImageUrl)
 
         // Update summary notification if grouping enabled (now includes new job in count)
         UIDTNotificationManager.updateSummaryNotificationForGroup(this, groupId, groupName)

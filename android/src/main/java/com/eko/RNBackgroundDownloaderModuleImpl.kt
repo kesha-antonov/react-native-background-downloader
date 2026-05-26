@@ -13,6 +13,7 @@ import android.os.Build
 import android.util.Log
 import android.webkit.MimeTypeMap
 import com.eko.handlers.OnBegin
+import com.eko.uidt.UIDTJobRegistry
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
 import com.eko.utils.HeaderUtils
@@ -528,6 +529,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     configIdToHeaders.remove(configId)
     configIdToMetadata.remove(configId)
     configIdToCompressValue.remove(configId)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      UIDTJobRegistry.pendingNotificationImages.remove(configId)
+    }
     progressReporter.clearDownloadState(configId)
 
     if (downloadId != null) {
@@ -669,6 +673,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     val compressValue = if (options.hasKey("compressValue")) options.getDouble("compressValue").toFloat() else 0f
+    val notificationImageUrl = if (options.hasKey("notificationImageUrl")) options.getString("notificationImageUrl") ?: "" else ""
 
     val isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming")
     // Use per-download setting if provided, otherwise fall back to global setting
@@ -772,6 +777,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         configIdToHeaders[id] = headersMap
         configIdToMetadata[id] = metadataValue
         configIdToCompressValue[id] = compressValue
+        if (notificationImageUrl.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          UIDTJobRegistry.pendingNotificationImages[id] = notificationImageUrl
+        }
       }
       downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener, metadataValue)
     }

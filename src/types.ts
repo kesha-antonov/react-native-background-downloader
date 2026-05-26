@@ -132,6 +132,12 @@ export type DownloadParams = {
    * Value 0 or undefined = no compression (default).
    */
   compressValue?: number
+  /**
+   * Local file path to an image shown as the large icon in the Android download notification.
+   * Android only. Must be an absolute path to a readable file (e.g. from the app's cache/documents dir).
+   * Has no effect on iOS.
+   */
+  notificationImageUrl?: string
   /** Group ID for notification grouping (only used when grouping is enabled) */
   groupId?: string
   /** Group name displayed in notification (only used when grouping is enabled) */

@@ -6,6 +6,8 @@ Platform-specific information, requirements, and troubleshooting for `@kesha-ant
 
 - [iOS Notes](#ios-notes)
 - [Android Notes](#android-notes)
+- [Image Compression (compressValue)](#image-compression-compressvalue)
+- [Notification Image (notificationImageUrl)](#notification-image-notificationimageurl)
 - [Google Play Console Declaration](#google-play-console-declaration)
 - [Proguard Rules](#proguard-rules)
 
@@ -180,3 +182,51 @@ See the [Google Play Console Declaration](#google-play-console-declaration) sect
 ### TypeToken errors in release builds (Android)
 
 Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section above.
+
+---
+
+## Image Compression (`compressValue`)
+
+Pass `compressValue` (0–1) to `createDownloadTask` to re-encode the downloaded file as JPEG after the download completes.
+
+```javascript
+createDownloadTask({
+  id: 'my-image',
+  url: 'https://example.com/photo.jpg',
+  destination: `${directories.documents}/photo.jpg`,
+  compressValue: 0.7,  // 70% JPEG quality
+})
+```
+
+**Behavior:**
+- Runs after the file is fully written to disk, on a background thread.
+- Safe when the app is minimized — on Android this is done inside the download service/job; on iOS inside the `URLSession` completion handler.
+- **iOS:** Always re-encodes as JPEG via `UIImageJPEGRepresentation`, regardless of original format (PNG/WebP → JPEG).
+- **Android:** Uses `Bitmap.compress(JPEG)` — same JPEG-only output.
+- Non-image files (e.g. ZIP, MP4) are skipped silently — `BitmapFactory.decodeFile` / `UIImage` will return `nil`/`null` and the file is left untouched.
+- `compressValue = 1.0` is treated as "no compression" (pass-through). Use values in the range `0.01–0.99`.
+
+**Note:** The file at `destination` is overwritten in-place. Keep a copy elsewhere if the original lossless file is needed.
+
+---
+
+## Notification Image (`notificationImageUrl`)
+
+**Android only.** Pass `notificationImageUrl` (absolute local file path) to show a large icon in the download notification.
+
+```javascript
+createDownloadTask({
+  id: 'my-video',
+  url: 'https://example.com/video.mp4',
+  destination: `${directories.documents}/video.mp4`,
+  notificationImageUrl: '/data/user/0/com.myapp/cache/thumbnail.jpg',
+})
+```
+
+**Requirements:**
+- `showNotificationsEnabled: true` must be set via `setConfig` — the image has no effect when notifications are disabled.
+- Android 14+ (UIDT jobs) only. On Android 13 and below (foreground service), the parameter is parsed but not used.
+- The path must be readable by the app process at the time the download notification is created. Images in the app's `cache` or `documents` directory work reliably.
+- The image is loaded once when the download starts and cached in the `JobState` for the lifetime of the download. If the file is deleted before the download finishes, later notification updates will simply not show the image.
+
+**Sizing:** The image is scaled down to ~256px before being passed to `setLargeIcon()`. Very large bitmaps will be automatically sub-sampled to avoid OOM errors in the system process.

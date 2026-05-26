@@ -72,6 +72,8 @@ Download a file to destination.
 | `maxRedirects` | Number |          |  Android  | Maximum number of redirects to follow before passing URL to DownloadManager. If not specified or 0, no redirect resolution is performed. Helps avoid ERROR_TOO_MANY_REDIRECTS for URLs with many redirects (e.g., podcast URLs) |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
+| `compressValue` | Number (0–1) |          |    All    | Re-encode the downloaded file as JPEG at the given quality after download completes. `0.8` = 80% quality. Applied to JPEG, PNG, and WebP files — other files are skipped silently. `0` or omitted = no compression. iOS always re-encodes as JPEG regardless of original format. Runs on a background thread; safe when the app is minimized |
+| `notificationImageUrl` | String |          |  Android  | Absolute local file path to an image shown as the large icon in the download notification (e.g. a thumbnail from the app's cache directory). Has no effect on iOS or when `showNotificationsEnabled` is `false` |
 
 ### Returns
 
