@@ -414,15 +414,20 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
 
 - (void)_setMaxParallelDownloadsInternal:(NSInteger)max {
     DLog(nil, @"[RNBackgroundDownloader] - [setMaxParallelDownloads:%ld]", (long)max);
-    @synchronized (sharedLock) {
-        if (max >= 1) {
-            sessionConfig.HTTPMaximumConnectionsPerHost = max;
-            // Recreate session with new config if it's already initialized
-            if (urlSession != nil) {
-                [self unregisterSession];
-                [self lazyRegisterSession];
+    // @try/@catch prevents NSException from propagating to TurboModule bridge on background
+    // dispatch queue. Without this, Hermes is accessed from the wrong thread → SIGSEGV (#161).
+    @try {
+        @synchronized (sharedLock) {
+            if (max >= 1) {
+                sessionConfig.HTTPMaximumConnectionsPerHost = max;
+                if (urlSession != nil) {
+                    [self unregisterSession];
+                    [self lazyRegisterSession];
+                }
             }
         }
+    } @catch (NSException *exception) {
+        DLog(nil, @"[RNBackgroundDownloader] - setMaxParallelDownloads exception: %@", exception.reason);
     }
 }
 
@@ -438,13 +443,18 @@ RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
 
 - (void)_setAllowsCellularAccessInternal:(BOOL)allows {
     DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess:%@]", allows ? @"YES" : @"NO");
-    @synchronized (sharedLock) {
-        sessionConfig.allowsCellularAccess = allows;
-        // Recreate session with new config if it's already initialized
-        if (urlSession != nil) {
-            [self unregisterSession];
-            [self lazyRegisterSession];
+    // @try/@catch prevents NSException from propagating to TurboModule bridge on background
+    // dispatch queue. Without this, Hermes is accessed from the wrong thread → SIGSEGV (#161).
+    @try {
+        @synchronized (sharedLock) {
+            sessionConfig.allowsCellularAccess = allows;
+            if (urlSession != nil) {
+                [self unregisterSession];
+                [self lazyRegisterSession];
+            }
         }
+    } @catch (NSException *exception) {
+        DLog(nil, @"[RNBackgroundDownloader] - setAllowsCellularAccess exception: %@", exception.reason);
     }
 }
 

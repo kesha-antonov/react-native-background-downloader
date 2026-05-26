@@ -132,9 +132,42 @@ This can happen with slow-responding servers. Try:
 
 If you're using `react-native-mmkv`, you don't need to add the MMKV dependency manually - it's already included. The library uses `compileOnly` to avoid conflicts.
 
+### SIGSEGV crash on iOS when calling setConfig({ allowsCellularAccess }) with New Architecture
+
+**Affected versions:** 4.5.x, RN 0.83+, New Architecture (TurboModules) enabled  
+**Root cause:** `setAllowsCellularAccess:` is a void method that can throw `NSException` (e.g. when recreating the `URLSession`). The TurboModule bridge catches it and tries to convert it to a JS error via `convertNSExceptionToJSError`, which accesses Hermes VM from the library's background dispatch queue (`com.eko.backgrounddownloader`). Hermes is not thread-safe → SIGSEGV crash.
+
+**Fix:** Updated in this fork — both `_setAllowsCellularAccessInternal:` and `_setMaxParallelDownloadsInternal:` are now wrapped in `@try/@catch`. Exceptions are caught and logged without propagating to the TurboModule bridge.
+
+**Workaround (older versions):** Instead of `setConfig({ allowsCellularAccess: true })`, pass `isAllowedOverMetered: true` per-task in `createDownloadTask()` options — this does not trigger a separate native void method call.
+
+---
+
 ### EXC_BAD_ACCESS crash on iOS with react-native-mmkv
 
 This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
+
+### getExistingDownloadTasks() returns [] on Android 11 with internal destination paths
+
+**Affected versions:** 4.5.x  
+**Root cause:** When `destination` points to an internal app path (e.g. from `RNFS.DocumentDirectoryPath`), Android's `DownloadManager` may reject it and the library silently falls back to `ResumableDownloader`. Prior to the fix in this fork, active `ResumableDownloader` tasks were invisible to `getExistingDownloadTasks()`.
+
+**Fix:** Updated in this fork — active `ResumableDownloader` tasks are now included in Phase 4 of `getExistingDownloadTasks()`. No workaround needed after updating.
+
+**Workaround (older versions):** Pause the download before force-stopping the app, or use `directories.documents` which maps to external app storage on Android (compatible with `DownloadManager`).
+
+---
+
+### getExistingDownloadTasks() returns [] after force-stop for active (non-paused) downloads
+
+**Affected versions:** 4.5.x (Android 13+)  
+**Root cause:** After force-stop, Android's `DownloadManager` may reassign new download IDs. The persisted `downloadId → config` mapping in MMKV becomes stale.
+
+**Fix:** Updated in this fork — Phase 1 now falls back to matching by destination file path when the download ID is not found, restoring the mapping automatically.
+
+**Limitation:** This fix only works for `DownloadManager`-backed downloads. If `ResumableDownloader` was used (Android 16+, or internal-path fallback), active state is in-memory only and lost on force-stop. Paused downloads survive because state is persisted to disk on pause.
+
+---
 
 ### Downloads not resuming after app restart
 

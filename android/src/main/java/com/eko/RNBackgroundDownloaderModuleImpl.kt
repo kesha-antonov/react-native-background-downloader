@@ -1025,7 +1025,39 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                   progressReporter.setPercent(config.id, percent)
                 }
               } else if (downloadId != null) {
-                downloader.cancel(downloadId)
+                // Try to match by destination path before cancelling.
+                // Handles force-stop recovery where DownloadManager reassigns new IDs,
+                // breaking the downloadId → config mapping persisted in MMKV.
+                val localUri = downloadStatus.getString("localUri")
+                val matchedConfig = if (localUri != null) {
+                  val normalizedLocalUri = localUri.replace("file://", "").trimEnd('/')
+                  downloadIdToConfig.values.find { config ->
+                    config.destination.trimEnd('/') == normalizedLocalUri ||
+                        File(config.destination).name == File(normalizedLocalUri).name
+                  }
+                } else null
+
+                if (matchedConfig != null) {
+                  // Restore broken ID mapping so future lookups work
+                  downloadIdToConfig[downloadId] = matchedConfig
+                  configIdToDownloadId[matchedConfig.id] = downloadId
+                  saveDownloadIdToConfigMap()
+
+                  val status = downloadStatus.getInt("status")
+                  val params = Arguments.createMap()
+                  params.putString("id", matchedConfig.id)
+                  params.putString("metadata", matchedConfig.metadata)
+                  params.putInt("state", stateMap[status] ?: 0)
+                  val bd = downloadStatus.getDouble("bytesDownloaded")
+                  val bt = downloadStatus.getDouble("bytesTotal")
+                  params.putDouble("bytesDownloaded", bd)
+                  params.putDouble("bytesTotal", bt)
+                  foundTasks.pushMap(params)
+                  processedIds.add(matchedConfig.id)
+                  progressReporter.setPercent(matchedConfig.id, if (bt > 0) bd / bt else 0.0)
+                } else {
+                  downloader.cancel(downloadId)
+                }
               }
             } while (cursor.moveToNext())
           }
@@ -1087,11 +1119,27 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         processedIds.add(configId)
       }
 
-      // Phase 4: Add active resumable downloads (in-progress via ResumableDownloader)
-      val resumableDownloader = downloader.resumableDownloader
-      // Check for any paused resumable downloads that weren't in the persisted state
-      // (e.g., paused during current session but not yet persisted)
-      // This is handled by the pausedDownloads map above since we persist on pause
+      // Phase 4: Add active ResumableDownloader downloads (in-progress via foreground service)
+      // Covers: Android 11 with internal-path destination (DownloadManager falls back),
+      // Android 16+ where ResumableDownloader is always used, and other fallback cases.
+      val activeResumable = downloader.resumableDownloader.getActiveDownloads()
+      for ((configId, state) in activeResumable) {
+        if (processedIds.contains(configId)) continue
+        if (state.isCancelled.get() || state.isPaused.get()) continue
+
+        val params = Arguments.createMap()
+        params.putString("id", configId)
+        params.putString("metadata", configIdToMetadata[configId] ?: "{}")
+        params.putInt("state", DownloadConstants.TASK_RUNNING)
+        val bd = state.bytesDownloaded.get().toDouble()
+        val bt = state.bytesTotal.toDouble()
+        params.putDouble("bytesDownloaded", bd)
+        params.putDouble("bytesTotal", bt)
+        params.putString("destination", state.destination)
+        foundTasks.pushMap(params)
+        processedIds.add(configId)
+        progressReporter.setPercent(configId, if (bt > 0) bd / bt else 0.0)
+      }
 
       logD(NAME, "getExistingDownloadTasks: found ${foundTasks.size()} tasks")
     }
