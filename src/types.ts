@@ -125,6 +125,13 @@ export type DownloadParams = {
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
   maxRedirects?: number
+  /**
+   * Compress downloaded image after download completes.
+   * Value 0–1 maps to JPEG quality (e.g. 0.8 = 80% quality).
+   * Applied to JPEG, PNG, and WebP files. Non-image files are skipped silently.
+   * Value 0 or undefined = no compression (default).
+   */
+  compressValue?: number
   /** Group ID for notification grouping (only used when grouping is enabled) */
   groupId?: string
   /** Group name displayed in notification (only used when grouping is enabled) */

@@ -7,5 +7,6 @@ data class RNBGDTaskConfig(
     var url: String,
     var destination: String,
     var metadata: String = "{}",
-    var reportedBegin: Boolean = false
+    var reportedBegin: Boolean = false,
+    var compressValue: Float = 0f
 ) : Serializable

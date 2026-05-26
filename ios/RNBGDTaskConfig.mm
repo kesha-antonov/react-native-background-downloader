@@ -22,6 +22,7 @@
         self.state = NSURLSessionTaskStateRunning;
         self.errorCode = 0;
         self.hasResumeData = NO;
+        self.compressValue = dict[@"compressValue"] ? [dict[@"compressValue"] floatValue] : 0.0;
     }
 
     return self;
@@ -39,6 +40,7 @@
     [aCoder encodeInteger:self.state forKey:@"state"];
     [aCoder encodeInteger:self.errorCode forKey:@"errorCode"];
     [aCoder encodeBool:self.hasResumeData forKey:@"hasResumeData"];
+    [aCoder encodeFloat:self.compressValue forKey:@"compressValue"];
 }
 
 - (nullable instancetype)initWithCoder:(nonnull NSCoder *)aDecoder
@@ -58,6 +60,7 @@
         self.state = [aDecoder decodeIntegerForKey:@"state"];
         self.errorCode = [aDecoder decodeIntegerForKey:@"errorCode"];
         self.hasResumeData = [aDecoder decodeBoolForKey:@"hasResumeData"];
+        self.compressValue = [aDecoder decodeFloatForKey:@"compressValue"];
     }
 
     return self;
