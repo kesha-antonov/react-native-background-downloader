@@ -363,6 +363,27 @@ class UIDTDownloadJobService : JobService() {
 
                 RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onComplete: notificationId=$notificationId, jobState groupId=${jobState?.groupId}")
 
+                // Resolve a display name for the completion notification.
+                // Prefer metadata.fileName (set from JS), fall back to the
+                // saved file's basename.
+                val displayName = try {
+                    val metadataStr = params.extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
+                    val metadata = JSONObject(metadataStr)
+                    metadata.optString("fileName", "").ifEmpty { location.substringAfterLast('/') }
+                } catch (e: Exception) {
+                    location.substringAfterLast('/')
+                }
+
+                // Post a standalone "download complete" notification BEFORE
+                // we tear down the UIDT-controlled one so it persists. Tap
+                // opens the saved file via FileProvider (system file viewer).
+                UIDTNotificationManager.showFinishedNotification(
+                    this@UIDTDownloadJobService,
+                    id,
+                    location,
+                    displayName,
+                )
+
                 // Clean up - remove from activeJobs first
                 UIDTJobRegistry.activeJobs.remove(id)
                 releaseWakeLock()
