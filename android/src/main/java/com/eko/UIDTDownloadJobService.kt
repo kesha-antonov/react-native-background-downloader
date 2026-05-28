@@ -155,12 +155,14 @@ class UIDTDownloadJobService : JobService() {
         val metadataJson = extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
         var groupId = ""
         var groupName = ""
+        var customTitle = ""
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStartJob: configId=$configId, metadataJson=$metadataJson")
         try {
             val json = JSONObject(metadataJson)
             groupId = json.optString("groupId", "")
             groupName = json.optString("groupName", "")
-            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Parsed metadata: groupId='$groupId', groupName='$groupName'")
+            customTitle = json.optString("notificationTitle", "")
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Parsed metadata: groupId='$groupId', groupName='$groupName', customTitle='$customTitle'")
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to parse metadata: ${e.message}")
         }
@@ -198,7 +200,7 @@ class UIDTDownloadJobService : JobService() {
 
         // Create notification for UIDT job (required)
         val notificationId = UIDTNotificationManager.getNotificationIdForConfig(configId)
-        val notification = UIDTNotificationManager.createDownloadNotification(this, configId, groupId, groupName)
+        val notification = UIDTNotificationManager.createDownloadNotification(this, configId, groupId, groupName, customTitle)
 
         // Set the notification for this job (required for UIDT)
         setNotification(params, notificationId, notification, JOB_END_NOTIFICATION_POLICY_DETACH)
@@ -215,7 +217,7 @@ class UIDTDownloadJobService : JobService() {
         }
 
         // Store job state BEFORE updating summary (so count includes this job)
-        UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName)
+        UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName, customTitle)
 
         // Update summary notification if grouping enabled (now includes new job in count)
         UIDTNotificationManager.updateSummaryNotificationForGroup(this, groupId, groupName)

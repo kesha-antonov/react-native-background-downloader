@@ -83,13 +83,36 @@ object UIDTNotificationManager {
     }
 
     /**
+     * Build a PendingIntent that fires the in-notification "Cancel" action.
+     * The receiver lives in [CancelDownloadReceiver] and calls
+     * [UIDTJobManager.cancelJob] when triggered.
+     */
+    private fun buildCancelPendingIntent(context: Context, configId: String): PendingIntent {
+        val intent = Intent(context, CancelDownloadReceiver::class.java).apply {
+            action = CancelDownloadReceiver.ACTION_CANCEL_DOWNLOAD
+            setPackage(context.packageName)
+            putExtra(CancelDownloadReceiver.EXTRA_CONFIG_ID, configId)
+        }
+        // Use stable notification id as request code so subsequent updates
+        // reuse the same PendingIntent slot.
+        val requestCode = getNotificationIdForConfig(configId)
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    /**
      * Create the initial notification for a download.
      */
     fun createDownloadNotification(
         context: Context,
         configId: String,
         groupId: String = "",
-        groupName: String = ""
+        groupName: String = "",
+        customTitle: String = ""
     ): Notification {
         val isSummaryOnlyMode = config.mode == NotificationGroupingMode.SUMMARY_ONLY
 
@@ -128,10 +151,10 @@ object UIDTNotificationManager {
                 .build()
         }
 
-        val title = if (config.groupingEnabled && groupName.isNotEmpty()) {
-            groupName
-        } else {
-            config.getText("downloadTitle")
+        val title = when {
+            customTitle.isNotEmpty() -> customTitle
+            config.groupingEnabled && groupName.isNotEmpty() -> groupName
+            else -> config.getText("downloadTitle")
         }
         val startingText = config.getText("downloadStarting")
 
@@ -144,6 +167,11 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(0, 0, true)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                context.getString(android.R.string.cancel),
+                buildCancelPendingIntent(context, configId),
+            )
 
         // Apply grouping when enabled and groupId is provided
         if (config.groupingEnabled && groupId.isNotEmpty()) {
@@ -178,13 +206,16 @@ object UIDTNotificationManager {
 
         val progress = ProgressUtils.calculateProgress(bytesDownloaded, bytesTotal)
 
-        val title = if (config.groupingEnabled && jobState.groupName.isNotEmpty()) {
-            jobState.groupName
-        } else {
-            config.getText("downloadTitle")
+        val title = when {
+            jobState.customTitle.isNotEmpty() -> jobState.customTitle
+            config.groupingEnabled && jobState.groupName.isNotEmpty() -> jobState.groupName
+            else -> config.getText("downloadTitle")
         }
 
         val progressText = config.getText("downloadProgress", "progress" to progress)
+
+        val configId = UIDTJobRegistry.activeJobs.entries
+            .firstOrNull { it.value === jobState }?.key
 
         val builder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
@@ -195,6 +226,14 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
+
+        if (configId != null) {
+            builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                context.getString(android.R.string.cancel),
+                buildCancelPendingIntent(context, configId),
+            )
+        }
 
         // Apply grouping when enabled
         if (config.groupingEnabled && jobState.groupId.isNotEmpty()) {
@@ -254,10 +293,10 @@ object UIDTNotificationManager {
         // Update tracking state so next onProgress knows current state
         jobState.lastNotifiedProgress = progress
 
-        val title = if (config.groupingEnabled && jobState.groupName.isNotEmpty()) {
-            jobState.groupName
-        } else {
-            config.getText("downloadTitle")
+        val title = when {
+            jobState.customTitle.isNotEmpty() -> jobState.customTitle
+            config.groupingEnabled && jobState.groupName.isNotEmpty() -> jobState.groupName
+            else -> config.getText("downloadTitle")
         }
 
         val builder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
