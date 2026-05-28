@@ -16,6 +16,9 @@ data class JobState(
     var notificationId: Int,
     val groupId: String = "",
     val groupName: String = "",
+    // Optional per-download notification title (read from metadata.notificationTitle).
+    // When non-empty, overrides both groupName and the config's default downloadTitle.
+    val customTitle: String = "",
     var lastNotifiedProgress: Int = -1,
     var lastNotificationUpdateTime: Long = 0,
     // Track download progress for summary notification
