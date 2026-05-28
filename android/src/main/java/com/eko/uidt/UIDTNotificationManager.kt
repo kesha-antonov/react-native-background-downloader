@@ -3,14 +3,19 @@ package com.eko.uidt
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.job.JobService
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
+import androidx.core.content.FileProvider
 import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.UIDTDownloadJobService
 import com.eko.utils.ProgressUtils
+import java.io.File
+import java.net.URLConnection
 
 /**
  * Manages all notification-related operations for UIDT downloads.
@@ -513,5 +518,72 @@ object UIDTNotificationManager {
             .setContentText("")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .build()
+    }
+
+    /**
+     * Show a one-shot "download complete" notification that persists after the
+     * UIDT job is removed by the system. Uses the configured "downloadFinished"
+     * text as the title and the supplied [fileName] as the body. Posted via
+     * NotificationManager (not tied to the JobService) so it survives the
+     * service shutdown.
+     *
+     * Tapping the notification fires ACTION_VIEW with a FileProvider content
+     * URI for [destination] so the system file viewer / Files app can open it.
+     */
+    fun showFinishedNotification(
+        context: Context,
+        configId: String,
+        destination: String,
+        fileName: String,
+    ) {
+        if (!config.showNotificationsEnabled) return
+
+        createNotificationChannels(context)
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // Use a distinct id from the in-progress one to avoid being removed by the
+        // REMOVE policy applied to the ongoing notification.
+        val notificationId = getNotificationIdForConfig(configId) + 1
+
+        val title = config.getText("downloadFinished")
+
+        // Build a PendingIntent that lets the user open the saved file with the
+        // system viewer (Files app / Drive / Extract...). Uses the host app's
+        // FileProvider authority (".provider") which is registered via the
+        // bundled react-native-file-viewer-turbo manifest.
+        val pendingIntent: PendingIntent? = try {
+            val file = File(destination)
+            val authority = "${context.packageName}.provider"
+            val uri = FileProvider.getUriForFile(context, authority, file)
+            val mime = URLConnection.guessContentTypeFromName(fileName) ?: "*/*"
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(viewIntent, title).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            PendingIntent.getActivity(
+                context,
+                notificationId,
+                chooser,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "Failed to build pendingIntent for finished noti: ${e.message}")
+            null
+        }
+
+        val builder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(fileName)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+        if (pendingIntent != null) builder.setContentIntent(pendingIntent)
+
+        notificationManager.notify(notificationId, builder.build())
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Posted finished notification $notificationId for $configId")
     }
 }
