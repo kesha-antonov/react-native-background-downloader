@@ -231,30 +231,25 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
-      // Drop any buffered progress for this task so it cannot arrive in JS after downloadComplete
       progressReporter.clearPendingReport(id)
-
-      // Compress image if configured (ResumableDownloader path)
-      val compressValue = configIdToCompressValue[id] ?: 0f
-      if (compressValue > 0f && compressValue < 1f) {
-        compressImage(location, compressValue)
-      }
-
-      eventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal)
-
-      // Clean up all download state
       synchronized(sharedLock) {
+        // Guard: stopTask may have already cleaned up this task — skip emit to avoid firing
+        // onDone on a task that was intentionally stopped.
+        if (!configIdToMetadata.containsKey(id)) return
+        val compressValue = configIdToCompressValue[id] ?: 0f
+        if (compressValue > 0f && compressValue < 1f) {
+          compressImage(location, compressValue)
+        }
+        eventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal)
         cleanupDownloadState(id)
       }
     }
 
     override fun onError(id: String, error: String, errorCode: Int) {
-      // Drop any buffered progress for this task so it cannot arrive in JS after downloadFailed
       progressReporter.clearPendingReport(id)
-      eventEmitter.emitFailed(id, error, errorCode)
-
-      // Clean up all download state
       synchronized(sharedLock) {
+        if (!configIdToMetadata.containsKey(id)) return
+        eventEmitter.emitFailed(id, error, errorCode)
         cleanupDownloadState(id)
       }
     }

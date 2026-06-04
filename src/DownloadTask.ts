@@ -47,6 +47,9 @@ export class DownloadTask {
   doneHandler?: DoneHandler
   errorHandler?: ErrorHandler
 
+  /** @internal Set by createDownloadTask/getExistingDownloadTasks to remove from registry on stop */
+  _onStop?: () => void
+
   constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
     this.id = taskParams.id
 
@@ -200,6 +203,7 @@ export class DownloadTask {
 
     this.state = 'STOPPED'
     await getNativeModule().stopTask(this.id)
+    this._onStop?.()
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {

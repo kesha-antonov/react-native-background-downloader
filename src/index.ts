@@ -492,8 +492,10 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
     return task
   }).filter((task): task is DownloadTask => task !== undefined)
 
-  for (const task of downloadTasks)
+  for (const task of downloadTasks) {
     tasksMap.set(task.id, task)
+    task._onStop = () => tasksMap.delete(task.id)
+  }
 
   return downloadTasks
 }
@@ -536,6 +538,7 @@ export function createDownloadTask ({
   })
 
   tasksMap.set(rest.id, task)
+  task._onStop = () => tasksMap.delete(rest.id)
 
   return task
 }
@@ -597,8 +600,10 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
     return task
   }).filter((task): task is UploadTask => task !== undefined)
 
-  for (const task of uploadTasks)
+  for (const task of uploadTasks) {
     uploadTasksMap.set(task.id, task)
+    task._onStop = () => uploadTasksMap.delete(task.id)
+  }
 
   return uploadTasks
 }
@@ -631,6 +636,7 @@ export function createUploadTask ({
   })
 
   uploadTasksMap.set(rest.id, task)
+  task._onStop = () => uploadTasksMap.delete(rest.id)
 
   return task
 }

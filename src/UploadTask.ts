@@ -46,6 +46,9 @@ export class UploadTask {
   doneHandler?: UploadDoneHandler
   errorHandler?: UploadErrorHandler
 
+  /** @internal Set by createUploadTask/getExistingUploadTasks to remove from registry on stop */
+  _onStop?: () => void
+
   constructor (taskParams: UploadTaskInfo | UploadTaskInfoNative, originalTask?: UploadTaskType) {
     this.id = taskParams.id
 
@@ -197,6 +200,7 @@ export class UploadTask {
       await nativeModule.stopUploadTask(this.id)
     else
       log('UploadTask: stop not supported - native implementation missing')
+    this._onStop?.()
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {

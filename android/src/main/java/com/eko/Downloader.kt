@@ -47,6 +47,9 @@ class Downloader(private val context: Context, private val storageManager: com.e
   enum class CancelIntent { PAUSING, STOPPING }
   private val cancellingDownloads = ConcurrentHashMap<Long, CancelIntent>()
 
+  // Track config IDs cancelled before the service was bound, so deferred starts are skipped.
+  private val pendingCancels = ConcurrentHashMap.newKeySet<String>()
+
   // Service connection
   private val serviceConnection = object : ServiceConnection {
     override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -362,6 +365,10 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
     // Now use the direct service call path
     executeWhenServiceReady {
+      if (pendingCancels.remove(configId)) {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Download cancelled before service ready, skipping start: $configId")
+        return@executeWhenServiceReady
+      }
       downloadService?.setDownloadListener(listener)
       downloadService?.startDownload(configId, url, destination, headers, startByte, totalBytes)
     }
@@ -426,6 +433,9 @@ class Downloader(private val context: Context, private val storageManager: com.e
    * Cancel a resumable download and clean up partially downloaded files.
    */
   fun cancelResumable(configId: String): Boolean {
+    // Mark cancelled before any async work so deferred starts in executeWhenServiceReady are skipped.
+    pendingCancels.add(configId)
+
     // Cancel UIDT job if on Android 14+
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       UIDTDownloadJobService.cancelJob(context, configId)
@@ -443,7 +453,9 @@ class Downloader(private val context: Context, private val storageManager: com.e
       }
     }
 
-    return downloadService?.cancelDownload(configId) ?: false
+    // Cancel in service if already bound; if not, pendingCancels guards the deferred start.
+    downloadService?.cancelDownload(configId)
+    return true
   }
 
   /**
