@@ -50,6 +50,8 @@ export class DownloadTask {
   /** @internal Set by createDownloadTask/getExistingDownloadTasks to remove from registry on stop */
   _onStop?: () => void
 
+  private _maxAgeTimer?: ReturnType<typeof setTimeout>
+
   constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
     this.id = taskParams.id
 
@@ -121,6 +123,7 @@ export class DownloadTask {
   }
 
   onDone (params: DoneHandlerParams) {
+    this._clearMaxAgeTimer()
     this.state = 'DONE'
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
@@ -128,6 +131,7 @@ export class DownloadTask {
   }
 
   onError (params: ErrorHandlerParams) {
+    this._clearMaxAgeTimer()
     this.state = 'FAILED'
     this.errorHandler?.(params)
   }
@@ -159,6 +163,7 @@ export class DownloadTask {
 
   async pause (): Promise<void> {
     log('DownloadTask: pause', this.id)
+    this._clearMaxAgeTimer()
     this.state = 'PAUSED'
     await getNativeModule().pauseTask(this.id)
   }
@@ -185,6 +190,13 @@ export class DownloadTask {
 
     this.state = 'DOWNLOADING'
 
+    if (this.downloadParams.maxAge != null && this.downloadParams.maxAge > 0) {
+      this._maxAgeTimer = setTimeout(() => {
+        log('DownloadTask: maxAge exceeded, stopping task', this.id)
+        this.stop()
+      }, this.downloadParams.maxAge)
+    }
+
     // kick-off download after returning the task
     getNativeModule().download({
       id: this.id,
@@ -201,9 +213,17 @@ export class DownloadTask {
   async stop (): Promise<void> {
     log('DownloadTask: stop', this.id)
 
+    this._clearMaxAgeTimer()
     this.state = 'STOPPED'
     await getNativeModule().stopTask(this.id)
     this._onStop?.()
+  }
+
+  private _clearMaxAgeTimer () {
+    if (this._maxAgeTimer != null) {
+      clearTimeout(this._maxAgeTimer)
+      this._maxAgeTimer = undefined
+    }
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {

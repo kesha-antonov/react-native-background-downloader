@@ -142,6 +142,12 @@ export type DownloadParams = {
   groupId?: string
   /** Group name displayed in notification (only used when grouping is enabled) */
   groupName?: string
+  /**
+   * Maximum time in milliseconds the task may be active (from start() to completion).
+   * If the task is still running after this duration, it is automatically stopped.
+   * Timer starts when start() is called and is cleared on done/error/stop/pause.
+   */
+  maxAge?: number
 }
 
 export interface DownloadTask {
@@ -254,6 +260,12 @@ export type UploadParams = {
   parameters?: Record<string, string>
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
+  /**
+   * Maximum time in milliseconds the task may be active (from start() to completion).
+   * If the task is still running after this duration, it is automatically stopped.
+   * Timer starts when start() is called and is cleared on done/error/stop/pause.
+   */
+  maxAge?: number
 }
 
 export interface UploadTask {

@@ -428,3 +428,43 @@ test('download with timeout improvements for slow URLs', () => {
     destination: '/path/to/file.zip',
   })
 })
+
+test('maxAge: task is stopped automatically after timeout', () => {
+  jest.useFakeTimers()
+  const maxAgeDT = createDownloadTask({
+    id: 'testMaxAge',
+    url: 'test',
+    destination: 'test',
+    maxAge: 5000,
+  })
+  maxAgeDT.start()
+  expect(maxAgeDT.state).toBe('DOWNLOADING')
+
+  jest.advanceTimersByTime(5000)
+
+  expect(maxAgeDT.state).toBe('STOPPED')
+  expect(RNBackgroundDownloaderNative.stopTask).toHaveBeenCalledWith('testMaxAge')
+  jest.useRealTimers()
+})
+
+test('maxAge: timer is cleared when task completes before timeout', () => {
+  jest.useFakeTimers()
+  return new Promise(resolve => {
+    const maxAgeDT = createDownloadTask({
+      id: 'testMaxAgeDone',
+      url: 'test',
+      destination: 'test',
+      maxAge: 10000,
+    })
+    maxAgeDT.done(() => {
+      expect(maxAgeDT.state).toBe('DONE')
+      jest.advanceTimersByTime(10000)
+      // State must still be DONE, not STOPPED
+      expect(maxAgeDT.state).toBe('DONE')
+      jest.useRealTimers()
+      resolve()
+    })
+    maxAgeDT.start()
+    emitEvent('downloadComplete', { id: 'testMaxAgeDone', location: '/file', bytesDownloaded: 100, bytesTotal: 100 })
+  })
+})

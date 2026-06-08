@@ -49,6 +49,8 @@ export class UploadTask {
   /** @internal Set by createUploadTask/getExistingUploadTasks to remove from registry on stop */
   _onStop?: () => void
 
+  private _maxAgeTimer?: ReturnType<typeof setTimeout>
+
   constructor (taskParams: UploadTaskInfo | UploadTaskInfoNative, originalTask?: UploadTaskType) {
     this.id = taskParams.id
 
@@ -117,6 +119,7 @@ export class UploadTask {
   }
 
   onDone (params: UploadDoneHandlerParams) {
+    this._clearMaxAgeTimer()
     this.state = 'DONE'
     this.bytesUploaded = params.bytesUploaded
     this.bytesTotal = params.bytesTotal
@@ -124,6 +127,7 @@ export class UploadTask {
   }
 
   onError (params: UploadErrorHandlerParams) {
+    this._clearMaxAgeTimer()
     this.state = 'FAILED'
     this.errorHandler?.(params)
   }
@@ -136,6 +140,7 @@ export class UploadTask {
 
   async pause (): Promise<void> {
     log('UploadTask: pause', this.id)
+    this._clearMaxAgeTimer()
     this.state = 'PAUSED'
     const nativeModule = getNativeModule()
     if (nativeModule.pauseUploadTask)
@@ -177,6 +182,13 @@ export class UploadTask {
 
     this.state = 'UPLOADING'
 
+    if (this.uploadParams.maxAge != null && this.uploadParams.maxAge > 0) {
+      this._maxAgeTimer = setTimeout(() => {
+        log('UploadTask: maxAge exceeded, stopping task', this.id)
+        this.stop()
+      }, this.uploadParams.maxAge)
+    }
+
     // kick-off upload after returning the task
     nativeModule.upload({
       id: this.id,
@@ -194,6 +206,7 @@ export class UploadTask {
   async stop (): Promise<void> {
     log('UploadTask: stop', this.id)
 
+    this._clearMaxAgeTimer()
     this.state = 'STOPPED'
     const nativeModule = getNativeModule()
     if (nativeModule.stopUploadTask)
@@ -201,6 +214,13 @@ export class UploadTask {
     else
       log('UploadTask: stop not supported - native implementation missing')
     this._onStop?.()
+  }
+
+  private _clearMaxAgeTimer () {
+    if (this._maxAgeTimer != null) {
+      clearTimeout(this._maxAgeTimer)
+      this._maxAgeTimer = undefined
+    }
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {
