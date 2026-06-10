@@ -200,12 +200,11 @@ export class DownloadTask {
 
     this.state = 'DOWNLOADING'
 
-    if (this.downloadParams.maxAge != null && this.downloadParams.maxAge > 0) {
+    if (this.downloadParams.maxAge != null && this.downloadParams.maxAge > 0)
       this._maxAgeTimer = setTimeout(() => {
         log('DownloadTask: maxAge exceeded, stopping task', this.id)
         this.stop()
       }, this.downloadParams.maxAge)
-    }
 
     // kick-off download after returning the task
     getNativeModule().download({

@@ -182,12 +182,11 @@ export class UploadTask {
 
     this.state = 'UPLOADING'
 
-    if (this.uploadParams.maxAge != null && this.uploadParams.maxAge > 0) {
+    if (this.uploadParams.maxAge != null && this.uploadParams.maxAge > 0)
       this._maxAgeTimer = setTimeout(() => {
         log('UploadTask: maxAge exceeded, stopping task', this.id)
         this.stop()
       }, this.uploadParams.maxAge)
-    }
 
     // kick-off upload after returning the task
     nativeModule.upload({

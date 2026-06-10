@@ -425,6 +425,99 @@ for (const task of tasks) {
 
 </details>
 
+<details>
+<summary><strong>Grouped downloads (groupingApi)</strong></summary>
+
+`groupingApi` aggregates multiple download tasks under one `GroupTask` so you can track combined progress and react to the group completing as a unit. Works on both iOS and Android.
+
+**Basic usage:**
+
+```javascript
+import { groupingApi, directories } from '@kesha-antonov/react-native-background-downloader'
+
+const group = groupingApi.createGroup(
+  'my-album',                          // groupId — unique string
+  [
+    { id: 'track-1', url: 'https://example.com/track1.mp3', destination: `${directories.documents}/track1.mp3` },
+    { id: 'track-2', url: 'https://example.com/track2.mp3', destination: `${directories.documents}/track2.mp3` },
+    { id: 'track-3', url: 'https://example.com/track3.mp3', destination: `${directories.documents}/track3.mp3` },
+  ],
+  'My Album'                           // optional display name
+)
+
+group
+  .progress(({ bytesDownloaded, bytesTotal, completedTasks, failedTasks, totalTasks }) => {
+    const percent = bytesTotal > 0 ? Math.round(bytesDownloaded / bytesTotal * 100) : 0
+    console.log(`Group: ${percent}% — ${completedTasks}/${totalTasks} done, ${failedTasks} failed`)
+  })
+  .done(() => {
+    console.log('All tasks finished (done or failed)')
+  })
+  .error(({ id, error, errorCode }) => {
+    console.log(`Task ${id} failed:`, error, errorCode)
+    // other tasks continue — group.done() fires when ALL tasks reach a terminal state
+  })
+
+group.start()   // starts every task in the group
+
+// Bulk controls
+await group.pause()
+await group.resume()
+await group.stop()
+```
+
+**Re-attaching after app restart:**
+
+```javascript
+import { getExistingDownloadTasks, groupingApi } from '@kesha-antonov/react-native-background-downloader'
+
+const allTasks = await getExistingDownloadTasks()
+
+// Group tasks by a groupId stored in metadata
+const albumTasks = allTasks.filter(t => t.metadata.groupId === 'my-album')
+
+if (albumTasks.length > 0) {
+  const group = groupingApi.restoreGroup('my-album', albumTasks, 'My Album')
+  // restoreGroup does NOT call createDownloadTask — tasks already exist in the native layer
+
+  group
+    .progress(({ bytesDownloaded, bytesTotal, completedTasks, totalTasks }) => {
+      console.log(`Restored group: ${completedTasks}/${totalTasks} done`)
+    })
+    .done(() => console.log('Group complete'))
+    .error(({ id, error }) => console.log(`Task ${id} failed:`, error))
+}
+```
+
+**Adding a task to an existing group:**
+
+```javascript
+import { createDownloadTask, groupingApi, directories } from '@kesha-antonov/react-native-background-downloader'
+
+const group = groupingApi.getGroup('my-album')
+
+if (group) {
+  const newTask = createDownloadTask({
+    id: 'track-4',
+    url: 'https://example.com/track4.mp3',
+    destination: `${directories.documents}/track4.mp3`,
+  })
+
+  group.addTask(newTask)   // wires the group observer and updates aggregate bytes
+  newTask.start()
+}
+```
+
+**Notes:**
+- `group.done()` fires when `completedTasks + failedTasks === totalTasks` — i.e. when every task has reached a terminal state, not necessarily succeeded
+- `group.error()` fires per failed task and does **not** stop remaining tasks
+- `groupingApi.createGroup()` creates tasks in `PENDING` state — call `group.start()` to kick them off
+- Use `groupingApi.restoreGroup()` (not `createGroup`) after app restart — tasks already exist in the native layer
+- Use `task.metadata.groupId` to match tasks returned by `getExistingDownloadTasks()` to the right group
+- Pairs naturally with `setConfig({ notificationsGrouping: { enabled: true, mode: 'summaryOnly' } })` on Android to collapse notifications into one aggregate notification
+
+</details>
+
 ## ⚙️ Advanced Configuration
 
 <details>
@@ -879,6 +972,7 @@ import {
   createUploadTask,
   getExistingDownloadTasks,
   getExistingUploadTasks,
+  groupingApi,
   completeHandler,
   directories
 } from '@kesha-antonov/react-native-background-downloader'
@@ -890,6 +984,7 @@ import {
 | `createUploadTask(options)` | Create a new upload task |
 | `getExistingDownloadTasks()` | Get downloads running in background |
 | `getExistingUploadTasks()` | Get uploads running in background |
+| `groupingApi` | JS-side group aggregation API (`createGroup`, `restoreGroup`, `getGroup`) |
 | `setConfig(config)` | Set global configuration |
 | `completeHandler(jobId)` | Signal download completion to OS |
 | `directories.documents` | Path to app's documents directory |
