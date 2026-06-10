@@ -1,6 +1,7 @@
 import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
+import { GroupTask } from './GroupTask'
 import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
 import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, getNotificationTextsForNative, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
@@ -69,6 +70,7 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
 const MIN_PROGRESS_INTERVAL = 250
 const tasksMap = new Map<string, DownloadTask>()
 const uploadTasksMap = new Map<string, UploadTask>()
+const groupsMap = new Map<string, GroupTask>()
 
 interface DownloadBeginEvent {
   id: string
@@ -541,6 +543,40 @@ export function createDownloadTask ({
   task._onStop = () => tasksMap.delete(rest.id)
 
   return task
+}
+
+/**
+ * API for binding multiple download tasks under a single groupId so they can be
+ * driven and observed as one unit (combined progress, single `done`/`error` callbacks).
+ *
+ * Pairs naturally with `setConfig({ notificationsGrouping: { enabled: true, mode: 'summaryOnly' } })`
+ * on Android, where the native side also collapses the group's notifications into one
+ * with aggregate progress - this mirrors that aggregation in JS (and works on iOS too).
+ */
+export const groupingApi = {
+  /**
+   * Create a group of download tasks.
+   * Each entry in `tasksParams` is passed to `createDownloadTask`, with `groupId`
+   * (and `groupName`, if provided) applied automatically.
+   * Tasks are created in PENDING state - call `group.start()` to kick them off.
+   */
+  createGroup (groupId: string, tasksParams: (TaskInfo & DownloadParams)[], groupName?: string): GroupTask {
+    if (!groupId)
+      throw new Error('[RNBackgroundDownloader] groupId is required')
+
+    const tasks = tasksParams.map(params => createDownloadTask({ ...params, groupId, groupName }))
+
+    const group = new GroupTask(groupId, tasks, groupName)
+    groupsMap.set(groupId, group)
+    group._onStop = () => groupsMap.delete(groupId)
+
+    return group
+  },
+
+  /** Get a previously created group by its groupId, if it still exists. */
+  getGroup (groupId: string): GroupTask | undefined {
+    return groupsMap.get(groupId)
+  },
 }
 
 export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {

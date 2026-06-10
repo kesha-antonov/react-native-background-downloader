@@ -50,6 +50,13 @@ export class DownloadTask {
   /** @internal Set by createDownloadTask/getExistingDownloadTasks to remove from registry on stop */
   _onStop?: () => void
 
+  /** @internal Set by GroupTask to observe lifecycle events without overriding user-set handlers */
+  _groupObserver?: {
+    onProgress?: () => void
+    onDone?: () => void
+    onError?: (params: ErrorHandlerParams) => void
+  }
+
   private _maxAgeTimer?: ReturnType<typeof setTimeout>
 
   constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
@@ -120,6 +127,7 @@ export class DownloadTask {
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
     this.progressHandler?.(params)
+    this._groupObserver?.onProgress?.()
   }
 
   onDone (params: DoneHandlerParams) {
@@ -128,12 +136,14 @@ export class DownloadTask {
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
     this.doneHandler?.(params)
+    this._groupObserver?.onDone?.()
   }
 
   onError (params: ErrorHandlerParams) {
     this._clearMaxAgeTimer()
     this.state = 'FAILED'
     this.errorHandler?.(params)
+    this._groupObserver?.onError?.(params)
   }
 
   // methods

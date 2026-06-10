@@ -92,6 +92,30 @@ export interface ErrorHandlerParams {
 
 export type ErrorHandler = (params: ErrorHandlerParams) => void
 
+/**
+ * Aggregate progress across all tasks in a group.
+ */
+export type GroupProgressHandlerParams = {
+  bytesDownloaded: number
+  bytesTotal: number
+  /** Number of tasks in the group that reached the DONE state */
+  completedTasks: number
+  /** Total number of tasks in the group */
+  totalTasks: number
+}
+
+export type GroupProgressHandler = (params: GroupProgressHandlerParams) => void
+
+/** Fired once every task in the group has reached the DONE state */
+export type GroupDoneHandler = () => void
+
+export interface GroupErrorHandlerParams extends ErrorHandlerParams {
+  /** ID of the task that failed */
+  id: string
+}
+
+export type GroupErrorHandler = (params: GroupErrorHandlerParams) => void
+
 export type Metadata = Record<string, unknown>
 
 export interface TaskInfoNative {
