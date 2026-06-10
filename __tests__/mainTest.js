@@ -485,7 +485,7 @@ test('groupingApi: aggregates progress and fires done once all tasks complete', 
     group.progress(params => progressSnapshots.push(params))
     group.done(() => {
       const last = progressSnapshots[progressSnapshots.length - 1]
-      expect(last).toEqual({ bytesDownloaded: 200, bytesTotal: 200, completedTasks: 2, totalTasks: 2 })
+      expect(last).toEqual({ bytesDownloaded: 200, bytesTotal: 200, completedTasks: 2, failedTasks: 0, totalTasks: 2 })
       expect(group.bytesDownloaded).toBe(200)
       expect(group.bytesTotal).toBe(200)
       resolve()
@@ -497,7 +497,7 @@ test('groupingApi: aggregates progress and fires done once all tasks complete', 
     emitEvent('downloadProgress', [{ id: 'groupTask2', bytesDownloaded: 50, bytesTotal: 100 }])
 
     expect(progressSnapshots[progressSnapshots.length - 1]).toEqual({
-      bytesDownloaded: 100, bytesTotal: 200, completedTasks: 0, totalTasks: 2,
+      bytesDownloaded: 100, bytesTotal: 200, completedTasks: 0, failedTasks: 0, totalTasks: 2,
     })
 
     emitEvent('downloadComplete', { id: 'groupTask1', location: '/file1', bytesDownloaded: 100, bytesTotal: 100 })
@@ -520,5 +520,72 @@ test('groupingApi: error in one task is reported with its id', () => {
 
     group.start()
     emitEvent('downloadFailed', { id: 'groupErrTask1', error: new Error('test'), errorCode: -1 })
+  })
+})
+
+test('groupingApi: done fires when all tasks settled (mix of done and failed)', () => {
+  return new Promise(resolve => {
+    const group = groupingApi.createGroup('groupMixed', [
+      { id: 'mixedTask1', url: 'test', destination: 'test' },
+      { id: 'mixedTask2', url: 'test', destination: 'test' },
+    ])
+
+    group.done(() => {
+      const last = progressSnapshots[progressSnapshots.length - 1]
+      expect(last).toMatchObject({ completedTasks: 1, failedTasks: 1, totalTasks: 2 })
+      resolve()
+    })
+
+    const progressSnapshots = []
+    group.progress(params => progressSnapshots.push(params))
+
+    group.start()
+    emitEvent('downloadComplete', { id: 'mixedTask1', location: '/file1', bytesDownloaded: 100, bytesTotal: 100 })
+    emitEvent('downloadFailed', { id: 'mixedTask2', error: 'err', errorCode: -1 })
+  })
+})
+
+test('groupingApi: addTask wires observer and recalculates', () => {
+  return new Promise(resolve => {
+    const group = groupingApi.createGroup('groupAdd', [
+      { id: 'addTask1', url: 'test', destination: 'test' },
+    ])
+
+    const extraTask = createDownloadTask({ id: 'addTask2', url: 'test', destination: 'test' })
+    group.addTask(extraTask)
+
+    expect(group.tasks).toHaveLength(2)
+    expect(extraTask._groupObserver).toBeDefined()
+
+    group.done(() => {
+      expect(group.tasks.filter(t => t.state === 'DONE')).toHaveLength(2)
+      resolve()
+    })
+
+    group.start()
+    emitEvent('downloadComplete', { id: 'addTask1', location: '/f1', bytesDownloaded: 50, bytesTotal: 50 })
+    emitEvent('downloadComplete', { id: 'addTask2', location: '/f2', bytesDownloaded: 50, bytesTotal: 50 })
+  })
+})
+
+test('groupingApi: restoreGroup reconstructs group from existing tasks', () => {
+  return new Promise(resolve => {
+    const t1 = createDownloadTask({ id: 'restoreTask1', url: 'test', destination: 'test' })
+    const t2 = createDownloadTask({ id: 'restoreTask2', url: 'test', destination: 'test' })
+
+    const group = groupingApi.restoreGroup('restoreGroup1', [t1, t2], 'Restored')
+
+    expect(group.groupId).toBe('restoreGroup1')
+    expect(group.groupName).toBe('Restored')
+    expect(group.tasks).toHaveLength(2)
+    expect(groupingApi.getGroup('restoreGroup1')).toBe(group)
+    expect(t1._groupObserver).toBeDefined()
+    expect(t2._groupObserver).toBeDefined()
+
+    group.done(resolve)
+
+    group.start()
+    emitEvent('downloadComplete', { id: 'restoreTask1', location: '/f1', bytesDownloaded: 100, bytesTotal: 100 })
+    emitEvent('downloadComplete', { id: 'restoreTask2', location: '/f2', bytesDownloaded: 100, bytesTotal: 100 })
   })
 })

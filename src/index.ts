@@ -577,6 +577,22 @@ export const groupingApi = {
   getGroup (groupId: string): GroupTask | undefined {
     return groupsMap.get(groupId)
   },
+
+  /**
+   * Reconstruct a GroupTask from existing DownloadTask instances after app restart.
+   * Use with tasks returned by `getExistingDownloadTasks()`, grouped by `task.metadata.titleDir`.
+   * Unlike `createGroup`, does not call `createDownloadTask` — tasks already exist in native layer.
+   */
+  restoreGroup (groupId: string, tasks: DownloadTask[], groupName?: string): GroupTask {
+    if (!groupId)
+      throw new Error('[RNBackgroundDownloader] groupId is required')
+
+    const group = new GroupTask(groupId, tasks, groupName)
+    groupsMap.set(groupId, group)
+    group._onStop = () => groupsMap.delete(groupId)
+
+    return group
+  },
 }
 
 export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {

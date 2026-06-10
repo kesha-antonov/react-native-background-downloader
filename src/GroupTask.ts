@@ -41,7 +41,7 @@ export class GroupTask {
       task._groupObserver = {
         onProgress: () => this._recalculate(),
         onDone: () => this._recalculate(),
-        onError: params => this._onTaskError(task, params),
+        onError: params => { this._onTaskError(task, params); this._recalculate() },
       }
 
     this._recalculate()
@@ -93,16 +93,29 @@ export class GroupTask {
     this._onStop?.()
   }
 
+  addTask (task: DownloadTask) {
+    task._groupObserver = {
+      onProgress: () => this._recalculate(),
+      onDone: () => this._recalculate(),
+      onError: params => { this._onTaskError(task, params); this._recalculate() },
+    }
+    this.tasks.push(task)
+    this._recalculate()
+  }
+
   private _recalculate () {
     let bytesDownloaded = 0
     let bytesTotal = 0
     let completedTasks = 0
+    let failedTasks = 0
 
     for (const task of this.tasks) {
       bytesDownloaded += task.bytesDownloaded
       bytesTotal += task.bytesTotal
       if (task.state === 'DONE')
         completedTasks++
+      else if (task.state === 'FAILED')
+        failedTasks++
     }
 
     this.bytesDownloaded = bytesDownloaded
@@ -112,11 +125,12 @@ export class GroupTask {
       bytesDownloaded,
       bytesTotal,
       completedTasks,
+      failedTasks,
       totalTasks: this.tasks.length,
     }
     this.progressHandler?.(params)
 
-    if (this.tasks.length > 0 && completedTasks === this.tasks.length)
+    if (this.tasks.length > 0 && completedTasks + failedTasks === this.tasks.length)
       this.doneHandler?.()
   }
 

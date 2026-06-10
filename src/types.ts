@@ -100,6 +100,8 @@ export type GroupProgressHandlerParams = {
   bytesTotal: number
   /** Number of tasks in the group that reached the DONE state */
   completedTasks: number
+  /** Number of tasks that failed without retry */
+  failedTasks: number
   /** Total number of tasks in the group */
   totalTasks: number
 }
