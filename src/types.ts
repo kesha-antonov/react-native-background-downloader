@@ -92,6 +92,32 @@ export interface ErrorHandlerParams {
 
 export type ErrorHandler = (params: ErrorHandlerParams) => void
 
+/**
+ * Aggregate progress across all tasks in a group.
+ */
+export type GroupProgressHandlerParams = {
+  bytesDownloaded: number
+  bytesTotal: number
+  /** Number of tasks in the group that reached the DONE state */
+  completedTasks: number
+  /** Number of tasks that failed without retry */
+  failedTasks: number
+  /** Total number of tasks in the group */
+  totalTasks: number
+}
+
+export type GroupProgressHandler = (params: GroupProgressHandlerParams) => void
+
+/** Fired once every task in the group has reached the DONE state */
+export type GroupDoneHandler = () => void
+
+export interface GroupErrorHandlerParams extends ErrorHandlerParams {
+  /** ID of the task that failed */
+  id: string
+}
+
+export type GroupErrorHandler = (params: GroupErrorHandlerParams) => void
+
 export type Metadata = Record<string, unknown>
 
 export interface TaskInfoNative {
@@ -125,10 +151,29 @@ export type DownloadParams = {
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
   maxRedirects?: number
+  /**
+   * Compress downloaded image after download completes.
+   * Value 0–1 maps to JPEG quality (e.g. 0.8 = 80% quality).
+   * Applied to JPEG, PNG, and WebP files. Non-image files are skipped silently.
+   * Value 0 or undefined = no compression (default).
+   */
+  compressValue?: number
+  /**
+   * Local file path to an image shown as the large icon in the Android download notification.
+   * Android only. Must be an absolute path to a readable file (e.g. from the app's cache/documents dir).
+   * Has no effect on iOS.
+   */
+  notificationImageUrl?: string
   /** Group ID for notification grouping (only used when grouping is enabled) */
   groupId?: string
   /** Group name displayed in notification (only used when grouping is enabled) */
   groupName?: string
+  /**
+   * Maximum time in milliseconds the task may be active (from start() to completion).
+   * If the task is still running after this duration, it is automatically stopped.
+   * Timer starts when start() is called and is cleared on done/error/stop/pause.
+   */
+  maxAge?: number
 }
 
 export interface DownloadTask {
@@ -241,6 +286,12 @@ export type UploadParams = {
   parameters?: Record<string, string>
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
+  /**
+   * Maximum time in milliseconds the task may be active (from start() to completion).
+   * If the task is still running after this duration, it is automatically stopped.
+   * Timer starts when start() is called and is cleared on done/error/stop/pause.
+   */
+  maxAge?: number
 }
 
 export interface UploadTask {

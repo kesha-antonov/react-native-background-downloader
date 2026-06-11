@@ -78,3 +78,6 @@ example/ios/.xcode.env.local
 
 # CodeQL temp files
 _codeql_detected_source_root
+
+# Allow compiled expo plugin
+!plugin/build/

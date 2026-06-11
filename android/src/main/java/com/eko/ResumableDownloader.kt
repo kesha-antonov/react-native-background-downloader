@@ -218,6 +218,8 @@ class ResumableDownloader {
 
   fun getState(id: String): DownloadState? = activeDownloads[id]
 
+  fun getActiveDownloads(): Map<String, DownloadState> = activeDownloads.toMap()
+
   fun isPaused(id: String): Boolean = activeDownloads[id]?.isPaused?.get() ?: false
 
   fun getBytesDownloaded(id: String): Long = activeDownloads[id]?.bytesDownloaded?.get() ?: 0

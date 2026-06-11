@@ -34,6 +34,14 @@ Complete API documentation for `@kesha-antonov/react-native-background-downloade
     - [Members](#members-1)
     - [Callback Methods](#callback-methods-1)
     - [Methods](#methods-1)
+  - [`groupingApi`](#groupingapi)
+    - [`groupingApi.createGroup(groupId, tasksParams, groupName?)`](#groupingapicreategroupgroupid-tasksparams-groupname)
+    - [`groupingApi.getGroup(groupId)`](#groupingapigetgroupgroupid)
+    - [`groupingApi.restoreGroup(groupId, tasks, groupName?)`](#groupingapirestoregroupgroupid-tasks-groupname)
+  - [GroupTask](#grouptask)
+    - [Members](#members-2)
+    - [Callback Methods](#callback-methods-2)
+    - [Methods](#methods-2)
   - [Constants](#constants)
     - [`directories`](#directories)
       - [`documents`](#documents)
@@ -49,6 +57,7 @@ import {
   createUploadTask,
   getExistingDownloadTasks,
   getExistingUploadTasks,
+  groupingApi,
   completeHandler,
   directories
 } from '@kesha-antonov/react-native-background-downloader'
@@ -72,6 +81,8 @@ Download a file to destination.
 | `maxRedirects` | Number |          |  Android  | Maximum number of redirects to follow before passing URL to DownloadManager. If not specified or 0, no redirect resolution is performed. Helps avoid ERROR_TOO_MANY_REDIRECTS for URLs with many redirects (e.g., podcast URLs) |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this download may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
+| `compressValue` | Number (0–1) |          |    All    | Re-encode the downloaded file as JPEG at the given quality after download completes. `0.8` = 80% quality. Applied to JPEG, PNG, and WebP files — other files are skipped silently. `0` or omitted = no compression. iOS always re-encodes as JPEG regardless of original format. Runs on a background thread; safe when the app is minimized |
+| `notificationImageUrl` | String |          |  Android  | Absolute local file path to an image shown as the large icon in the download notification (e.g. a thumbnail from the app's cache directory). Has no effect on iOS or when `showNotificationsEnabled` is `false` |
 
 ### Returns
 
@@ -336,6 +347,90 @@ A class representing an upload task created by `createUploadTask()`.
 - `resume(): Promise<void>` - Resumes a paused upload
 - `stop(): Promise<void>` - Stops the upload and removes temporary data
 - `start(): void` - Starts the upload
+
+---
+
+## `groupingApi`
+
+Aggregates multiple download tasks under a single `GroupTask` for combined progress tracking and group-level lifecycle callbacks. Works on both iOS and Android.
+
+### `groupingApi.createGroup(groupId, tasksParams, groupName?)`
+
+Creates a `GroupTask` from an array of task parameter objects. Internally calls `createDownloadTask` for each entry. Tasks are created in `PENDING` state — call `group.start()` to begin downloading.
+
+| Parameter | Type | Required | Description |
+|-----------|------|:--------:|-------------|
+| `groupId` | String | ✅ | Unique identifier for the group |
+| `tasksParams` | Array | ✅ | Array of task options, same shape as `createDownloadTask` options. `groupId` and `groupName` are applied automatically |
+| `groupName` | String | | Optional display name passed to each task and stored in notification text |
+
+**Returns:** `GroupTask`
+
+### `groupingApi.getGroup(groupId)`
+
+Returns a previously created group that is still active, or `undefined` if it has been stopped or never created.
+
+**Returns:** `GroupTask | undefined`
+
+### `groupingApi.restoreGroup(groupId, tasks, groupName?)`
+
+Reconstructs a `GroupTask` from existing `DownloadTask` instances after an app restart. Use with tasks returned by `getExistingDownloadTasks()`. Unlike `createGroup`, this does **not** call `createDownloadTask` — the tasks already exist in the native layer.
+
+| Parameter | Type | Required | Description |
+|-----------|------|:--------:|-------------|
+| `groupId` | String | ✅ | Unique identifier for the group |
+| `tasks` | DownloadTask[] | ✅ | Tasks previously returned by `getExistingDownloadTasks()` |
+| `groupName` | String | | Optional display name |
+
+**Returns:** `GroupTask`
+
+---
+
+## GroupTask
+
+A class that aggregates a set of `DownloadTask` instances. Created by `groupingApi.createGroup()` or `groupingApi.restoreGroup()`.
+
+### Members
+
+| Name | Type | Description |
+|------|------|-------------|
+| `groupId` | String | The group identifier |
+| `groupName` | String \| undefined | Optional display name |
+| `tasks` | DownloadTask[] | All tasks in the group |
+| `bytesDownloaded` | Number | Aggregate bytes downloaded across all tasks |
+| `bytesTotal` | Number | Aggregate bytes total across all tasks |
+
+### Callback Methods
+
+All callback methods return the current `GroupTask` instance for chaining.
+
+| Method | Callback Params | Description |
+|--------|----------------|-------------|
+| `progress` | `{ bytesDownloaded, bytesTotal, completedTasks, failedTasks, totalTasks }` | Fired on any task progress, done, or error event |
+| `done` | — | Fired once when `completedTasks + failedTasks === totalTasks` (all tasks reached a terminal state) |
+| `error` | `{ id: string, error: string, errorCode: number }` | Fired per failed task. Does not stop other tasks. `id` is the failing task's ID |
+
+### Methods
+
+#### `addTask(task: DownloadTask): void`
+
+Adds a task to the group after creation. Wires the group observer onto the task so it contributes to aggregate progress. Call `task.start()` separately after adding.
+
+#### `start(): void`
+
+Calls `start()` on every task in the group.
+
+#### `pause(): Promise<void>`
+
+Pauses all tasks in the group in parallel.
+
+#### `resume(): Promise<void>`
+
+Resumes all tasks in the group in parallel.
+
+#### `stop(): Promise<void>`
+
+Stops all tasks in the group in parallel and removes the group from the internal registry.
 
 ---
 

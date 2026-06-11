@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) NSInteger state;
 @property (nonatomic, assign) NSInteger errorCode;
 @property (nonatomic, assign) BOOL hasResumeData;
+@property (nonatomic, assign) CGFloat compressValue;
 
 - (instancetype)initWithDictionary:(NSDictionary *)dict;
 

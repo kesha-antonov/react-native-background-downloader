@@ -414,15 +414,20 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
 
 - (void)_setMaxParallelDownloadsInternal:(NSInteger)max {
     DLog(nil, @"[RNBackgroundDownloader] - [setMaxParallelDownloads:%ld]", (long)max);
-    @synchronized (sharedLock) {
-        if (max >= 1) {
-            sessionConfig.HTTPMaximumConnectionsPerHost = max;
-            // Recreate session with new config if it's already initialized
-            if (urlSession != nil) {
-                [self unregisterSession];
-                [self lazyRegisterSession];
+    // @try/@catch prevents NSException from propagating to TurboModule bridge on background
+    // dispatch queue. Without this, Hermes is accessed from the wrong thread → SIGSEGV (#161).
+    @try {
+        @synchronized (sharedLock) {
+            if (max >= 1) {
+                sessionConfig.HTTPMaximumConnectionsPerHost = max;
+                if (urlSession != nil) {
+                    [self unregisterSession];
+                    [self lazyRegisterSession];
+                }
             }
         }
+    } @catch (NSException *exception) {
+        DLog(nil, @"[RNBackgroundDownloader] - setMaxParallelDownloads exception: %@", exception.reason);
     }
 }
 
@@ -438,13 +443,18 @@ RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
 
 - (void)_setAllowsCellularAccessInternal:(BOOL)allows {
     DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess:%@]", allows ? @"YES" : @"NO");
-    @synchronized (sharedLock) {
-        sessionConfig.allowsCellularAccess = allows;
-        // Recreate session with new config if it's already initialized
-        if (urlSession != nil) {
-            [self unregisterSession];
-            [self lazyRegisterSession];
+    // @try/@catch prevents NSException from propagating to TurboModule bridge on background
+    // dispatch queue. Without this, Hermes is accessed from the wrong thread → SIGSEGV (#161).
+    @try {
+        @synchronized (sharedLock) {
+            sessionConfig.allowsCellularAccess = allows;
+            if (urlSession != nil) {
+                [self unregisterSession];
+                [self lazyRegisterSession];
+            }
         }
+    } @catch (NSException *exception) {
+        DLog(nil, @"[RNBackgroundDownloader] - setAllowsCellularAccess exception: %@", exception.reason);
     }
 }
 
@@ -477,6 +487,8 @@ RCT_EXPORT_METHOD(setAllowsCellularAccess:(BOOL)allows) {
         [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
 
+    CGFloat compressValue = options.compressValue().has_value() ? (CGFloat)options.compressValue().value() : 0.0;
+
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
 #else
 RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
@@ -498,6 +510,8 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         progressMinBytes = [progressMinBytesScope longLongValue];
         [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
+
+    CGFloat compressValue = options[@"compressValue"] ? [options[@"compressValue"] floatValue] : 0.0;
 
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
 #endif
@@ -535,7 +549,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
             dispatch_block_t downloadBlock = ^{
                 RNBackgroundDownloader *strongSelf = weakSelf;
                 if (strongSelf) {
-                    [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+                    [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata compressValue:compressValue];
                 }
             };
             [pendingDownloads addObject:downloadBlock];
@@ -543,17 +557,49 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         }
 
         [self sendDebugLog:@"download: session activated, executing download" taskId:identifier];
-        [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+        [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata compressValue:compressValue];
     }
 }
 
 // Internal method to execute the download after session is activated
-- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier url:(NSString *)url destination:(NSString *)destination metadata:(NSString *)metadata {
+- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier url:(NSString *)url destination:(NSString *)destination metadata:(NSString *)metadata compressValue:(CGFloat)compressValue {
     @synchronized (sharedLock) {
         DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest]");
         [self sendDebugLog:@"executeDownloadWithRequest: creating download task" taskId:identifier];
 
-        NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
+        // Guard: if the session has been invalidated between activation and task creation (#157),
+        // reset it and re-queue the download to retry after the new session activates.
+        if (urlSession == nil) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest] session nil, re-registering");
+            [self sendDebugLog:@"executeDownloadWithRequest: session nil, re-registering and retrying" taskId:identifier];
+            isSessionActivated = NO;
+            [self lazyRegisterSession];
+            __weak RNBackgroundDownloader *weakSelf = self;
+            [pendingDownloads addObject:^{
+                [weakSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata compressValue:compressValue];
+            }];
+            return;
+        }
+
+        NSURLSessionDownloadTask __strong *task = nil;
+        @try {
+            task = [urlSession downloadTaskWithRequest:request];
+        } @catch (NSException *exception) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest] exception: %@", exception.reason);
+            [self sendDebugLog:[NSString stringWithFormat:@"executeDownloadWithRequest: exception creating task: %@", exception.reason] taskId:identifier];
+            // Session was invalidated between the activation check and task creation (#157/#158).
+            // Reset the session and re-queue; the download will retry after the new session activates.
+            if ([exception.reason containsString:@"invalidated"]) {
+                [self unregisterSession];
+                [self lazyRegisterSession];
+                __weak RNBackgroundDownloader *weakSelf = self;
+                [pendingDownloads addObject:^{
+                    [weakSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata compressValue:compressValue];
+                }];
+            }
+            return;
+        }
+
         if (task == nil) {
             DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create download task");
             [self sendDebugLog:@"executeDownloadWithRequest: ERROR - failed to create download task" taskId:identifier];
@@ -566,7 +612,8 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
             @"id": identifier,
             @"url": url,
             @"destination": destination,
-            @"metadata": metadata
+            @"metadata": metadata,
+            @"compressValue": @(compressValue)
         }];
 
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
@@ -1196,6 +1243,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         NSError *error = [self getServerError:downloadTask];
         if (!error) {
             [self saveFile:taskConfig downloadURL:location error:&error];
+
+            // Compress image after successful save if configured
+            if (!error && taskConfig.compressValue > 0.0 && taskConfig.compressValue < 1.0) {
+                [self compressImageAtPath:taskConfig.destination quality:taskConfig.compressValue];
+            }
         }
 
         if (error) {
@@ -1979,6 +2031,22 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
     return [NSError errorWithDomain:NSURLErrorDomain
                                code:statusCode
                            userInfo:@{NSLocalizedDescriptionKey: [NSHTTPURLResponse localizedStringForStatusCode:statusCode]}];
+}
+
+- (void)compressImageAtPath:(NSString *)path quality:(CGFloat)quality {
+    UIImage *image = [UIImage imageWithContentsOfFile:path];
+    if (!image) return;
+
+    NSData *compressed = UIImageJPEGRepresentation(image, quality);
+    if (compressed) {
+        NSError *error = nil;
+        [compressed writeToFile:path options:NSDataWritingAtomic error:&error];
+        if (error) {
+            DLog(nil, @"[RNBackgroundDownloader] - compressImage write error: %@", error.localizedDescription);
+        } else {
+            DLog(nil, @"[RNBackgroundDownloader] - compressImage: %@ quality=%.2f → %lu bytes", path, quality, (unsigned long)compressed.length);
+        }
+    }
 }
 
 - (BOOL)saveFile: (nonnull RNBGDTaskConfig *) taskConfig downloadURL:(nonnull NSURL *)location error:(NSError **)saveError {

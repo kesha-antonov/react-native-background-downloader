@@ -16,6 +16,7 @@ data class JobState(
     var notificationId: Int,
     val groupId: String = "",
     val groupName: String = "",
+    val notificationImageUrl: String = "",
     var lastNotifiedProgress: Int = -1,
     var lastNotificationUpdateTime: Long = 0,
     // Track download progress for summary notification
@@ -194,6 +195,9 @@ object UIDTJobRegistry {
 
     // Static storage for headers (PersistableBundle can't store complex objects)
     val pendingHeaders = ConcurrentHashMap<String, Map<String, String>>()
+
+    // Static storage for per-download notification image paths, keyed by configId
+    val pendingNotificationImages = ConcurrentHashMap<String, String>()
 
     // Static listener reference (set by Downloader)
     @Volatile

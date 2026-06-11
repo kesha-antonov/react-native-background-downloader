@@ -1,6 +1,7 @@
 import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
+import { GroupTask } from './GroupTask'
 import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
 import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, getNotificationTextsForNative, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
@@ -69,6 +70,7 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
 const MIN_PROGRESS_INTERVAL = 250
 const tasksMap = new Map<string, DownloadTask>()
 const uploadTasksMap = new Map<string, UploadTask>()
+const groupsMap = new Map<string, GroupTask>()
 
 interface DownloadBeginEvent {
   id: string
@@ -492,8 +494,10 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
     return task
   }).filter((task): task is DownloadTask => task !== undefined)
 
-  for (const task of downloadTasks)
+  for (const task of downloadTasks) {
     tasksMap.set(task.id, task)
+    task._onStop = () => tasksMap.delete(task.id)
+  }
 
   return downloadTasks
 }
@@ -536,8 +540,59 @@ export function createDownloadTask ({
   })
 
   tasksMap.set(rest.id, task)
+  task._onStop = () => tasksMap.delete(rest.id)
 
   return task
+}
+
+/**
+ * API for binding multiple download tasks under a single groupId so they can be
+ * driven and observed as one unit (combined progress, single `done`/`error` callbacks).
+ *
+ * Pairs naturally with `setConfig({ notificationsGrouping: { enabled: true, mode: 'summaryOnly' } })`
+ * on Android, where the native side also collapses the group's notifications into one
+ * with aggregate progress - this mirrors that aggregation in JS (and works on iOS too).
+ */
+export const groupingApi = {
+  /**
+   * Create a group of download tasks.
+   * Each entry in `tasksParams` is passed to `createDownloadTask`, with `groupId`
+   * (and `groupName`, if provided) applied automatically.
+   * Tasks are created in PENDING state - call `group.start()` to kick them off.
+   */
+  createGroup (groupId: string, tasksParams: (TaskInfo & DownloadParams)[], groupName?: string): GroupTask {
+    if (!groupId)
+      throw new Error('[RNBackgroundDownloader] groupId is required')
+
+    const tasks = tasksParams.map(params => createDownloadTask({ ...params, groupId, groupName }))
+
+    const group = new GroupTask(groupId, tasks, groupName)
+    groupsMap.set(groupId, group)
+    group._onStop = () => groupsMap.delete(groupId)
+
+    return group
+  },
+
+  /** Get a previously created group by its groupId, if it still exists. */
+  getGroup (groupId: string): GroupTask | undefined {
+    return groupsMap.get(groupId)
+  },
+
+  /**
+   * Reconstruct a GroupTask from existing DownloadTask instances after app restart.
+   * Use with tasks returned by `getExistingDownloadTasks()`, grouped by `task.metadata.titleDir`.
+   * Unlike `createGroup`, does not call `createDownloadTask` — tasks already exist in native layer.
+   */
+  restoreGroup (groupId: string, tasks: DownloadTask[], groupName?: string): GroupTask {
+    if (!groupId)
+      throw new Error('[RNBackgroundDownloader] groupId is required')
+
+    const group = new GroupTask(groupId, tasks, groupName)
+    groupsMap.set(groupId, group)
+    group._onStop = () => groupsMap.delete(groupId)
+
+    return group
+  },
 }
 
 export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
@@ -597,8 +652,10 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
     return task
   }).filter((task): task is UploadTask => task !== undefined)
 
-  for (const task of uploadTasks)
+  for (const task of uploadTasks) {
     uploadTasksMap.set(task.id, task)
+    task._onStop = () => uploadTasksMap.delete(task.id)
+  }
 
   return uploadTasks
 }
@@ -631,6 +688,7 @@ export function createUploadTask ({
   })
 
   uploadTasksMap.set(rest.id, task)
+  task._onStop = () => uploadTasksMap.delete(rest.id)
 
   return task
 }

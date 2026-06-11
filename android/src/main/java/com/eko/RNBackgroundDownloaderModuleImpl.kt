@@ -5,12 +5,15 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.util.Log
 import android.webkit.MimeTypeMap
 import com.eko.handlers.OnBegin
+import com.eko.uidt.UIDTJobRegistry
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
 import com.eko.utils.HeaderUtils
@@ -160,6 +163,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   // Map to store metadata for paused downloads
   private val configIdToMetadata = mutableMapOf<String, String>()
 
+  // Map to store compressValue per download (0f = no compression)
+  private val configIdToCompressValue = mutableMapOf<String, Float>()
+
   /**
    * Get the event emitter, ensuring it's initialized.
    * Returns null if the module hasn't been initialized yet.
@@ -225,23 +231,25 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
 
     override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
-      // Drop any buffered progress for this task so it cannot arrive in JS after downloadComplete
       progressReporter.clearPendingReport(id)
-      eventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal)
-
-      // Clean up all download state
       synchronized(sharedLock) {
+        // Guard: stopTask may have already cleaned up this task — skip emit to avoid firing
+        // onDone on a task that was intentionally stopped.
+        if (!configIdToMetadata.containsKey(id)) return
+        val compressValue = configIdToCompressValue[id] ?: 0f
+        if (compressValue > 0f && compressValue < 1f) {
+          compressImage(location, compressValue)
+        }
+        eventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal)
         cleanupDownloadState(id)
       }
     }
 
     override fun onError(id: String, error: String, errorCode: Int) {
-      // Drop any buffered progress for this task so it cannot arrive in JS after downloadFailed
       progressReporter.clearPendingReport(id)
-      eventEmitter.emitFailed(id, error, errorCode)
-
-      // Clean up all download state
       synchronized(sharedLock) {
+        if (!configIdToMetadata.containsKey(id)) return
+        eventEmitter.emitFailed(id, error, errorCode)
         cleanupDownloadState(id)
       }
     }
@@ -515,6 +523,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     configIdToDownloadId.remove(configId)
     configIdToHeaders.remove(configId)
     configIdToMetadata.remove(configId)
+    configIdToCompressValue.remove(configId)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      UIDTJobRegistry.pendingNotificationImages.remove(configId)
+    }
     progressReporter.clearDownloadState(configId)
 
     if (downloadId != null) {
@@ -655,6 +667,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       saveConfigMap()
     }
 
+    val compressValue = if (options.hasKey("compressValue")) options.getDouble("compressValue").toFloat() else 0f
+    val notificationImageUrl = if (options.hasKey("notificationImageUrl")) options.getString("notificationImageUrl") ?: "" else ""
+
     val isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming")
     // Use per-download setting if provided, otherwise fall back to global setting
     val isAllowedOverMetered = if (options.hasKey("isAllowedOverMetered")) {
@@ -729,7 +744,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Helper function to start download with DownloadManager and track state
     fun startDownloadManagerDownload(downloadId: Long) {
-      val config = RNBGDTaskConfig(id, url, destination, metadataValue)
+      val config = RNBGDTaskConfig(id, url, destination, metadataValue, compressValue = compressValue)
       synchronized(sharedLock) {
         // Clean up any stale state from previous downloads with the same ID
         downloader.cleanupStaleState(id)
@@ -739,6 +754,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         configIdToDownloadId[id] = downloadId
         configIdToHeaders[id] = headersMap
         configIdToMetadata[id] = metadataValue
+        configIdToCompressValue[id] = compressValue
         downloadIdToConfig[downloadId] = config
         saveDownloadIdToConfigMap()
         resumeTasks(downloadId, config)
@@ -755,6 +771,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         progressReporter.initializeDownload(id)
         configIdToHeaders[id] = headersMap
         configIdToMetadata[id] = metadataValue
+        configIdToCompressValue[id] = compressValue
+        if (notificationImageUrl.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          UIDTJobRegistry.pendingNotificationImages[id] = notificationImageUrl
+        }
       }
       downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener, metadataValue)
     }
@@ -1025,7 +1045,39 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                   progressReporter.setPercent(config.id, percent)
                 }
               } else if (downloadId != null) {
-                downloader.cancel(downloadId)
+                // Try to match by destination path before cancelling.
+                // Handles force-stop recovery where DownloadManager reassigns new IDs,
+                // breaking the downloadId → config mapping persisted in MMKV.
+                val localUri = downloadStatus.getString("localUri")
+                val matchedConfig = if (localUri != null) {
+                  val normalizedLocalUri = localUri.replace("file://", "").trimEnd('/')
+                  downloadIdToConfig.values.find { config ->
+                    config.destination.trimEnd('/') == normalizedLocalUri ||
+                        File(config.destination).name == File(normalizedLocalUri).name
+                  }
+                } else null
+
+                if (matchedConfig != null) {
+                  // Restore broken ID mapping so future lookups work
+                  downloadIdToConfig[downloadId] = matchedConfig
+                  configIdToDownloadId[matchedConfig.id] = downloadId
+                  saveDownloadIdToConfigMap()
+
+                  val status = downloadStatus.getInt("status")
+                  val params = Arguments.createMap()
+                  params.putString("id", matchedConfig.id)
+                  params.putString("metadata", matchedConfig.metadata)
+                  params.putInt("state", stateMap[status] ?: 0)
+                  val bd = downloadStatus.getDouble("bytesDownloaded")
+                  val bt = downloadStatus.getDouble("bytesTotal")
+                  params.putDouble("bytesDownloaded", bd)
+                  params.putDouble("bytesTotal", bt)
+                  foundTasks.pushMap(params)
+                  processedIds.add(matchedConfig.id)
+                  progressReporter.setPercent(matchedConfig.id, if (bt > 0) bd / bt else 0.0)
+                } else {
+                  downloader.cancel(downloadId)
+                }
               }
             } while (cursor.moveToNext())
           }
@@ -1087,11 +1139,27 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         processedIds.add(configId)
       }
 
-      // Phase 4: Add active resumable downloads (in-progress via ResumableDownloader)
-      val resumableDownloader = downloader.resumableDownloader
-      // Check for any paused resumable downloads that weren't in the persisted state
-      // (e.g., paused during current session but not yet persisted)
-      // This is handled by the pausedDownloads map above since we persist on pause
+      // Phase 4: Add active ResumableDownloader downloads (in-progress via foreground service)
+      // Covers: Android 11 with internal-path destination (DownloadManager falls back),
+      // Android 16+ where ResumableDownloader is always used, and other fallback cases.
+      val activeResumable = downloader.resumableDownloader.getActiveDownloads()
+      for ((configId, state) in activeResumable) {
+        if (processedIds.contains(configId)) continue
+        if (state.isCancelled.get() || state.isPaused.get()) continue
+
+        val params = Arguments.createMap()
+        params.putString("id", configId)
+        params.putString("metadata", configIdToMetadata[configId] ?: "{}")
+        params.putInt("state", DownloadConstants.TASK_RUNNING)
+        val bd = state.bytesDownloaded.get().toDouble()
+        val bt = state.bytesTotal.toDouble()
+        params.putDouble("bytesDownloaded", bd)
+        params.putDouble("bytesTotal", bt)
+        params.putString("destination", state.destination)
+        foundTasks.pushMap(params)
+        processedIds.add(configId)
+        progressReporter.setPercent(configId, if (bt > 0) bd / bt else 0.0)
+      }
 
       logD(NAME, "getExistingDownloadTasks: found ${foundTasks.size()} tasks")
     }
@@ -1105,6 +1173,25 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
   @Suppress("UNUSED_PARAMETER")
   fun removeListeners(count: Int) {
+  }
+
+  /**
+   * Compress an image file in-place at the given quality (0–1 → 1–100 JPEG quality).
+   * Decodes JPEG/PNG/WebP via BitmapFactory, re-encodes as JPEG, overwrites file.
+   * Silently skips if the file is not a valid image.
+   */
+  private fun compressImage(path: String, quality: Float) {
+    try {
+      val bitmap: Bitmap = BitmapFactory.decodeFile(path) ?: return
+      val qualityInt = (quality * 100).toInt().coerceIn(1, 100)
+      java.io.FileOutputStream(path).use { out ->
+        bitmap.compress(Bitmap.CompressFormat.JPEG, qualityInt, out)
+      }
+      bitmap.recycle()
+      logD(NAME, "compressImage: $path quality=$qualityInt")
+    } catch (e: Exception) {
+      logW(NAME, "compressImage failed for $path: ${e.message}")
+    }
   }
 
   private fun onBeginDownload(configId: String, headers: WritableMap, expectedBytes: Long) {
@@ -1133,6 +1220,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       newDownloadStatus.putString("reasonText", "Downloaded file not found at destination")
       onFailedDownload(config, newDownloadStatus)
       return
+    }
+
+    // Compress image if configured
+    if (config.compressValue > 0f && config.compressValue < 1f) {
+      compressImage(config.destination, config.compressValue)
     }
 
     eventEmitter.emitComplete(

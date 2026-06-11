@@ -6,6 +6,8 @@ Platform-specific information, requirements, and troubleshooting for `@kesha-ant
 
 - [iOS Notes](#ios-notes)
 - [Android Notes](#android-notes)
+- [Image Compression (compressValue)](#image-compression-compressvalue)
+- [Notification Image (notificationImageUrl)](#notification-image-notificationimageurl)
 - [Google Play Console Declaration](#google-play-console-declaration)
 - [Proguard Rules](#proguard-rules)
 
@@ -31,6 +33,20 @@ iOS uses `NSURLSession` with background configuration. Downloads continue even a
 ### AppDelegate Setup Required
 
 You must implement `handleEventsForBackgroundURLSession` in your AppDelegate for background downloads to work properly. See the [Installation guide](../README.md#ios---extra-mandatory-step) for details.
+
+### URLSession Invalidation Race Condition (#157)
+
+In some cases — particularly on fresh installs or immediately after a hot reload — you may see this error in logs:
+
+```
+BackgroundSession attempted to create a NSURLSessionDownloadTask in a session that has been invalidated
+```
+
+**Cause:** A race condition between `activateSession` (which calls `getTasksWithCompletionHandler` asynchronously) and an immediate call to `createDownloadTask`. The session gets invalidated between the activation check and the actual task creation.
+
+**Fix (built-in):** The library catches this exception, resets the session, and automatically re-queues the download to retry once the new session finishes activating. No action needed — the download will start correctly.
+
+**Best practice:** Call `getExistingDownloadTasks()` at app startup before scheduling new downloads. This pre-warms the session and eliminates the race condition entirely.
 
 ### Max Parallel Downloads
 
@@ -132,9 +148,42 @@ This can happen with slow-responding servers. Try:
 
 If you're using `react-native-mmkv`, you don't need to add the MMKV dependency manually - it's already included. The library uses `compileOnly` to avoid conflicts.
 
+### SIGSEGV crash on iOS when calling setConfig({ allowsCellularAccess }) with New Architecture
+
+**Affected versions:** 4.5.x, RN 0.83+, New Architecture (TurboModules) enabled  
+**Root cause:** `setAllowsCellularAccess:` is a void method that can throw `NSException` (e.g. when recreating the `URLSession`). The TurboModule bridge catches it and tries to convert it to a JS error via `convertNSExceptionToJSError`, which accesses Hermes VM from the library's background dispatch queue (`com.eko.backgrounddownloader`). Hermes is not thread-safe → SIGSEGV crash.
+
+**Fix:** Updated in this fork — both `_setAllowsCellularAccessInternal:` and `_setMaxParallelDownloadsInternal:` are now wrapped in `@try/@catch`. Exceptions are caught and logged without propagating to the TurboModule bridge.
+
+**Workaround (older versions):** Instead of `setConfig({ allowsCellularAccess: true })`, pass `isAllowedOverMetered: true` per-task in `createDownloadTask()` options — this does not trigger a separate native void method call.
+
+---
+
 ### EXC_BAD_ACCESS crash on iOS with react-native-mmkv
 
 This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
+
+### getExistingDownloadTasks() returns [] on Android 11 with internal destination paths
+
+**Affected versions:** 4.5.x  
+**Root cause:** When `destination` points to an internal app path (e.g. from `RNFS.DocumentDirectoryPath`), Android's `DownloadManager` may reject it and the library silently falls back to `ResumableDownloader`. Prior to the fix in this fork, active `ResumableDownloader` tasks were invisible to `getExistingDownloadTasks()`.
+
+**Fix:** Updated in this fork — active `ResumableDownloader` tasks are now included in Phase 4 of `getExistingDownloadTasks()`. No workaround needed after updating.
+
+**Workaround (older versions):** Pause the download before force-stopping the app, or use `directories.documents` which maps to external app storage on Android (compatible with `DownloadManager`).
+
+---
+
+### getExistingDownloadTasks() returns [] after force-stop for active (non-paused) downloads
+
+**Affected versions:** 4.5.x (Android 13+)  
+**Root cause:** After force-stop, Android's `DownloadManager` may reassign new download IDs. The persisted `downloadId → config` mapping in MMKV becomes stale.
+
+**Fix:** Updated in this fork — Phase 1 now falls back to matching by destination file path when the download ID is not found, restoring the mapping automatically.
+
+**Limitation:** This fix only works for `DownloadManager`-backed downloads. If `ResumableDownloader` was used (Android 16+, or internal-path fallback), active state is in-memory only and lost on force-stop. Paused downloads survive because state is persisted to disk on pause.
+
+---
 
 ### Downloads not resuming after app restart
 
@@ -147,3 +196,51 @@ See the [Google Play Console Declaration](#google-play-console-declaration) sect
 ### TypeToken errors in release builds (Android)
 
 Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section above.
+
+---
+
+## Image Compression (`compressValue`)
+
+Pass `compressValue` (0–1) to `createDownloadTask` to re-encode the downloaded file as JPEG after the download completes.
+
+```javascript
+createDownloadTask({
+  id: 'my-image',
+  url: 'https://example.com/photo.jpg',
+  destination: `${directories.documents}/photo.jpg`,
+  compressValue: 0.7,  // 70% JPEG quality
+})
+```
+
+**Behavior:**
+- Runs after the file is fully written to disk, on a background thread.
+- Safe when the app is minimized — on Android this is done inside the download service/job; on iOS inside the `URLSession` completion handler.
+- **iOS:** Always re-encodes as JPEG via `UIImageJPEGRepresentation`, regardless of original format (PNG/WebP → JPEG).
+- **Android:** Uses `Bitmap.compress(JPEG)` — same JPEG-only output.
+- Non-image files (e.g. ZIP, MP4) are skipped silently — `BitmapFactory.decodeFile` / `UIImage` will return `nil`/`null` and the file is left untouched.
+- `compressValue = 1.0` is treated as "no compression" (pass-through). Use values in the range `0.01–0.99`.
+
+**Note:** The file at `destination` is overwritten in-place. Keep a copy elsewhere if the original lossless file is needed.
+
+---
+
+## Notification Image (`notificationImageUrl`)
+
+**Android only.** Pass `notificationImageUrl` (absolute local file path) to show a large icon in the download notification.
+
+```javascript
+createDownloadTask({
+  id: 'my-video',
+  url: 'https://example.com/video.mp4',
+  destination: `${directories.documents}/video.mp4`,
+  notificationImageUrl: '/data/user/0/com.myapp/cache/thumbnail.jpg',
+})
+```
+
+**Requirements:**
+- `showNotificationsEnabled: true` must be set via `setConfig` — the image has no effect when notifications are disabled.
+- Android 14+ (UIDT jobs) only. On Android 13 and below (foreground service), the parameter is parsed but not used.
+- The path must be readable by the app process at the time the download notification is created. Images in the app's `cache` or `documents` directory work reliably.
+- The image is loaded once when the download starts and cached in the `JobState` for the lifetime of the download. If the file is deleted before the download finishes, later notification updates will simply not show the image.
+
+**Sizing:** The image is scaled down to ~256px before being passed to `setLargeIcon()`. Very large bitmaps will be automatically sub-sampled to avoid OOM errors in the system process.

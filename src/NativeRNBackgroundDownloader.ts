@@ -78,6 +78,8 @@ export interface Spec extends TurboModule {
     isAllowedOverRoaming: boolean
     isAllowedOverMetered: boolean
     maxRedirects?: number
+    compressValue?: number
+    notificationImageUrl?: string
   }): void
 
   pauseTask(id: string): Promise<void>

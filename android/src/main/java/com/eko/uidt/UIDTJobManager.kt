@@ -205,7 +205,7 @@ object UIDTJobManager {
 
             // Show detached paused notification (not tied to UIDT job)
             if (config.showNotificationsEnabled) {
-                UIDTNotificationManager.showPausedNotification(context, configId, notificationId, progress, groupName)
+                UIDTNotificationManager.showPausedNotification(context, configId, notificationId, progress, groupName, jobState.notificationImageUrl)
             }
         }
         return result
