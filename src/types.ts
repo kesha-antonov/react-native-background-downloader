@@ -30,8 +30,8 @@ export interface NotificationTexts {
 
 /**
  * Mode for notification display when grouping is enabled.
- * - 'individual': Show all notifications (default, current behavior)
- * - 'summaryOnly': Show only summary notification, minimize individual ones
+ * - 'individual': Show all notifications
+ * - 'summaryOnly': Show only summary notification, minimize individual ones (default when grouping is enabled)
  */
 export type NotificationGroupingMode = 'individual' | 'summaryOnly'
 
@@ -41,7 +41,7 @@ export type NotificationGroupingMode = 'individual' | 'summaryOnly'
 export interface NotificationsGroupingConfig {
   /** Enable notification grouping (default: false) */
   enabled: boolean
-  /** Mode for notification display (default: 'individual') */
+  /** Mode for notification display (default: 'summaryOnly' when enabled, 'individual' otherwise) */
   mode?: NotificationGroupingMode
   /** Custom notification texts with optional pluralization */
   texts?: NotificationTexts

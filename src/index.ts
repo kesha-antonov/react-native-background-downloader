@@ -404,7 +404,7 @@ export function setConfig ({
   if (notificationsGrouping !== undefined)
     config.notificationsGrouping = {
       enabled: notificationsGrouping.enabled ?? false,
-      mode: notificationsGrouping.mode ?? 'individual',
+      mode: notificationsGrouping.mode ?? (notificationsGrouping.enabled ? 'summaryOnly' : 'individual'),
       texts: {
         ...DEFAULT_NOTIFICATION_TEXTS,
         ...notificationsGrouping.texts,
@@ -549,9 +549,9 @@ export function createDownloadTask ({
  * API for binding multiple download tasks under a single groupId so they can be
  * driven and observed as one unit (combined progress, single `done`/`error` callbacks).
  *
- * Pairs naturally with `setConfig({ notificationsGrouping: { enabled: true, mode: 'summaryOnly' } })`
- * on Android, where the native side also collapses the group's notifications into one
- * with aggregate progress - this mirrors that aggregation in JS (and works on iOS too).
+ * On Android, combine with `setConfig({ notificationsGrouping: { enabled: true } })` to collapse
+ * the group's notifications into a single summary notification with aggregate progress
+ * (`mode` defaults to `'summaryOnly'` when grouping is enabled). Works on iOS too.
  */
 export const groupingApi = {
   /**
