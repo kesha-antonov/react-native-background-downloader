@@ -34,6 +34,9 @@ object DownloadConstants {
     /** Interval for throttling progress log messages (milliseconds) */
     const val PROGRESS_LOG_INTERVAL_MS = 500L
 
+    /** Interval for persisting in-progress resumable download recovery snapshots (milliseconds) */
+    const val RECOVERY_SNAPSHOT_INTERVAL_MS = 2_000L
+
     // ========== HTTP Headers ==========
 
     /** Keep-Alive header value for connection pooling */

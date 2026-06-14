@@ -95,6 +95,9 @@ class Downloader(private val context: Context, private val storageManager: com.e
         pausedDownloads.putAll(loadedPaused)
       }
     }
+    // Recover any resumable downloads that were active when the app was last
+    // force-stopped (their foreground service and in-memory state were lost).
+    restoreRecoverableDownloads()
   }
 
   private fun bindToService() {
@@ -477,6 +480,87 @@ class Downloader(private val context: Context, private val storageManager: com.e
    */
   fun getActiveResumableDownloads(): Map<String, ResumableDownloader.DownloadState> {
     return resumableDownloader.getActiveDownloads()
+  }
+
+  /**
+   * Persist a recovery snapshot for an in-progress resumable download so it can be
+   * recovered after a force-stop. Called throttled from progress callbacks.
+   * The byte counter stored here is advisory only - on recovery the resume offset
+   * is recomputed from the actual on-disk file length to avoid corruption.
+   */
+  fun saveActiveDownloadSnapshot(
+    configId: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    bytesDownloaded: Long,
+    bytesTotal: Long,
+    metadata: String = "{}"
+  ) {
+    storageManager?.saveActiveDownload(
+      PausedDownloadInfo(
+        configId = configId,
+        url = url,
+        destination = destination,
+        headers = headers,
+        bytesDownloaded = bytesDownloaded,
+        bytesTotal = bytesTotal,
+        metadata = metadata
+      )
+    )
+  }
+
+  /**
+   * Remove the recovery snapshot for a download (on complete, error, pause or stop).
+   */
+  fun removeActiveDownloadSnapshot(configId: String) {
+    storageManager?.removeActiveDownload(configId)
+  }
+
+  /**
+   * Recover resumable downloads that were active when the app was force-stopped.
+   * Moves their snapshots into the paused-downloads map (so getExistingDownloadTasks
+   * surfaces them and resumeTask works), recomputing the resume offset from the
+   * partial file's actual length. Snapshots without a partial file on disk are dropped.
+   */
+  private fun restoreRecoverableDownloads() {
+    val sm = storageManager ?: return
+    val recoverable = sm.loadActiveDownloads()
+    if (recoverable.isEmpty()) {
+      return
+    }
+
+    var recoveredCount = 0
+    for ((configId, info) in recoverable) {
+      // Skip if it is already tracked as paused, or still running as a UIDT job.
+      if (pausedDownloads.containsKey(configId)) {
+        continue
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+        UIDTDownloadJobService.isActiveJob(configId)
+      ) {
+        continue
+      }
+
+      val destFile = File(info.destination)
+      val fileLength = if (destFile.exists()) destFile.length() else 0L
+      if (fileLength <= 0L) {
+        // Nothing downloaded yet - nothing to resume from.
+        continue
+      }
+
+      // Use the on-disk length as the authoritative resume offset.
+      pausedDownloads[configId] = info.copy(bytesDownloaded = fileLength)
+      recoveredCount++
+    }
+
+    if (recoveredCount > 0) {
+      savePausedDownloads()
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Recovered $recoveredCount interrupted resumable download(s) after force-stop")
+    }
+
+    // Clear the active store now that recovery has been processed.
+    sm.clearActiveDownloads()
   }
 
   /**

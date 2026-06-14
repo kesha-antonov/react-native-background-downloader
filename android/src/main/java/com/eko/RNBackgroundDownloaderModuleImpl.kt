@@ -160,6 +160,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   // Map to store metadata for paused downloads
   private val configIdToMetadata = mutableMapOf<String, String>()
 
+  // Last time (ms) a recovery snapshot was persisted for a resumable download,
+  // used to throttle snapshot writes from the frequent progress callbacks.
+  private val configIdToLastSnapshotMs = mutableMapOf<String, Long>()
+
   /**
    * Get the event emitter, ensuring it's initialized.
    * Returns null if the module hasn't been initialized yet.
@@ -222,6 +226,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
       onProgressDownload(id, bytesDownloaded, bytesTotal)
+      // Persist a recovery snapshot so this download can be recovered if the app
+      // is force-stopped (which kills the foreground service and its in-memory state).
+      maybeSnapshotActiveResumable(id, bytesDownloaded, bytesTotal)
     }
 
     override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
@@ -515,7 +522,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     configIdToDownloadId.remove(configId)
     configIdToHeaders.remove(configId)
     configIdToMetadata.remove(configId)
+    configIdToLastSnapshotMs.remove(configId)
     progressReporter.clearDownloadState(configId)
+    // Drop any force-stop recovery snapshot for this download.
+    downloader.removeActiveDownloadSnapshot(configId)
 
     if (downloadId != null) {
       downloadIdToConfig.remove(downloadId)
@@ -525,6 +535,42 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     if (removePausedState) {
       downloader.removePausedState(configId)
     }
+  }
+
+  /**
+   * Persist a recovery snapshot for an in-progress resumable download, throttled so
+   * the frequent progress callbacks don't write to storage on every buffer read.
+   * If the app is force-stopped, restoreRecoverableDownloads() uses this snapshot to
+   * surface the download again via getExistingDownloadTasks.
+   */
+  private fun maybeSnapshotActiveResumable(configId: String, bytesDownloaded: Long, bytesTotal: Long) {
+    val now = System.currentTimeMillis()
+    val last = configIdToLastSnapshotMs[configId] ?: 0L
+    if (now - last < DownloadConstants.RECOVERY_SNAPSHOT_INTERVAL_MS) {
+      return
+    }
+    configIdToLastSnapshotMs[configId] = now
+
+    // The active state lives in the foreground-service ResumableDownloader (Android < 14)
+    // or, on Android 14+, in the UIDT job. Check both so force-stop recovery works on
+    // every supported version.
+    val state = downloader.getActiveResumableDownloads()[configId]
+      ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        UIDTDownloadJobService.getJobDownloadState(configId)
+      else null)
+      ?: return
+    val headers = configIdToHeaders[configId] ?: state.headers
+    val metadata = configIdToMetadata[configId] ?: "{}"
+
+    downloader.saveActiveDownloadSnapshot(
+      configId = configId,
+      url = state.url,
+      destination = state.destination,
+      headers = headers,
+      bytesDownloaded = bytesDownloaded,
+      bytesTotal = bytesTotal,
+      metadata = metadata
+    )
   }
 
   /**
@@ -840,6 +886,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             bytesTotal = state.bytesTotal,
             metadata = metadata
           )
+
+          // Now tracked as an explicit paused download - drop the recovery snapshot.
+          downloader.removeActiveDownloadSnapshot(configId)
+          configIdToLastSnapshotMs.remove(configId)
 
           logD(NAME, "Paused resumable download: $configId (saved state: ${state.bytesDownloaded.get()}/${state.bytesTotal} bytes)")
         }

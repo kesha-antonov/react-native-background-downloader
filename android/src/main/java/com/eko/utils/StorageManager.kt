@@ -20,6 +20,7 @@ class StorageManager(context: Context, private val name: String) {
         private const val TAG = "StorageManager"
         private const val KEY_DOWNLOAD_ID_TO_CONFIG = "_downloadIdToConfig"
         private const val KEY_PAUSED_DOWNLOADS = "_pausedDownloads"
+        private const val KEY_ACTIVE_DOWNLOADS = "_activeDownloads"
         private const val KEY_UPLOAD_CONFIGS = "_uploadConfigs"
         private const val KEY_PROGRESS_INTERVAL = "_progressInterval"
         private const val KEY_PROGRESS_MIN_BYTES = "_progressMinBytes"
@@ -278,6 +279,100 @@ class StorageManager(context: Context, private val name: String) {
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to remove paused download: ${e.message}")
         }
+    }
+
+    /**
+     * Save the set of in-progress resumable downloads ("recovery snapshots").
+     * These let getExistingDownloadTasks recover an active download after the app
+     * is force-stopped (which kills the foreground service and loses in-memory
+     * state). Stored separately from paused downloads so it never interferes with
+     * the live pause/resume bookkeeping.
+     */
+    fun saveActiveDownloads(activeDownloads: Map<String, Downloader.PausedDownloadInfo>) {
+        try {
+            val gson = Gson()
+            val mapCopy = activeDownloads.mapValues { (_, info) ->
+                PausedDownloadInfoData(
+                    configId = info.configId,
+                    url = info.url,
+                    destination = info.destination,
+                    headers = info.headers,
+                    bytesDownloaded = info.bytesDownloaded,
+                    bytesTotal = info.bytesTotal,
+                    metadata = info.metadata
+                )
+            }
+            val str = gson.toJson(mapCopy)
+
+            if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.encode("$name$KEY_ACTIVE_DOWNLOADS", str)
+            } else {
+                sharedPreferences.edit()
+                    .putString("$name$KEY_ACTIVE_DOWNLOADS", str)
+                    .commit()
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to save active downloads: ${e.message}")
+        }
+    }
+
+    /**
+     * Load the in-progress resumable download recovery snapshots.
+     */
+    fun loadActiveDownloads(): MutableMap<String, Downloader.PausedDownloadInfo> {
+        try {
+            val str = if (isMMKVAvailable && mmkv != null) {
+                mmkv!!.decodeString("$name$KEY_ACTIVE_DOWNLOADS")
+            } else {
+                sharedPreferences.getString("$name$KEY_ACTIVE_DOWNLOADS", null)
+            }
+
+            if (str != null && str.isNotEmpty()) {
+                val gson = Gson()
+                val mapType = object : TypeToken<Map<String, PausedDownloadInfoData>>() {}.type
+                val dataMap: Map<String, PausedDownloadInfoData> = gson.fromJson(str, mapType)
+                return dataMap.mapValues { (_, data) ->
+                    Downloader.PausedDownloadInfo(
+                        configId = data.configId,
+                        url = data.url,
+                        destination = data.destination,
+                        headers = data.headers,
+                        bytesDownloaded = data.bytesDownloaded,
+                        bytesTotal = data.bytesTotal,
+                        metadata = data.metadata
+                    )
+                }.toMutableMap()
+            }
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load active downloads: ${e.message}")
+        }
+        return mutableMapOf()
+    }
+
+    /**
+     * Upsert a single in-progress resumable download recovery snapshot.
+     */
+    fun saveActiveDownload(info: Downloader.PausedDownloadInfo) {
+        val map = loadActiveDownloads()
+        map[info.configId] = info
+        saveActiveDownloads(map)
+    }
+
+    /**
+     * Remove a single recovery snapshot by config ID.
+     */
+    fun removeActiveDownload(configId: String) {
+        val map = loadActiveDownloads()
+        if (map.remove(configId) != null) {
+            saveActiveDownloads(map)
+        }
+    }
+
+    /**
+     * Clear all recovery snapshots.
+     */
+    fun clearActiveDownloads() {
+        saveActiveDownloads(emptyMap())
     }
 
     /**
