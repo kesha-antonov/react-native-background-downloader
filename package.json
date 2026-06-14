@@ -58,7 +58,7 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run build-plugin && npm run build && npm run typecheck && jest && npm run lint",
     "build-plugin": "tsc plugin/src/index.ts --outDir plugin/build --target ES2018 --module commonjs --declaration --esModuleInterop --strict --skipLibCheck",
-    "publish": "npm publish",
+    "release": "npm publish",
     "test": "jest"
   },
   "lint-staged": {
