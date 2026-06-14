@@ -23,9 +23,9 @@
       "name": "Kesha Antonov, Elad Gil"
     }
   ],
-  "main": "src/index.ts",
+  "main": "lib/index.js",
   "react-native": "src/index.ts",
-  "types": "src/index.d.ts",
+  "types": "lib/index.d.ts",
   "expo": {
     "plugin": "./app.plugin.js"
   },
@@ -44,6 +44,7 @@
     "package.json",
     "app.plugin.js",
     "src/",
+    "lib/",
     "ios/",
     "android/build.gradle",
     "android/src/",
@@ -53,7 +54,9 @@
     "bump": "npm version patch",
     "lint": "eslint .",
     "typecheck": "tsc src/*.ts --noEmit --strict --skipLibCheck",
-    "prepublishOnly": "npm run build-plugin && npm run typecheck && jest && npm run lint",
+    "build": "rm -rf lib && tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build-plugin && npm run build && npm run typecheck && jest && npm run lint",
     "build-plugin": "tsc plugin/src/index.ts --outDir plugin/build --target ES2018 --module commonjs --declaration --esModuleInterop --strict --skipLibCheck",
     "publish": "npm publish",
     "test": "jest"
