@@ -414,15 +414,24 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
 
 - (void)_setMaxParallelDownloadsInternal:(NSInteger)max {
     DLog(nil, @"[RNBackgroundDownloader] - [setMaxParallelDownloads:%ld]", (long)max);
-    @synchronized (sharedLock) {
-        if (max >= 1) {
-            sessionConfig.HTTPMaximumConnectionsPerHost = max;
-            // Recreate session with new config if it's already initialized
-            if (urlSession != nil) {
-                [self unregisterSession];
-                [self lazyRegisterSession];
+    // Never let an NSException escape this void method. methodQueue is a custom
+    // background queue, and on the new architecture the TurboModule bridge would
+    // convert an escaping exception into a JS error via Hermes JSI on this thread
+    // (not the JS thread). Hermes is not thread-safe, so that crashes with SIGSEGV.
+    // See https://github.com/kesha-antonov/react-native-background-downloader/issues/161
+    @try {
+        @synchronized (sharedLock) {
+            if (max >= 1) {
+                sessionConfig.HTTPMaximumConnectionsPerHost = max;
+                // Recreate session with new config if it's already initialized
+                if (urlSession != nil) {
+                    [self unregisterSession];
+                    [self lazyRegisterSession];
+                }
             }
         }
+    } @catch (NSException *exception) {
+        DLog(nil, @"[RNBackgroundDownloader] - [setMaxParallelDownloads] error: %@", exception.reason);
     }
 }
 
@@ -438,13 +447,20 @@ RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
 
 - (void)_setAllowsCellularAccessInternal:(BOOL)allows {
     DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess:%@]", allows ? @"YES" : @"NO");
-    @synchronized (sharedLock) {
-        sessionConfig.allowsCellularAccess = allows;
-        // Recreate session with new config if it's already initialized
-        if (urlSession != nil) {
-            [self unregisterSession];
-            [self lazyRegisterSession];
+    // Never let an NSException escape this void method - see the note on
+    // -_setMaxParallelDownloadsInternal: and issue #161. Recreating the session
+    // here can throw, and an escaping exception crashes Hermes off the JS thread.
+    @try {
+        @synchronized (sharedLock) {
+            sessionConfig.allowsCellularAccess = allows;
+            // Recreate session with new config if it's already initialized
+            if (urlSession != nil) {
+                [self unregisterSession];
+                [self lazyRegisterSession];
+            }
         }
+    } @catch (NSException *exception) {
+        DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess] error: %@", exception.reason);
     }
 }
 
@@ -522,28 +538,37 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         }
     }
 
-    @synchronized (sharedLock) {
-        [self sendDebugLog:@"download: calling lazyRegisterSession" taskId:identifier];
-        [self lazyRegisterSession];
+    // download is a void method dispatched on the custom background methodQueue.
+    // Any NSException that escapes would be converted to a JS error via Hermes JSI
+    // on this thread (not the JS thread) and crash with SIGSEGV (issue #161), so we
+    // never let one propagate out of this method.
+    @try {
+        @synchronized (sharedLock) {
+            [self sendDebugLog:@"download: calling lazyRegisterSession" taskId:identifier];
+            [self lazyRegisterSession];
 
-        // If session is not yet activated, queue the download to be executed after activation
-        // This fixes the issue where downloads don't start on fresh app installs
-        if (!isSessionActivated) {
-            DLog(identifier, @"[RNBackgroundDownloader] - [download] session not activated, queueing download");
-            [self sendDebugLog:@"download: session not activated, queueing download" taskId:identifier];
-            __weak RNBackgroundDownloader *weakSelf = self;
-            dispatch_block_t downloadBlock = ^{
-                RNBackgroundDownloader *strongSelf = weakSelf;
-                if (strongSelf) {
-                    [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
-                }
-            };
-            [pendingDownloads addObject:downloadBlock];
-            return;
+            // If session is not yet activated, queue the download to be executed after activation
+            // This fixes the issue where downloads don't start on fresh app installs
+            if (!isSessionActivated) {
+                DLog(identifier, @"[RNBackgroundDownloader] - [download] session not activated, queueing download");
+                [self sendDebugLog:@"download: session not activated, queueing download" taskId:identifier];
+                __weak RNBackgroundDownloader *weakSelf = self;
+                dispatch_block_t downloadBlock = ^{
+                    RNBackgroundDownloader *strongSelf = weakSelf;
+                    if (strongSelf) {
+                        [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+                    }
+                };
+                [pendingDownloads addObject:downloadBlock];
+                return;
+            }
+
+            [self sendDebugLog:@"download: session activated, executing download" taskId:identifier];
+            [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
         }
-
-        [self sendDebugLog:@"download: session activated, executing download" taskId:identifier];
-        [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+    } @catch (NSException *exception) {
+        DLog(identifier, @"[RNBackgroundDownloader] - [download] error: %@", exception.reason);
+        [self sendDebugLog:[NSString stringWithFormat:@"download: ERROR - %@", exception.reason] taskId:identifier];
     }
 }
 
