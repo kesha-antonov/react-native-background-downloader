@@ -1,5 +1,29 @@
 # Changelog
 
+## v4.5.5
+
+### 🐛 Bug Fixes
+
+- **iOS: SIGSEGV when a native method throws on the background queue (fix #161):** The module's `methodQueue` is a custom serial background queue. On the New Architecture, when a void TurboModule method threw an `NSException`, the bridge converted it to a JS error via Hermes JSI on that background thread — and Hermes is not thread-safe, so it crashed with `EXC_BAD_ACCESS`. Reproducible via `setConfig({ allowsCellularAccess: true })` and also affecting `download()` on failure. Wrapped `setAllowsCellularAccess`, `setMaxParallelDownloads`, and `download` so no exception can escape onto the background queue.
+- **iOS: Crash creating a task on an invalidated `URLSession` (fix #157):** `downloadTaskWithRequest:` could raise "attempted to create a NSURLSessionDownloadTask in a session that has been invalidated" (e.g. after a hot reload or a prior `invalidateAndCancel`). The library now catches that, recreates the background session in place, and retries task creation once instead of letting the download fail. Thanks to [@leogaletti](https://github.com/leogaletti) for the diagnosis (#158).
+- **iOS: CocoaPods conflict with `react-native-mmkv` (fix #162):** The unpinned `MMKV` pod could resolve to a version whose `MMKVCore` is older than what `react-native-mmkv` pins, causing a `pod install` conflict. The podspec now requires only the library's genuine minimum, `MMKV >= 1.2.0` (open lower bound), so CocoaPods can resolve a compatible version for whatever `react-native-mmkv` requires without being locked to one range.
+- **Android: `getExistingDownloadTasks()` missed active resumable downloads (fix #164):** When `DownloadManager` can't be used (e.g. an internal destination path, or device-specific path restrictions on some Android 11 devices) the library falls back to `ResumableDownloader`, whose downloads were invisible to `getExistingDownloadTasks()` while in progress — they only appeared once paused. Added a phase that returns in-progress `ResumableDownloader` downloads with their current progress and RUNNING/PAUSED state.
+- **Android: Active downloads lost after force-stop (fix #159):** A resumable download that was actively running when the app was force-stopped returned `[]` from `getExistingDownloadTasks()` on relaunch (it only worked if the user had paused first). The library now periodically persists a recovery snapshot for in-progress resumable downloads (both the foreground-service path on Android < 14 and the UIDT path on Android 14+), and on the next launch surfaces each download whose partial file still exists as a resumable task. The resume offset is recomputed from the partial file's on-disk length so a resumed download can't be corrupted by a snapshot that lagged the real byte count.
+
+### ✨ New Features
+
+- **iOS: Reliable background downloads while the device is locked (fix #101):** Downloaded files are now saved with `NSFileProtectionCompleteUntilFirstUserAuthentication` by default, so a background download can write its file while the device is locked (after the first unlock since boot) instead of failing the save under Data Protection. If the move to the destination still can't happen because the device is locked, the bytes are staged and the save (and `downloadComplete` event) is completed automatically when the device is next unlocked. Added an `iosDataProtection` option — global via `setConfig` and per task via `createDownloadTask` (`'completeUntilFirstUserAuthentication'` | `'complete'` | `'completeUnlessOpen'` | `'none'`) — ignored on Android.
+
+### 🏗️ Architecture Changes
+
+- **Compiled JS entry point for Node 24 (fix #113):** `package.json` `main`/`types` previously pointed at `src/index.ts`. Node 24's experimental type stripping refuses to strip types under `node_modules`, breaking `require(...)` / `npx expo prebuild`. The package now compiles `src` to `lib/` (CommonJS + `.d.ts`) and points `main`/`types` there. The `react-native` field still points at `src/index.ts`, so Metro keeps bundling from source and codegen is unchanged.
+
+### 📚 Documentation
+
+- **iOS background downloads & device lock (#101):** Added a Troubleshooting section explaining what actually happens when the screen is locked (transfers continue via `nsurlsessiond`; force-quit halts them; JS doesn't run while suspended so events are deferred; `handleEventsForBackgroundURLSession` + `completeHandler` are required; Simulator behavior is unreliable), plus documentation for the new `iosDataProtection` option.
+
+---
+
 ## v4.5.4
 
 ### 🐛 Bug Fixes
