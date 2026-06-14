@@ -218,6 +218,13 @@ class ResumableDownloader {
 
   fun getState(id: String): DownloadState? = activeDownloads[id]
 
+  /**
+   * Returns a snapshot of all currently tracked download states.
+   * Used by getExistingDownloadTasks to surface in-progress resumable downloads
+   * (which are not visible to DownloadManager).
+   */
+  fun getActiveDownloads(): Map<String, DownloadState> = activeDownloads.toMap()
+
   fun isPaused(id: String): Boolean = activeDownloads[id]?.isPaused?.get() ?: false
 
   fun getBytesDownloaded(id: String): Long = activeDownloads[id]?.bytesDownloaded?.get() ?: 0

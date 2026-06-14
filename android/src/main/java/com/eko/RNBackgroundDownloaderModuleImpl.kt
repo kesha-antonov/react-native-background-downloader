@@ -1087,11 +1087,35 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         processedIds.add(configId)
       }
 
-      // Phase 4: Add active resumable downloads (in-progress via ResumableDownloader)
-      val resumableDownloader = downloader.resumableDownloader
-      // Check for any paused resumable downloads that weren't in the persisted state
-      // (e.g., paused during current session but not yet persisted)
-      // This is handled by the pausedDownloads map above since we persist on pause
+      // Phase 4: Add active resumable downloads (in-progress via ResumableDownloader).
+      // These run in the foreground service (Android < 14) and are invisible to
+      // DownloadManager, so without this phase getExistingDownloadTasks misses them
+      // while they are actively downloading (it only saw them once paused, via Phase 3).
+      // On Android 14+ active downloads run as UIDT jobs and are surfaced in Phase 2.
+      for ((configId, state) in downloader.getActiveResumableDownloads()) {
+        if (processedIds.contains(configId) || state.isCancelled.get()) {
+          continue
+        }
+
+        val params = Arguments.createMap()
+        params.putString("id", configId)
+        params.putString("metadata", configIdToMetadata[configId] ?: "{}")
+        params.putInt(
+          "state",
+          if (state.isPaused.get()) DownloadConstants.TASK_SUSPENDED else DownloadConstants.TASK_RUNNING
+        )
+
+        val bytesDownloaded = state.bytesDownloaded.get()
+        val bytesTotal = state.bytesTotal
+        params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
+        params.putDouble("bytesTotal", bytesTotal.toDouble())
+        params.putString("destination", state.destination)
+
+        val percent = if (bytesTotal > 0) bytesDownloaded.toDouble() / bytesTotal else 0.0
+        foundTasks.pushMap(params)
+        processedIds.add(configId)
+        progressReporter.setPercent(configId, percent)
+      }
 
       logD(NAME, "getExistingDownloadTasks: found ${foundTasks.size()} tasks")
     }

@@ -472,6 +472,14 @@ class Downloader(private val context: Context, private val storageManager: com.e
   }
 
   /**
+   * Get all in-progress resumable downloads tracked by the foreground service.
+   * On Android 14+ active downloads run as UIDT jobs instead and are not included here.
+   */
+  fun getActiveResumableDownloads(): Map<String, ResumableDownloader.DownloadState> {
+    return resumableDownloader.getActiveDownloads()
+  }
+
+  /**
    * Persist paused downloads to storage.
    */
   private fun savePausedDownloads() {
