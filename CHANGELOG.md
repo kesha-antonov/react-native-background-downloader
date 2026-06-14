@@ -28,9 +28,9 @@
 
 ### 🐛 Bug Fixes
 
-- **iOS: SIGABRT Crash on New Architecture (TurboModules):** Fixed a crash where `NSURLSession` delegate callbacks fired before the JS side had registered event listeners (e.g. background session delivering completions from a prior app session on launch). Added a `safeEmitEvent:` helper that queues events when the emitter callback is not yet set and flushes the queue once `setEventEmitterCallback:` is called. All 8 emit call sites (download + upload) are updated. (PR #153 by [@isaacrowntree](https://github.com/isaacrowntree))
-- **Android: UIDT Downloads Not Starting on VPN Networks (fix #154):** Removed `NET_CAPABILITY_NOT_VPN` from UIDT `JobScheduler` network requirements so that VPN networks (e.g. Proton VPN, full-tunnel VPNs) are accepted. Previously the job never started when a kill-switch VPN was active because `JobScheduler` only considered non-VPN interfaces.
-- **Android: UIDT Downloads Not Resuming After App Restart (fix #156):** Fixed headers and start-byte resolution for UIDT jobs after a cross-process restart. In-memory `pendingHeaders` are used when available (same-process); the disk-persisted resume state is used as a fallback for a fresh process. Also reconnects UIDT event forwarding to JS on Android 14+ when the app is reopened while downloads are already in progress.
+- **iOS: SIGABRT Crash on New Architecture (TurboModules):** Fixed a crash where `NSURLSession` delegate callbacks fired before the JS side had registered event listeners (e.g. background session delivering completions from a prior app session on launch). Added a `safeEmitEvent:` helper that queues events when the emitter callback is not yet set and flushes the queue once `setEventEmitterCallback:` is called. All 8 emit call sites (download + upload) are updated. (PR [#153](https://github.com/kesha-antonov/react-native-background-downloader/pull/153) by [@isaacrowntree](https://github.com/isaacrowntree))
+- **Android: UIDT Downloads Not Starting on VPN Networks (fix [#154](https://github.com/kesha-antonov/react-native-background-downloader/issues/154)):** Removed `NET_CAPABILITY_NOT_VPN` from UIDT `JobScheduler` network requirements so that VPN networks (e.g. Proton VPN, full-tunnel VPNs) are accepted. Previously the job never started when a kill-switch VPN was active because `JobScheduler` only considered non-VPN interfaces.
+- **Android: UIDT Downloads Not Resuming After App Restart (fix [#156](https://github.com/kesha-antonov/react-native-background-downloader/issues/156)):** Fixed headers and start-byte resolution for UIDT jobs after a cross-process restart. In-memory `pendingHeaders` are used when available (same-process); the disk-persisted resume state is used as a fallback for a fresh process. Also reconnects UIDT event forwarding to JS on Android 14+ when the app is reopened while downloads are already in progress.
 - **Cross-Platform: Stale Progress Event After Download Completes/Fails:** Fixed a race condition where a buffered progress event could arrive in JS after `downloadComplete` or `downloadFailed`.
   - **iOS:** Clears `progressReports` entry for the task before dispatching `sendDownloadCompletionEvent`.
   - **Android (ResumableDownloader/UIDT):** Calls `clearPendingReport` before `emitComplete` / `emitFailed`.
@@ -38,8 +38,8 @@
 
 ### 📚 Documentation
 
-- **iOS Force-Kill Limitation (fix #155):** Clarified that user-initiated force-kills via the iOS App Switcher cancel all `NSURLSession` background tasks — this is an intentional iOS system behaviour that cannot be overridden. Added a dedicated "Force-Kill Limitation" section to `PLATFORM_NOTES.md` with a summary table and a workaround suggestion (silent push + `getExistingDownloadTasks()`).
-- **MMKV Version Downgraded to 1.3.16 (fix #150):** Changed the default MMKV version from `2.2.4` to `1.3.16` (LTS) to restore `armeabi-v7a` (32-bit ARM) support that was dropped in MMKV 2.x. Added an MMKV version comparison table to the README covering official 1.x/2.x and the Margelo fork used by `react-native-mmkv` v4.x.
+- **iOS Force-Kill Limitation (fix [#155](https://github.com/kesha-antonov/react-native-background-downloader/issues/155)):** Clarified that user-initiated force-kills via the iOS App Switcher cancel all `NSURLSession` background tasks — this is an intentional iOS system behaviour that cannot be overridden. Added a dedicated "Force-Kill Limitation" section to `PLATFORM_NOTES.md` with a summary table and a workaround suggestion (silent push + `getExistingDownloadTasks()`).
+- **MMKV Version Downgraded to 1.3.16 (fix [#150](https://github.com/kesha-antonov/react-native-background-downloader/issues/150)):** Changed the default MMKV version from `2.2.4` to `1.3.16` (LTS) to restore `armeabi-v7a` (32-bit ARM) support that was dropped in MMKV 2.x. Added an MMKV version comparison table to the README covering official 1.x/2.x and the Margelo fork used by `react-native-mmkv` v4.x.
 
 ---
 
@@ -195,7 +195,7 @@
 
 - **Android: Paused Tasks Persistence:** Fixed paused downloads not being restored after app restart on Android. Added persistent storage for paused download state using MMKV/SharedPreferences.
 - **iOS: Improved Pause/Resume Handling:** Better handling of pause/resume operations on app restarts for iOS.
-- **Upload Task App Restart Recovery:** Fixed upload tasks not being recoverable after app restart (#143). Added persistent storage for upload task configurations.
+- **Upload Task App Restart Recovery:** Fixed upload tasks not being recoverable after app restart ([#143](https://github.com/kesha-antonov/react-native-background-downloader/issues/143)). Added persistent storage for upload task configurations.
 
 ### ✨ Improvements
 
@@ -304,7 +304,7 @@
 - **React Native New Architecture Support:** Full TurboModules support for both iOS and Android
 - **Expo Config Plugin:** Added automatic iOS native code integration for Expo projects via `app.plugin.js`
 - **Android Kotlin Migration:** All Java code converted to Kotlin
-- **`maxRedirects` Option:** Configure maximum redirects for Android downloads (resolves #15)
+- **`maxRedirects` Option:** Configure maximum redirects for Android downloads (resolves [#15](https://github.com/kesha-antonov/react-native-background-downloader/issues/15))
 - **`progressMinBytes` Option:** Hybrid progress reporting - callbacks fire based on time interval OR bytes downloaded
 - **Android 15+ Support:** Added support for 16KB memory page sizes
 - **Architecture Fallback:** Comprehensive x86/ARMv7 support with SharedPreferences fallback
@@ -320,7 +320,7 @@
 - **`checkForExistingDownloads` TypeError:** Fixed TypeError on Android with architecture fallback
 - **Firebase Performance Compatibility:** Fixed `completeHandler` method compatibility on Android
 - **Slow Connection Handling:** Better handling of slow-responding URLs with timeouts
-- **Android OldArch Export:** Fixed module method export issue (#79)
+- **Android OldArch Export:** Fixed module method export issue ([#79](https://github.com/kesha-antonov/react-native-background-downloader/issues/79))
 - **MMKV Compatibility:** Support for react-native-mmkv 4+ with mmkv-shared dependency
 
 ### 📦 Dependencies & Infrastructure
