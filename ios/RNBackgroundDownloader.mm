@@ -578,7 +578,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest]");
         [self sendDebugLog:@"executeDownloadWithRequest: creating download task" taskId:identifier];
 
-        NSURLSessionDownloadTask __strong *task = [urlSession downloadTaskWithRequest:request];
+        NSURLSessionDownloadTask __strong *task = [self createDownloadTaskWithRequest:request identifier:identifier];
         if (task == nil) {
             DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create download task");
             [self sendDebugLog:@"executeDownloadWithRequest: ERROR - failed to create download task" taskId:identifier];
@@ -604,6 +604,36 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         [task resume];
         [self sendDebugLog:@"executeDownloadWithRequest: task.resume() called" taskId:identifier];
         lastProgressReportedAt = [[NSDate alloc] init];
+    }
+}
+
+// Creates a download task on the current session. If the session has been
+// invalidated (e.g. after a hot reload or a prior invalidateAndCancel),
+// -downloadTaskWithRequest: raises:
+//   "attempted to create a NSURLSessionDownloadTask in a session that has
+//    been invalidated"
+// In that case we recreate the background session and retry once.
+// Must be called while holding sharedLock.
+// See https://github.com/kesha-antonov/react-native-background-downloader/issues/157
+- (NSURLSessionDownloadTask *)createDownloadTaskWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier {
+    @try {
+        return [urlSession downloadTaskWithRequest:request];
+    } @catch (NSException *exception) {
+        DLog(identifier, @"[RNBackgroundDownloader] - [createDownloadTask] session invalidated, recreating: %@", exception.reason);
+        [self sendDebugLog:[NSString stringWithFormat:@"createDownloadTask: session invalidated, recreating (%@)", exception.reason] taskId:identifier];
+
+        // Recreate the background session directly (do not call unregisterSession,
+        // which would invalidateAndCancel and drop queued downloads).
+        urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+        isSessionActivated = YES;
+
+        @try {
+            return [urlSession downloadTaskWithRequest:request];
+        } @catch (NSException *retryException) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [createDownloadTask] retry failed: %@", retryException.reason);
+            [self sendDebugLog:[NSString stringWithFormat:@"createDownloadTask: retry failed (%@)", retryException.reason] taskId:identifier];
+            return nil;
+        }
     }
 }
 
