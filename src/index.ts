@@ -372,8 +372,12 @@ export function setConfig ({
   allowsCellularAccess,
   showNotificationsEnabled,
   notificationsGrouping,
+  iosDataProtection,
 }: Config) {
   config.headers = headers
+
+  if (iosDataProtection !== undefined)
+    config.iosDataProtection = iosDataProtection
 
   if (progressInterval >= MIN_PROGRESS_INTERVAL)
     config.progressInterval = progressInterval

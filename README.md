@@ -524,6 +524,39 @@ const task = createDownloadTask({
 </details>
 
 <details>
+<summary><strong>iOS Data Protection (downloading while the device is locked)</strong></summary>
+
+On iOS, files protected with `NSFileProtectionComplete` cannot be written while the device is locked. Since a background download can finish while the screen is locked, the library saves files with **`completeUntilFirstUserAuthentication`** by default - writable while locked after the first unlock since boot - and, if a save still can't happen because the device is locked, it stages the bytes and finishes the save (emitting `complete`) when the device is next unlocked.
+
+You usually don't need to change this. If your app has stricter security requirements you can raise the protection level globally or per task (iOS only - ignored on Android):
+
+```javascript
+import { setConfig, createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+
+// Global default for all downloads
+setConfig({
+  iosDataProtection: 'completeUntilFirstUserAuthentication', // default
+})
+
+// Per-download override
+const task = createDownloadTask({
+  id: 'secret-doc',
+  url: 'https://example.com/secret.pdf',
+  destination: `${directories.documents}/secret.pdf`,
+  iosDataProtection: 'complete', // strongest; note: won't be writable while locked before first unlock
+})
+```
+
+| Value | NSFileProtection level | Notes |
+|-------|------------------------|-------|
+| `'completeUntilFirstUserAuthentication'` | `NSFileProtectionCompleteUntilFirstUserAuthentication` | **Default.** Accessible after the first unlock since boot - recommended for background downloads |
+| `'complete'` | `NSFileProtectionComplete` | Strongest. File is inaccessible whenever the device is locked |
+| `'completeUnlessOpen'` | `NSFileProtectionCompleteUnlessOpen` | Accessible while open, even if the device locks afterward |
+| `'none'` | `NSFileProtectionNone` | No protection |
+
+</details>
+
+<details>
 <summary><strong>Enabling debug logs</strong></summary>
 
 The library includes verbose debug logging that can help diagnose download issues. Logging is disabled by default but can be enabled at runtime using `setConfig()`. **Logging works in both debug and production/release builds.**
@@ -863,6 +896,18 @@ If you're using `react-native-mmkv`, you don't need to add the MMKV dependency m
 <summary><strong>EXC_BAD_ACCESS crash on iOS with react-native-mmkv</strong></summary>
 
 This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
+</details>
+
+<details>
+<summary><strong>Downloads "don't work" when the iOS screen is locked</strong></summary>
+
+On iOS the actual transfer is handed to the system `nsurlsessiond` daemon and **keeps running while the app is suspended and the screen is locked** - this library already configures the background session correctly (`discretionary = NO`, `sessionSendsLaunchEvents = YES`). If it looks like downloads stop when locked, check these in order:
+
+1. **Did you force-quit the app?** If the user swipes the app away in the app switcher, iOS halts *that app's* background transfers until it's relaunched. This is an OS policy and cannot be worked around by any library.
+2. **You won't get live `progress` events while locked.** Your JavaScript isn't running while the app is suspended, so `begin` / `progress` / `complete` callbacks fire when the app resumes or is relaunched - not in real time. Re-attach with `getExistingDownloadTasks()` on launch.
+3. **AppDelegate wiring.** Make sure `handleEventsForBackgroundURLSession` is implemented (see [Installation](#-installation)) and that you call `completeHandler(jobId)` from JS in your `complete`/`error` handlers, or iOS will throttle future background time.
+4. **Data Protection (the one this library handles).** On a passcoded, locked device, files protected with `NSFileProtectionComplete` can't be written, so a download that *finishes* while locked could previously fail to save. The library now writes the file with `NSFileProtectionCompleteUntilFirstUserAuthentication` by default (writable while locked after the first unlock since boot), and if the move still can't happen because the device is locked it stages the bytes and completes the save automatically when the device is next unlocked - emitting `complete` then. You can change the level with `setConfig({ iosDataProtection })` or per task (see Advanced Configuration).
+5. **Test on a real device.** The iOS Simulator's background-transfer behavior is unreliable; verify on hardware.
 </details>
 
 <details>

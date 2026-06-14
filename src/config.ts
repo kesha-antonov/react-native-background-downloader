@@ -1,9 +1,12 @@
-import { Headers, NotificationGroupingMode, NotificationsGroupingConfig, NotificationTexts } from './types'
+import { Headers, IosDataProtection, NotificationGroupingMode, NotificationsGroupingConfig, NotificationTexts } from './types'
 
 export const DEFAULT_PROGRESS_INTERVAL = 1000
 export const DEFAULT_PROGRESS_MIN_BYTES = 1024 * 1024 // 1MB
 export const DEFAULT_MAX_PARALLEL_DOWNLOADS = 4
 export const DEFAULT_ALLOWS_CELLULAR_ACCESS = true
+// Lets a background download save its file even while the device is locked
+// (after the first unlock since boot). See the iOS background-download notes in the README.
+export const DEFAULT_IOS_DATA_PROTECTION: IosDataProtection = 'completeUntilFirstUserAuthentication'
 
 // Default notification texts
 export const DEFAULT_NOTIFICATION_TEXTS: Required<NotificationTexts> = {
@@ -29,6 +32,7 @@ interface ConfigState {
   allowsCellularAccess: boolean
   showNotificationsEnabled: boolean
   notificationsGrouping: NotificationsGroupingConfig & { mode: NotificationGroupingMode }
+  iosDataProtection: IosDataProtection
 }
 
 export const config: ConfigState = {
@@ -40,6 +44,7 @@ export const config: ConfigState = {
   maxParallelDownloads: DEFAULT_MAX_PARALLEL_DOWNLOADS,
   allowsCellularAccess: DEFAULT_ALLOWS_CELLULAR_ACCESS,
   showNotificationsEnabled: false,
+  iosDataProtection: DEFAULT_IOS_DATA_PROTECTION,
   notificationsGrouping: {
     enabled: false,
     mode: 'individual',

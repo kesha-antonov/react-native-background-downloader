@@ -78,6 +78,8 @@ export interface Spec extends TurboModule {
     isAllowedOverRoaming: boolean
     isAllowedOverMetered: boolean
     maxRedirects?: number
+    /** iOS only: NSFileProtection level for the saved file. Ignored on Android. */
+    iosDataProtection?: string
   }): void
 
   pauseTask(id: string): Promise<void>

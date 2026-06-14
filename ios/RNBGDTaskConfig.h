@@ -14,6 +14,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) NSInteger state;
 @property (nonatomic, assign) NSInteger errorCode;
 @property (nonatomic, assign) BOOL hasResumeData;
+// iOS Data Protection level key for the saved file
+// (e.g. NSFileProtectionCompleteUntilFirstUserAuthentication). nil = library default.
+@property (nonatomic, copy, nullable) NSString *dataProtection;
 
 - (instancetype)initWithDictionary:(NSDictionary *)dict;
 

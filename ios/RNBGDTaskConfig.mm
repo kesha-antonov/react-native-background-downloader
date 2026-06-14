@@ -16,6 +16,7 @@
         self.url = dict[@"url"];
         self.destination = dict[@"destination"];
         self.metadata = dict[@"metadata"];
+        self.dataProtection = dict[@"dataProtection"];
         self.reportedBegin = NO;
         self.bytesDownloaded = 0;
         self.bytesTotal = 0;
@@ -33,6 +34,7 @@
     [aCoder encodeObject:self.url forKey:@"url"];
     [aCoder encodeObject:self.destination forKey:@"destination"];
     [aCoder encodeObject:self.metadata forKey:@"metadata"];
+    [aCoder encodeObject:self.dataProtection forKey:@"dataProtection"];
     [aCoder encodeBool:self.reportedBegin forKey:@"reportedBegin"];
     [aCoder encodeInt64:self.bytesDownloaded forKey:@"bytesDownloaded"];
     [aCoder encodeInt64:self.bytesTotal forKey:@"bytesTotal"];
@@ -52,6 +54,7 @@
         self.destination = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"destination"];
         NSString *metadata = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"metadata"];
         self.metadata = metadata != nil ? metadata : @"{}";
+        self.dataProtection = [aDecoder decodeObjectOfClass:[NSString class] forKey:@"dataProtection"];
         self.reportedBegin = [aDecoder decodeBoolForKey:@"reportedBegin"];
         self.bytesDownloaded = [aDecoder decodeInt64ForKey:@"bytesDownloaded"];
         self.bytesTotal = [aDecoder decodeInt64ForKey:@"bytesTotal"];

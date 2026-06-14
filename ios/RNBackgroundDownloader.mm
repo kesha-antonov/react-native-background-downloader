@@ -13,6 +13,10 @@
 #define ID_TO_UPLOAD_CONFIG_MAP_KEY @"com.eko.bguploadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
 #define PROGRESS_MIN_BYTES_KEY @"progressMinBytes"
+// Persisted map of downloads whose finished file could not be moved to its destination
+// yet because the device was locked (Data Protection). The move is retried when protected
+// data becomes available / on next launch. See issue #101.
+#define PENDING_MOVES_MAP_KEY @"com.eko.bgdpendingmoves"
 
 // Session configuration constants
 static const NSInteger kMaxConnectionsPerHost = 4;
@@ -65,6 +69,11 @@ static CompletionHandler storedCompletionHandler;
     NSMutableArray<dispatch_block_t> *pendingDownloads;
     // Controls whether debug logs are sent to JS
     BOOL isLogsEnabled;
+
+    // Downloads that finished but whose file couldn't be moved to its destination because
+    // the device was locked. Keyed by configId -> staging/destination info. Retried on
+    // UIApplicationProtectedDataDidBecomeAvailable, app foreground, and launch. See #101.
+    NSMutableDictionary<NSString *, NSDictionary *> *pendingMoves;
 
 #ifdef RCT_NEW_ARCH_ENABLED
     // Queue of events that arrived before the TurboModule event emitter callback was set.
@@ -240,6 +249,11 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         isSessionActivated = NO;
         pendingDownloads = [[NSMutableArray alloc] init];
 
+        // Restore any downloads whose file move was deferred because the device was locked
+        NSData *pendingMovesData = [mmkv getDataForKey:PENDING_MOVES_MAP_KEY];
+        NSMutableDictionary *pendingMovesDecoded = pendingMovesData != nil ? [self deserializePendingMoves:pendingMovesData] : nil;
+        pendingMoves = pendingMovesDecoded != nil ? pendingMovesDecoded : [[NSMutableDictionary alloc] init];
+
 #ifdef RCT_NEW_ARCH_ENABLED
         pendingEmitEvents = [[NSMutableArray alloc] init];
 #endif
@@ -260,6 +274,10 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
         // Initialize session early to receive background events on app relaunch
         [self lazyRegisterSession];
+
+        // Retry any moves that were deferred while the device was locked (e.g. a download
+        // that finished in the background before the first unlock). See #101.
+        [self processPendingMoves];
     }
 
     return self;
@@ -341,8 +359,21 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
                                                   selector:@selector(handleBridgeHotReload:)
                                                   name:RCTJavaScriptWillStartLoadingNotification
                                                   object:nil];
+
+            // Finish any moves deferred while the device was locked, as soon as
+            // protected data becomes available again (device unlocked). See #101.
+            // Note: the ObjC constant has no "Notification" suffix (unlike most UIApplication ones).
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                  selector:@selector(handleProtectedDataAvailable:)
+                                                  name:UIApplicationProtectedDataDidBecomeAvailable
+                                                  object:nil];
         }
     }
+}
+
+- (void)handleProtectedDataAvailable:(NSNotification *) note {
+    DLog(nil, @"[RNBackgroundDownloader] - [handleProtectedDataAvailable]");
+    [self processPendingMoves];
 }
 
 - (void)unregisterBridgeListener {
@@ -356,6 +387,8 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 - (void)handleBridgeAppEnterForeground:(NSNotification *) note {
     DLog(nil, @"[RNBackgroundDownloader] - [handleBridgeAppEnterForeground]");
     [self resumeTasks];
+    // Device is unlocked when foregrounded, so finish any locked-deferred file moves.
+    [self processPendingMoves];
 }
 
 - (void)resumeTasks {
@@ -482,6 +515,7 @@ RCT_EXPORT_METHOD(setAllowsCellularAccess:(BOOL)allows) {
     NSString *destination = options.destination();
     NSString *metadata = options.metadata() ? options.metadata() : @"";
     NSDictionary *headers = options.headers() ? (NSDictionary *)options.headers() : nil;
+    NSString *dataProtection = options.iosDataProtection() ? options.iosDataProtection() : nil;
 
     if (options.progressInterval().has_value()) {
         progressInterval = options.progressInterval().value() / 1000.0;
@@ -502,6 +536,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     NSString *destination = options[@"destination"];
     NSString *metadata = options[@"metadata"] ?: @"";
     NSDictionary *headers = options[@"headers"];
+    NSString *dataProtection = options[@"iosDataProtection"];
 
     NSNumber *progressIntervalScope = options[@"progressInterval"];
     if (progressIntervalScope) {
@@ -556,7 +591,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
                 dispatch_block_t downloadBlock = ^{
                     RNBackgroundDownloader *strongSelf = weakSelf;
                     if (strongSelf) {
-                        [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+                        [strongSelf executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata dataProtection:dataProtection];
                     }
                 };
                 [pendingDownloads addObject:downloadBlock];
@@ -564,7 +599,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
             }
 
             [self sendDebugLog:@"download: session activated, executing download" taskId:identifier];
-            [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata];
+            [self executeDownloadWithRequest:request identifier:identifier url:url destination:destination metadata:metadata dataProtection:dataProtection];
         }
     } @catch (NSException *exception) {
         DLog(identifier, @"[RNBackgroundDownloader] - [download] error: %@", exception.reason);
@@ -573,7 +608,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 }
 
 // Internal method to execute the download after session is activated
-- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier url:(NSString *)url destination:(NSString *)destination metadata:(NSString *)metadata {
+- (void)executeDownloadWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier url:(NSString *)url destination:(NSString *)destination metadata:(NSString *)metadata dataProtection:(NSString *)dataProtection {
     @synchronized (sharedLock) {
         DLog(identifier, @"[RNBackgroundDownloader] - [executeDownloadWithRequest]");
         [self sendDebugLog:@"executeDownloadWithRequest: creating download task" taskId:identifier];
@@ -593,6 +628,8 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
             @"destination": destination,
             @"metadata": metadata
         }];
+        // nil means "use the library default" when saving the file (see -nsFileProtectionFromKey:)
+        taskConfig.dataProtection = dataProtection;
 
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
         [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
@@ -831,6 +868,15 @@ RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)res
             [idsToPauseSet removeObject:identifier];
             // Clean up any updated headers
             [idToUpdatedHeadersMap removeObjectForKey:identifier];
+            // Drop any locked-deferred move staged for this task (#101)
+            NSDictionary *pendingMove = pendingMoves[identifier];
+            if (pendingMove != nil) {
+                NSString *stagingPath = pendingMove[@"staging"];
+                if (stagingPath != nil)
+                    [[NSFileManager defaultManager] removeItemAtPath:stagingPath error:nil];
+                [pendingMoves removeObjectForKey:identifier];
+                [self persistPendingMoves];
+            }
         }
         resolve(nil);
     } @catch (NSException *exception) {
@@ -1249,16 +1295,26 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         [self sendDebugLog:@"didFinishDownloadingToURL: download finished" taskId:taskConfig.id];
 
         NSError *error = [self getServerError:downloadTask];
+        BOOL deferred = NO;
         if (!error) {
-            [self saveFile:taskConfig downloadURL:location error:&error];
+            [self saveFile:taskConfig downloadURL:location bytesDownloaded:downloadTask.countOfBytesReceived bytesTotal:downloadTask.countOfBytesExpectedToReceive error:&error deferred:&deferred];
+        }
+
+        // Drop any buffered progress for this task so it cannot arrive in JS after downloadComplete
+        [progressReports removeObjectForKey:taskConfig.id];
+
+        if (deferred) {
+            // The device was locked and the file couldn't be moved to its destination yet.
+            // The bytes are staged and the move (and the downloadComplete event) will happen
+            // once protected data becomes available. Do not emit complete/failed now. See #101.
+            [self sendDebugLog:@"didFinishDownloadingToURL: move deferred until device unlock" taskId:taskConfig.id];
+            [self removeTaskFromMap:downloadTask];
+            return;
         }
 
         if (error) {
             [self sendDebugLog:[NSString stringWithFormat:@"didFinishDownloadingToURL: error - %@", error.localizedDescription] taskId:taskConfig.id];
         }
-
-        // Drop any buffered progress for this task so it cannot arrive in JS after downloadComplete
-        [progressReports removeObjectForKey:taskConfig.id];
 
         [self sendDownloadCompletionEvent:taskConfig task:downloadTask error:error];
 
@@ -2036,8 +2092,20 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
                            userInfo:@{NSLocalizedDescriptionKey: [NSHTTPURLResponse localizedStringForStatusCode:statusCode]}];
 }
 
-- (BOOL)saveFile: (nonnull RNBGDTaskConfig *) taskConfig downloadURL:(nonnull NSURL *)location error:(NSError **)saveError {
+// Maps the JS data-protection key to an NSFileProtection* constant.
+// nil / unknown -> NSFileProtectionCompleteUntilFirstUserAuthentication, which lets a
+// background download save its file even while the device is locked (after first unlock).
+// See https://github.com/kesha-antonov/react-native-background-downloader/issues/101
+- (NSString *)nsFileProtectionFromKey:(NSString *)key {
+    if ([key isEqualToString:@"complete"]) return NSFileProtectionComplete;
+    if ([key isEqualToString:@"completeUnlessOpen"]) return NSFileProtectionCompleteUnlessOpen;
+    if ([key isEqualToString:@"none"]) return NSFileProtectionNone;
+    return NSFileProtectionCompleteUntilFirstUserAuthentication;
+}
+
+- (BOOL)saveFile: (nonnull RNBGDTaskConfig *) taskConfig downloadURL:(nonnull NSURL *)location bytesDownloaded:(int64_t)bytesDownloaded bytesTotal:(int64_t)bytesTotal error:(NSError **)saveError deferred:(BOOL *)deferred {
     DLog(taskConfig.id, @"[RNBackgroundDownloader] - [saveFile]");
+    if (deferred) *deferred = NO;
     // taskConfig.destination is absolute path.
     // The absolute path may change when the application is restarted.
     // But the relative path remains the same.
@@ -2059,10 +2127,170 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
     NSURL *destinationURL = [NSURL fileURLWithPath:fileAbsolutePath];
 
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    [fileManager createDirectoryAtURL:[destinationURL URLByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:nil];
+    // Create the destination directory with a protection class that allows writing while the
+    // device is locked, so a background download can save when it finishes on a locked device.
+    [fileManager createDirectoryAtURL:[destinationURL URLByDeletingLastPathComponent]
+          withIntermediateDirectories:YES
+                           attributes:@{NSFileProtectionKey: NSFileProtectionCompleteUntilFirstUserAuthentication}
+                                error:nil];
     [fileManager removeItemAtURL:destinationURL error:nil];
 
-    return [fileManager moveItemAtURL:location toURL:destinationURL error:saveError];
+    NSError *moveError = nil;
+    BOOL moved = [fileManager moveItemAtURL:location toURL:destinationURL error:&moveError];
+    if (moved) {
+        // Apply the requested protection level to the final file (best-effort).
+        NSString *protection = [self nsFileProtectionFromKey:taskConfig.dataProtection];
+        [fileManager setAttributes:@{NSFileProtectionKey: protection} ofItemAtPath:destinationURL.path error:nil];
+        return YES;
+    }
+
+    // The move failed - most commonly because the device is locked and the destination is
+    // protected (Data Protection). Stage the downloaded bytes to an unprotected location and
+    // finish the move once the device is unlocked, instead of losing the download. See #101.
+    if ([self stageAndDeferMoveForConfig:taskConfig location:location destination:destinationURL bytesDownloaded:bytesDownloaded bytesTotal:bytesTotal]) {
+        if (deferred) *deferred = YES;
+        return NO;
+    }
+
+    // Couldn't even stage the file - report the original move error.
+    if (saveError) *saveError = moveError;
+    return NO;
+}
+
+#pragma mark - Locked-device deferred move (issue #101)
+
+// Directory (with NSFileProtectionNone) used to hold finished downloads whose move to the
+// final destination is deferred because the device is locked.
+- (NSURL *)pendingMovesDirectory {
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSURL *cachesDir = [[fileManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask] firstObject];
+    NSURL *dir = [cachesDir URLByAppendingPathComponent:@"RNBGDPendingMoves" isDirectory:YES];
+    if (![fileManager fileExistsAtPath:dir.path]) {
+        // NSFileProtectionNone so we can write here even while the device is locked.
+        [fileManager createDirectoryAtURL:dir
+              withIntermediateDirectories:YES
+                               attributes:@{NSFileProtectionKey: NSFileProtectionNone}
+                                    error:nil];
+    }
+    return dir;
+}
+
+// Moves the just-finished download out of the system temp into an unprotected staging file and
+// records the pending move. Returns YES if the bytes were safely staged. Must hold sharedLock.
+- (BOOL)stageAndDeferMoveForConfig:(RNBGDTaskConfig *)taskConfig location:(NSURL *)location destination:(NSURL *)destinationURL bytesDownloaded:(int64_t)bytesDownloaded bytesTotal:(int64_t)bytesTotal {
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSURL *stagingURL = [[self pendingMovesDirectory] URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.staged", taskConfig.id]];
+
+    [fileManager removeItemAtURL:stagingURL error:nil];
+    NSError *stageError = nil;
+    if (![fileManager moveItemAtURL:location toURL:stagingURL error:&stageError]) {
+        DLog(taskConfig.id, @"[RNBackgroundDownloader] - [stageAndDeferMove] staging failed: %@", stageError.localizedDescription);
+        return NO;
+    }
+    // Make sure the staged file is readable while locked.
+    [fileManager setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:stagingURL.path error:nil];
+
+    pendingMoves[taskConfig.id] = @{
+        @"id": taskConfig.id,
+        @"staging": stagingURL.path,
+        @"destination": destinationURL.path,
+        @"dataProtection": taskConfig.dataProtection ?: @"",
+        @"bytesDownloaded": @(bytesDownloaded),
+        @"bytesTotal": @(bytesTotal)
+    };
+    [self persistPendingMoves];
+    DLog(taskConfig.id, @"[RNBackgroundDownloader] - [stageAndDeferMove] staged %lld bytes, move deferred until unlock", (long long)bytesDownloaded);
+    return YES;
+}
+
+// Attempts to complete any deferred moves. Safe to call repeatedly; only succeeds for items
+// whose destination is currently writable (i.e. the device is unlocked enough). Emits
+// downloadComplete for each move that finishes.
+- (void)processPendingMoves {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        @synchronized (self->sharedLock) {
+            if (self->pendingMoves.count == 0) return;
+
+            NSFileManager *fileManager = [NSFileManager defaultManager];
+            NSArray<NSString *> *ids = [self->pendingMoves allKeys];
+            BOOL changed = NO;
+
+            for (NSString *taskId in ids) {
+                NSDictionary *info = self->pendingMoves[taskId];
+                NSString *stagingPath = info[@"staging"];
+                NSString *destinationPath = info[@"destination"];
+                if (stagingPath == nil || destinationPath == nil) {
+                    [self->pendingMoves removeObjectForKey:taskId];
+                    changed = YES;
+                    continue;
+                }
+
+                if (![fileManager fileExistsAtPath:stagingPath]) {
+                    // Staged file is gone - nothing we can do, drop the record.
+                    [self->pendingMoves removeObjectForKey:taskId];
+                    changed = YES;
+                    continue;
+                }
+
+                NSURL *destinationURL = [NSURL fileURLWithPath:destinationPath];
+                [fileManager createDirectoryAtURL:[destinationURL URLByDeletingLastPathComponent]
+                      withIntermediateDirectories:YES
+                                       attributes:@{NSFileProtectionKey: NSFileProtectionCompleteUntilFirstUserAuthentication}
+                                            error:nil];
+                [fileManager removeItemAtURL:destinationURL error:nil];
+
+                NSError *moveError = nil;
+                BOOL moved = [fileManager moveItemAtURL:[NSURL fileURLWithPath:stagingPath] toURL:destinationURL error:&moveError];
+                if (!moved) {
+                    // Still can't write (device likely still locked) - keep it for the next attempt.
+                    DLog(taskId, @"[RNBackgroundDownloader] - [processPendingMoves] still deferred: %@", moveError.localizedDescription);
+                    continue;
+                }
+
+                NSString *protection = [self nsFileProtectionFromKey:(info[@"dataProtection"] != nil && [info[@"dataProtection"] length] > 0 ? info[@"dataProtection"] : nil)];
+                [fileManager setAttributes:@{NSFileProtectionKey: protection} ofItemAtPath:destinationURL.path error:nil];
+
+                [self->pendingMoves removeObjectForKey:taskId];
+                changed = YES;
+
+                DLog(taskId, @"[RNBackgroundDownloader] - [processPendingMoves] completed deferred move");
+                NSDictionary *body = @{
+                    @"id": taskId,
+                    @"location": destinationPath,
+                    @"bytesDownloaded": info[@"bytesDownloaded"] ?: @0,
+                    @"bytesTotal": info[@"bytesTotal"] ?: @0
+                };
+#ifdef RCT_NEW_ARCH_ENABLED
+                [self safeEmitEvent:@"onDownloadComplete" value:body];
+#else
+                [self sendEventWithName:@"downloadComplete" body:body];
+#endif
+            }
+
+            if (changed) [self persistPendingMoves];
+        }
+    });
+}
+
+- (void)persistPendingMoves {
+    NSError *error = nil;
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:pendingMoves requiringSecureCoding:YES error:&error];
+    if (error) {
+        DLog(nil, @"[RNBackgroundDownloader] - [persistPendingMoves] serialization error: %@", error);
+        return;
+    }
+    [mmkv setData:data forKey:PENDING_MOVES_MAP_KEY];
+}
+
+- (NSMutableDictionary *)deserializePendingMoves:(NSData *)data {
+    NSError *error = nil;
+    NSSet *classes = [NSSet setWithObjects:[NSMutableDictionary class], [NSDictionary class], [NSString class], [NSNumber class], nil];
+    NSDictionary *decoded = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:&error];
+    if (error || decoded == nil) {
+        DLog(nil, @"[RNBackgroundDownloader] - [deserializePendingMoves] error: %@", error);
+        return nil;
+    }
+    return [decoded mutableCopy];
 }
 
 #pragma mark - serialization

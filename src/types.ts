@@ -47,6 +47,23 @@ export interface NotificationsGroupingConfig {
   texts?: NotificationTexts
 }
 
+/**
+ * iOS Data Protection level applied to the downloaded file (iOS only, ignored on Android).
+ *
+ * On iOS, files protected with `complete` become unreadable/unwritable while the device
+ * is locked, which can make a background download fail to save when it finishes on a
+ * locked device. The default `completeUntilFirstUserAuthentication` lets the file be
+ * written while locked (after the first unlock since boot), which is what you almost
+ * always want for background downloads.
+ *
+ * Maps to the NSFileProtection* constants.
+ */
+export type IosDataProtection =
+  | 'complete'
+  | 'completeUnlessOpen'
+  | 'completeUntilFirstUserAuthentication'
+  | 'none'
+
 export interface Config {
   headers?: Headers
   progressInterval?: number
@@ -59,6 +76,11 @@ export interface Config {
   showNotificationsEnabled?: boolean
   /** Configuration for notifications grouping on Android */
   notificationsGrouping?: NotificationsGroupingConfig
+  /**
+   * Default iOS Data Protection level for downloaded files (iOS only).
+   * Default: 'completeUntilFirstUserAuthentication'. Can be overridden per task.
+   */
+  iosDataProtection?: IosDataProtection
 }
 
 export type SetConfig = (config: Partial<Config>) => void
@@ -129,6 +151,11 @@ export type DownloadParams = {
   groupId?: string
   /** Group name displayed in notification (only used when grouping is enabled) */
   groupName?: string
+  /**
+   * iOS Data Protection level for this download's file (iOS only).
+   * Overrides the global `iosDataProtection` from setConfig.
+   */
+  iosDataProtection?: IosDataProtection
 }
 
 export interface DownloadTask {
