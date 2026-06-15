@@ -33,6 +33,18 @@ enum class NotificationGroupingMode {
 }
 
 /**
+ * Style configuration for notification images.
+ */
+data class NotificationImageStyle(
+    val shape: String = "square",        // "square" | "circle" | "rounded"
+    val cornerRadius: Int = 8,           // dp, used when shape == "rounded"
+    val size: Int = 256,                 // dp, target largeIcon size
+    val scale: String = "centerCrop",    // "centerCrop" | "centerFit" | "fitXY"
+    val bigPicture: Boolean = false,     // show BigPictureStyle when expanded
+    val position: String = "largeIcon"   // "largeIcon" | "bigPictureOnly" | "both"
+)
+
+/**
  * Configuration for notification display.
  */
 data class NotificationConfig(
@@ -40,6 +52,7 @@ data class NotificationConfig(
     var showNotificationsEnabled: Boolean = false,
     var mode: NotificationGroupingMode = NotificationGroupingMode.INDIVIDUAL,
     var updateInterval: Long = 500L,
+    var imageStyle: NotificationImageStyle = NotificationImageStyle(),
     val texts: MutableMap<String, String> = mutableMapOf(
         "downloadTitle" to "Download",
         "downloadStarting" to "Starting download...",

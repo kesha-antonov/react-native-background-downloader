@@ -7,6 +7,12 @@ import android.app.job.JobService
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
@@ -25,24 +31,102 @@ object UIDTNotificationManager {
         get() = UIDTJobRegistry.notificationConfig
 
     /**
-     * Load a notification large icon from a local file path.
-     * Scales down to ~256dp to avoid excessive memory use in the status bar.
+     * Load and style a notification large icon from a local file path.
+     * Applies size, scale, and shape from [NotificationImageStyle].
      */
-    private fun loadNotificationBitmap(path: String): Bitmap? {
+    private fun loadNotificationBitmap(path: String, style: NotificationImageStyle = NotificationImageStyle()): Bitmap? {
         if (path.isEmpty()) return null
         return try {
-            val opts = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
+            val targetPx = style.size.coerceAtLeast(32)
+
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(path, opts)
-            val targetPx = 256
             opts.inSampleSize = maxOf(1, minOf(opts.outWidth, opts.outHeight) / targetPx)
             opts.inJustDecodeBounds = false
-            BitmapFactory.decodeFile(path, opts)
+            val raw = BitmapFactory.decodeFile(path, opts) ?: return null
+
+            val scaled = scaleBitmap(raw, targetPx, style.scale)
+            applyShape(scaled, style.shape, style.cornerRadius)
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "loadNotificationBitmap failed for $path: ${e.message}")
             null
         }
+    }
+
+    private fun scaleBitmap(src: Bitmap, targetPx: Int, scale: String): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w == targetPx && h == targetPx) return src
+
+        return when (scale) {
+            "centerCrop" -> {
+                val ratio = maxOf(targetPx.toFloat() / w, targetPx.toFloat() / h)
+                val scaledW = (w * ratio).toInt()
+                val scaledH = (h * ratio).toInt()
+                val tmp = Bitmap.createScaledBitmap(src, scaledW, scaledH, true)
+                val x = (scaledW - targetPx) / 2
+                val y = (scaledH - targetPx) / 2
+                Bitmap.createBitmap(tmp, x, y, targetPx, targetPx)
+            }
+            "centerFit" -> {
+                val ratio = minOf(targetPx.toFloat() / w, targetPx.toFloat() / h)
+                val scaledW = (w * ratio).toInt()
+                val scaledH = (h * ratio).toInt()
+                val tmp = Bitmap.createScaledBitmap(src, scaledW, scaledH, true)
+                val out = Bitmap.createBitmap(targetPx, targetPx, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(out)
+                canvas.drawBitmap(tmp, ((targetPx - scaledW) / 2).toFloat(), ((targetPx - scaledH) / 2).toFloat(), null)
+                out
+            }
+            else -> Bitmap.createScaledBitmap(src, targetPx, targetPx, true) // fitXY
+        }
+    }
+
+    private fun applyImageToBuilder(
+        builder: NotificationCompat.Builder,
+        imageUrl: String,
+        style: NotificationImageStyle
+    ) {
+        if (imageUrl.isEmpty()) return
+        val bitmap = loadNotificationBitmap(imageUrl, style)
+        if (bitmap != null && style.position != "bigPictureOnly") {
+            builder.setLargeIcon(bitmap)
+        }
+        if (style.bigPicture || style.position == "bigPictureOnly" || style.position == "both") {
+            val raw = loadNotificationBitmap(imageUrl)
+            if (raw != null) {
+                builder.setStyle(
+                    NotificationCompat.BigPictureStyle()
+                        .bigPicture(raw)
+                        .also { if (style.position == "bigPictureOnly") it.bigLargeIcon(null as Bitmap?) }
+                )
+            }
+        }
+    }
+
+    private fun applyShape(src: Bitmap, shape: String, cornerRadiusDp: Int): Bitmap {
+        if (shape == "square") return src
+
+        val size = minOf(src.width, src.height)
+        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        when (shape) {
+            "circle" -> {
+                val radius = size / 2f
+                canvas.drawCircle(radius, radius, radius, paint)
+            }
+            "rounded" -> {
+                val r = (cornerRadiusDp * src.density / 160f).coerceAtLeast(1f)
+                canvas.drawRoundRect(RectF(0f, 0f, size.toFloat(), size.toFloat()), r, r, paint)
+            }
+            else -> canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), paint)
+        }
+
+        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return out
     }
 
     /**
@@ -164,7 +248,7 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(0, 0, true)
 
-        loadNotificationBitmap(notificationImageUrl)?.let { builder.setLargeIcon(it) }
+        applyImageToBuilder(builder, notificationImageUrl, config.imageStyle)
 
         // Apply grouping when enabled and groupId is provided
         if (config.groupingEnabled && groupId.isNotEmpty()) {
@@ -217,7 +301,7 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
 
-        loadNotificationBitmap(jobState.notificationImageUrl)?.let { builder.setLargeIcon(it) }
+        applyImageToBuilder(builder, jobState.notificationImageUrl, config.imageStyle)
 
         // Apply grouping when enabled
         if (config.groupingEnabled && jobState.groupId.isNotEmpty()) {
@@ -257,7 +341,7 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(100, progress, false)
 
-        loadNotificationBitmap(notificationImageUrl)?.let { builder.setLargeIcon(it) }
+        applyImageToBuilder(builder, notificationImageUrl, config.imageStyle)
 
         val notification = builder.build()
 
@@ -297,7 +381,7 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
 
-        loadNotificationBitmap(jobState.notificationImageUrl)?.let { builder.setLargeIcon(it) }
+        applyImageToBuilder(builder, jobState.notificationImageUrl, config.imageStyle)
 
         val notification = builder.build()
 

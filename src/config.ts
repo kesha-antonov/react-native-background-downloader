@@ -1,4 +1,4 @@
-import { Headers, NotificationGroupingMode, NotificationsGroupingConfig, NotificationTexts } from './types'
+import { Headers, NotificationGroupingMode, NotificationImageStyle, NotificationsGroupingConfig, NotificationTexts } from './types'
 
 export const DEFAULT_PROGRESS_INTERVAL = 1000
 export const DEFAULT_PROGRESS_MIN_BYTES = 1024 * 1024 // 1MB
@@ -29,6 +29,7 @@ interface ConfigState {
   allowsCellularAccess: boolean
   showNotificationsEnabled: boolean
   notificationsGrouping: NotificationsGroupingConfig & { mode: NotificationGroupingMode }
+  notificationImageStyle: NotificationImageStyle
 }
 
 export const config: ConfigState = {
@@ -45,6 +46,7 @@ export const config: ConfigState = {
     mode: 'individual',
     texts: DEFAULT_NOTIFICATION_TEXTS,
   },
+  notificationImageStyle: {},
 }
 
 /**
@@ -74,6 +76,18 @@ export function getNotificationTextsForNative (): Record<string, string> {
     groupText: typeof texts.groupText === 'function'
       ? '{count} download(s) in progress' // Default pattern if function provided
       : (texts.groupText ?? '{count} download(s) in progress'),
+  }
+}
+
+export function getNotificationImageStyleForNative (): Record<string, string | number | boolean> {
+  const s = config.notificationImageStyle
+  return {
+    shape: s.shape ?? 'square',
+    cornerRadius: s.cornerRadius ?? 8,
+    size: s.size ?? 256,
+    scale: s.scale ?? 'centerCrop',
+    bigPicture: s.bigPicture ?? false,
+    position: s.position ?? 'largeIcon',
   }
 }
 

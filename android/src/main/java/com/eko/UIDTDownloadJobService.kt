@@ -8,6 +8,7 @@ import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import com.eko.uidt.JobState
 import com.eko.uidt.NotificationGroupingMode
+import com.eko.uidt.NotificationImageStyle
 import com.eko.uidt.UIDTConstants
 import com.eko.uidt.UIDTJobInfo
 import com.eko.uidt.UIDTJobManager
@@ -90,8 +91,8 @@ class UIDTDownloadJobService : JobService() {
         /**
          * Configure notification grouping and texts.
          */
-        fun setNotificationGroupingConfig(enabled: Boolean, showNotificationsEnabled: Boolean, mode: String, texts: Map<String, String>) =
-            UIDTJobManager.setNotificationConfig(enabled, showNotificationsEnabled, mode, texts)
+        fun setNotificationGroupingConfig(enabled: Boolean, showNotificationsEnabled: Boolean, mode: String, texts: Map<String, String>, imageStyle: NotificationImageStyle = NotificationImageStyle()) =
+            UIDTJobManager.setNotificationConfig(enabled, showNotificationsEnabled, mode, texts, imageStyle)
 
         /**
          * Set notification update interval.

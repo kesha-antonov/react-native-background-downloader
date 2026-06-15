@@ -3,7 +3,7 @@ import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
 import { GroupTask } from './GroupTask'
 import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
-import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, getNotificationTextsForNative, DEFAULT_NOTIFICATION_TEXTS } from './config'
+import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, getNotificationTextsForNative, getNotificationImageStyleForNative, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 type RNBackgroundDownloaderModule = Spec & {
@@ -374,6 +374,7 @@ export function setConfig ({
   allowsCellularAccess,
   showNotificationsEnabled,
   notificationsGrouping,
+  notificationImageStyle,
 }: Config) {
   config.headers = headers
 
@@ -400,6 +401,9 @@ export function setConfig ({
   if (showNotificationsEnabled !== undefined)
     config.showNotificationsEnabled = showNotificationsEnabled
 
+  if (notificationImageStyle !== undefined)
+    config.notificationImageStyle = notificationImageStyle
+
   // Update notification grouping config
   if (notificationsGrouping !== undefined)
     config.notificationsGrouping = {
@@ -420,7 +424,7 @@ export function setConfig ({
       setLogsEnabled?: (enabled: boolean) => void
       setMaxParallelDownloads?: (max: number) => void
       setAllowsCellularAccess?: (allows: boolean) => void
-      setNotificationGroupingConfig?: (config: { enabled: boolean, showNotificationsEnabled: boolean, mode: string, texts: Record<string, string> }) => void
+      setNotificationGroupingConfig?: (config: { enabled: boolean, showNotificationsEnabled: boolean, mode: string, texts: Record<string, string>, imageStyle: Record<string, string | number | boolean> }) => void
     }
     if (nativeModule.setLogsEnabled)
       nativeModule.setLogsEnabled(isLogsEnabled)
@@ -436,6 +440,7 @@ export function setConfig ({
         showNotificationsEnabled: config.showNotificationsEnabled ?? false,
         mode: config.notificationsGrouping.mode,
         texts: getNotificationTextsForNative(),
+        imageStyle: getNotificationImageStyleForNative(),
       })
   } catch {
     // Ignore if native module is not available yet

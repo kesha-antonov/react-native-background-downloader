@@ -13,6 +13,7 @@ import android.os.Build
 import android.util.Log
 import android.webkit.MimeTypeMap
 import com.eko.handlers.OnBegin
+import com.eko.uidt.NotificationImageStyle
 import com.eko.uidt.UIDTJobRegistry
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
@@ -309,12 +310,24 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
     }
 
+    val imageStyleMap = if (config.hasKey("imageStyle")) config.getMap("imageStyle") else null
+    val imageStyle = imageStyleMap?.let {
+      NotificationImageStyle(
+        shape = it.getString("shape") ?: "square",
+        cornerRadius = if (it.hasKey("cornerRadius")) it.getInt("cornerRadius") else 8,
+        size = if (it.hasKey("size")) it.getInt("size") else 256,
+        scale = it.getString("scale") ?: "centerCrop",
+        bigPicture = if (it.hasKey("bigPicture")) it.getBoolean("bigPicture") else false,
+        position = it.getString("position") ?: "largeIcon",
+      )
+    } ?: NotificationImageStyle()
+
     // Store the config for use by UIDTDownloadJobService
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      UIDTDownloadJobService.setNotificationGroupingConfig(enabled, showNotificationsEnabled, mode, textsMap)
+      UIDTDownloadJobService.setNotificationGroupingConfig(enabled, showNotificationsEnabled, mode, textsMap, imageStyle)
     }
 
-    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, mode=$mode, texts=$textsMap")
+    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, mode=$mode, texts=$textsMap, imageStyle=$imageStyle")
   }
 
   fun initialize() {

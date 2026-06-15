@@ -47,6 +47,44 @@ export interface NotificationsGroupingConfig {
   texts?: NotificationTexts
 }
 
+/**
+ * Style options for the notification image (Android only).
+ * Applied to notifications that have a `notificationImageUrl`.
+ */
+export interface NotificationImageStyle {
+  /**
+   * Shape applied to the largeIcon bitmap.
+   * - 'square': no transformation (default)
+   * - 'circle': circular crop
+   * - 'rounded': rounded corners (see `cornerRadius`)
+   */
+  shape?: 'square' | 'circle' | 'rounded'
+  /** Corner radius in dp when shape is 'rounded'. Default: 8 */
+  cornerRadius?: number
+  /** Target size in dp for the largeIcon bitmap. Default: 256 */
+  size?: number
+  /**
+   * Scaling mode when the source image doesn't match target size.
+   * - 'centerCrop': fill target, crop overflow (default)
+   * - 'centerFit': fit inside target, letterbox
+   * - 'fitXY': stretch to fill target
+   */
+  scale?: 'centerCrop' | 'centerFit' | 'fitXY'
+  /**
+   * Show BigPictureStyle when notification is expanded (Android).
+   * Displays the image as a full-width banner in the expanded view.
+   * Default: false
+   */
+  bigPicture?: boolean
+  /**
+   * Where to show the image in the collapsed notification.
+   * - 'largeIcon': left side icon only (default)
+   * - 'bigPictureOnly': only in expanded view, no largeIcon
+   * - 'both': largeIcon + BigPictureStyle
+   */
+  position?: 'largeIcon' | 'bigPictureOnly' | 'both'
+}
+
 export interface Config {
   headers?: Headers
   progressInterval?: number
@@ -59,6 +97,8 @@ export interface Config {
   showNotificationsEnabled?: boolean
   /** Configuration for notifications grouping on Android */
   notificationsGrouping?: NotificationsGroupingConfig
+  /** Style for the notification image (Android only). Applied when notificationImageUrl is set on a task */
+  notificationImageStyle?: NotificationImageStyle
 }
 
 export type SetConfig = (config: Partial<Config>) => void
