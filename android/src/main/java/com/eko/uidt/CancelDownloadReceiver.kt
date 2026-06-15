@@ -24,11 +24,16 @@ class CancelDownloadReceiver : BroadcastReceiver() {
             UIDTConstants.TAG,
             "CancelDownloadReceiver: cancelling $configId",
         )
-        UIDTJobManager.cancelJob(context, configId)
+        val cancelled = UIDTJobManager.cancelJob(context, configId)
 
-        // Notify JS so the in-memory task map can be cleaned and the
-        // .error() handler runs (lib uses CANCELLED errorCode = -1).
-        UIDTJobRegistry.downloadListener?.onError(configId, "Download cancelled by user", -1)
+        // Only notify JS when a live job was actually cancelled. If the download
+        // already finished there is nothing to clean up, and dispatching here
+        // would emit a spurious downloadFailed for an already-completed task.
+        if (cancelled) {
+            // Notify JS so the in-memory task map can be cleaned and the
+            // .error() handler runs (lib uses CANCELLED errorCode = -1).
+            UIDTJobRegistry.downloadListener?.onError(configId, "Download cancelled by user", -1)
+        }
     }
 
     companion object {
