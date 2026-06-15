@@ -19,6 +19,9 @@ import androidx.core.app.NotificationCompat
 import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.UIDTDownloadJobService
 import com.eko.utils.ProgressUtils
+import java.io.BufferedInputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Manages all notification-related operations for UIDT downloads.
@@ -31,24 +34,67 @@ object UIDTNotificationManager {
         get() = UIDTJobRegistry.notificationConfig
 
     /**
-     * Load and style a notification large icon from a local file path.
+     * Load and style a notification large icon from a local file path or remote URL.
      * Applies size, scale, and shape from [NotificationImageStyle].
+     * Remote URLs (http:// or https://) are downloaded synchronously via HttpURLConnection.
+     * Local file paths are decoded directly via BitmapFactory.
      */
     private fun loadNotificationBitmap(path: String, style: NotificationImageStyle = NotificationImageStyle()): Bitmap? {
         if (path.isEmpty()) return null
         return try {
             val targetPx = style.size.coerceAtLeast(32)
 
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(path, opts)
-            opts.inSampleSize = maxOf(1, minOf(opts.outWidth, opts.outHeight) / targetPx)
-            opts.inJustDecodeBounds = false
-            val raw = BitmapFactory.decodeFile(path, opts) ?: return null
+            val raw: Bitmap? = if (path.startsWith("http://") || path.startsWith("https://")) {
+                // Remote URL: download bytes and decode
+                loadBitmapFromUrl(path, targetPx)
+            } else {
+                // Local file path: use BitmapFactory with inSampleSize for memory efficiency
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(path, opts)
+                opts.inSampleSize = maxOf(1, minOf(opts.outWidth, opts.outHeight) / targetPx)
+                opts.inJustDecodeBounds = false
+                BitmapFactory.decodeFile(path, opts)
+            }
+
+            if (raw == null) return null
 
             val scaled = scaleBitmap(raw, targetPx, style.scale)
             applyShape(scaled, style.shape, style.cornerRadius)
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "loadNotificationBitmap failed for $path: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Download an image from a remote URL and decode it as a Bitmap.
+     * Uses a short connect/read timeout so a slow CDN doesn't stall the notification.
+     */
+    private fun loadBitmapFromUrl(url: String, targetPx: Int): Bitmap? {
+        return try {
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 10000
+            connection.instanceFollowRedirects = true
+            connection.doInput = true
+            connection.connect()
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "loadBitmapFromUrl: HTTP ${connection.responseCode} for $url")
+                connection.disconnect()
+                return null
+            }
+            val stream = BufferedInputStream(connection.inputStream)
+            val bytes = stream.readBytes()
+            connection.disconnect()
+
+            // Decode with inSampleSize for memory efficiency
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            opts.inSampleSize = maxOf(1, minOf(opts.outWidth, opts.outHeight) / targetPx)
+            opts.inJustDecodeBounds = false
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "loadBitmapFromUrl failed for $url: ${e.message}")
             null
         }
     }

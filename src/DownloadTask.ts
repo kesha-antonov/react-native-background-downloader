@@ -207,10 +207,14 @@ export class DownloadTask {
       }, this.downloadParams.maxAge)
 
     // kick-off download after returning the task
+    // Prefer notificationGroupId/notificationGroupName (not overwritten by createGroup)
+    // over groupId/groupName (which createGroup overwrites with the JS group key).
+    const resolvedGroupId = this.downloadParams.notificationGroupId ?? this.downloadParams.groupId
+    const resolvedGroupName = this.downloadParams.notificationGroupName ?? this.downloadParams.groupName
     const metadataForNative = {
       ...this.metadata,
-      ...(this.downloadParams.groupId ? { groupId: this.downloadParams.groupId } : {}),
-      ...(this.downloadParams.groupName ? { groupName: this.downloadParams.groupName } : {}),
+      ...(resolvedGroupId ? { groupId: resolvedGroupId } : {}),
+      ...(resolvedGroupName ? { groupName: resolvedGroupName } : {}),
     }
     getNativeModule().download({
       id: this.id,

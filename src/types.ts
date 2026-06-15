@@ -214,6 +214,21 @@ export type DownloadParams = {
    * Timer starts when start() is called and is cleared on done/error/stop/pause.
    */
   maxAge?: number
+  /**
+   * Notification group key for Android notification grouping.
+   * When set, this overrides `groupId` for native notification grouping only.
+   * Unlike `groupId`, this field is NOT overwritten by `createGroup()`, so you can
+   * set a stable per-title groupId for notifications while `groupId` tracks JS-level task groups.
+   * Android only.
+   */
+  notificationGroupId?: string
+  /**
+   * Notification group name displayed in the Android summary notification.
+   * When set, this overrides `groupName` for native notification grouping only.
+   * Unlike `groupName`, this field is NOT overwritten by `createGroup()`.
+   * Android only.
+   */
+  notificationGroupName?: string
 }
 
 export interface DownloadTask {
