@@ -114,6 +114,12 @@ object UIDTConstants {
 
     // Base for individual notification IDs
     const val NOTIFICATION_ID_BASE = 20000
+
+    // Base for one-shot "download complete" notification IDs. Kept in a
+    // disjoint range from NOTIFICATION_ID_BASE (which spans 20000..119999 via
+    // hash % 100000) so a finished notification can never collide with another
+    // download's in-progress notification.
+    const val FINISHED_NOTIFICATION_ID_BASE = 200000
 }
 
 /**

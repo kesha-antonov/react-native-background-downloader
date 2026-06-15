@@ -37,6 +37,15 @@ object UIDTNotificationManager {
     }
 
     /**
+     * Stable notification ID for the one-shot "download complete" notification.
+     * Lives in a disjoint range from [getNotificationIdForConfig] so it can
+     * never collide with another download's in-progress notification.
+     */
+    fun getFinishedNotificationIdForConfig(configId: String): Int {
+        return UIDTConstants.FINISHED_NOTIFICATION_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 100000
+    }
+
+    /**
      * Create notification channels for UIDT jobs.
      * Must be called before showing any notifications (typically in service onCreate).
      */
@@ -580,9 +589,10 @@ object UIDTNotificationManager {
         createNotificationChannels(context)
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        // Use a distinct id from the in-progress one to avoid being removed by the
-        // REMOVE policy applied to the ongoing notification.
-        val notificationId = getNotificationIdForConfig(configId) + 1
+        // Use an id from a disjoint range so it is neither removed by the REMOVE
+        // policy applied to the ongoing notification nor collides with another
+        // download's in-progress notification.
+        val notificationId = getFinishedNotificationIdForConfig(configId)
 
         val title = config.getText("downloadFinished")
 
