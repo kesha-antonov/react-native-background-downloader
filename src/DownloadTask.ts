@@ -207,9 +207,14 @@ export class DownloadTask {
       }, this.downloadParams.maxAge)
 
     // kick-off download after returning the task
+    const metadataForNative = {
+      ...this.metadata,
+      ...(this.downloadParams.groupId ? { groupId: this.downloadParams.groupId } : {}),
+      ...(this.downloadParams.groupName ? { groupName: this.downloadParams.groupName } : {}),
+    }
     getNativeModule().download({
       id: this.id,
-      metadata: JSON.stringify(this.metadata),
+      metadata: JSON.stringify(metadataForNative),
       progressInterval: config.progressInterval,
       progressMinBytes: config.progressMinBytes,
       ...this.downloadParams,
