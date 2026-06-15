@@ -60,6 +60,37 @@ The library uses a Foreground Service for pause/resume functionality. This requi
 - `FOREGROUND_SERVICE` permission (automatically added)
 - Notification displayed during downloads
 
+### Download Notifications (Android 14+)
+
+On Android 14+ (API 34) downloads run as user-initiated data transfers (UIDT) and the library manages a richer notification flow. These features apply only when `showNotificationsEnabled` is `true`:
+
+- **Cancel action** — the in-progress notification shows a **Cancel** button. Tapping it stops the download, removes the notification, and fires the task's `.error()` handler with `errorCode = -1` (`CANCELLED`).
+- **Completion notification** — when a download finishes, a persistent "download complete" notification is posted on its own `IMPORTANCE_DEFAULT` channel (so it surfaces to the user, unlike the silent progress channel). It uses the `downloadFinished` text as its title.
+- **Per-download title** — pass `metadata.notificationTitle` when creating a task to override the notification title for that download. Precedence: `notificationTitle` → `groupName` (when grouping is enabled) → the default `downloadTitle` text.
+
+```javascript
+const task = createDownloadTask({
+  id: 'file123',
+  url: 'https://example.com/file.mp3',
+  destination: `${directories.documents}/file.mp3`,
+  metadata: { notificationTitle: 'My Custom Title' },
+})
+```
+
+**Tap-to-open (FileProvider):** Tapping the completion notification opens the saved file via a `FileProvider` content URI and the system chooser. The library auto-detects the host app's `FileProvider` authority from its merged manifest — no configuration is required if your app (or one of its dependencies) registers a `FileProvider`. If no `FileProvider` is registered, the notification is still posted, but **without** a tap action (the failure is logged, not thrown). To enable tap-to-open in an app that has no `FileProvider`, register one in your `AndroidManifest.xml`:
+
+```xml
+<provider
+  android:name="androidx.core.content.FileProvider"
+  android:authorities="${applicationId}.provider"
+  android:exported="false"
+  android:grantUriPermissions="true">
+  <meta-data
+    android:name="android.support.FILE_PROVIDER_PATHS"
+    android:resource="@xml/file_provider_paths" />
+</provider>
+```
+
 ### MMKV Dependency
 
 Android uses MMKV for persistent state storage. This is required for:

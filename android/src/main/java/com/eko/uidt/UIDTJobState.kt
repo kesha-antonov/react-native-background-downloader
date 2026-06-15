@@ -106,6 +106,11 @@ object UIDTConstants {
     // Notification channel for UIDT jobs (ultra-silent for summaryOnly mode)
     const val NOTIFICATION_CHANNEL_ULTRA_SILENT_ID = "uidt_download_channel_ultra_silent"
 
+    // Notification channel for the one-shot "download complete" notification.
+    // Uses IMPORTANCE_DEFAULT so completion is actually surfaced to the user
+    // (the progress channel is IMPORTANCE_LOW and never alerts).
+    const val NOTIFICATION_CHANNEL_FINISHED_ID = "uidt_download_channel_finished"
+
     // Notification group for grouping all download notifications together
     const val NOTIFICATION_GROUP_KEY = "com.eko.DOWNLOAD_GROUP"
 

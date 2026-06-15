@@ -295,7 +295,7 @@ class UIDTDownloadJobService : JobService() {
                 if (jobState != null) {
                     // Store total bytes for summary progress calculation
                     jobState.bytesTotal = expectedBytes
-                    UIDTNotificationManager.updateProgressNotification(this@UIDTDownloadJobService, jobState, 0, expectedBytes)
+                    UIDTNotificationManager.updateProgressNotification(this@UIDTDownloadJobService, id, jobState, 0, expectedBytes)
                 }
 
                 // Notify external listener
@@ -346,7 +346,7 @@ class UIDTDownloadJobService : JobService() {
                             } else {
                                 // Update individual notification
                                 UIDTNotificationManager.updateProgressNotification(
-                                    this@UIDTDownloadJobService, jobState, bytesDownloaded, bytesTotal
+                                    this@UIDTDownloadJobService, id, jobState, bytesDownloaded, bytesTotal
                                 )
                             }
                         }
