@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.job.JobService
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
@@ -88,6 +89,17 @@ object UIDTNotificationManager {
                 setSound(null, null)
             }
             notificationManager.createNotificationChannel(ultraSilentChannel)
+
+            // Channel for the one-shot "download complete" notification
+            // (IMPORTANCE_DEFAULT so it actually alerts, unlike the progress channel)
+            val finishedChannel = NotificationChannel(
+                UIDTConstants.NOTIFICATION_CHANNEL_FINISHED_ID,
+                "Download Complete",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Notifies when a background download has finished"
+            }
+            notificationManager.createNotificationChannel(finishedChannel)
         }
     }
 
@@ -196,6 +208,7 @@ object UIDTNotificationManager {
      */
     fun updateProgressNotification(
         context: Context,
+        configId: String,
         jobState: JobState,
         bytesDownloaded: Long,
         bytesTotal: Long
@@ -223,9 +236,6 @@ object UIDTNotificationManager {
 
         val progressText = config.getText("downloadProgress", "progress" to progress)
 
-        val configId = UIDTJobRegistry.activeJobs.entries
-            .firstOrNull { it.value === jobState }?.key
-
         val builder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(progressText)
@@ -235,14 +245,11 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
-
-        if (configId != null) {
-            builder.addAction(
+            .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 context.getString(android.R.string.cancel),
                 buildCancelPendingIntent(context, configId),
             )
-        }
 
         // Apply grouping when enabled
         if (config.groupingEnabled && jobState.groupId.isNotEmpty()) {
@@ -597,12 +604,13 @@ object UIDTNotificationManager {
         val title = config.getText("downloadFinished")
 
         // Build a PendingIntent that lets the user open the saved file with the
-        // system viewer (Files app / Drive / Extract...). Uses the host app's
-        // FileProvider authority (".provider") which is registered via the
-        // bundled react-native-file-viewer-turbo manifest.
+        // system viewer (Files app / Drive / Extract...). The FileProvider
+        // authority is auto-detected from the host app's manifest (see
+        // resolveFileProviderAuthority); if no provider is registered the tap
+        // action is simply omitted and the notification is still posted.
         val pendingIntent: PendingIntent? = try {
             val file = File(destination)
-            val authority = "${context.packageName}.provider"
+            val authority = resolveFileProviderAuthority(context)
             val uri = FileProvider.getUriForFile(context, authority, file)
             val mime = URLConnection.guessContentTypeFromName(fileName) ?: "*/*"
             val viewIntent = Intent(Intent.ACTION_VIEW).apply {
@@ -624,7 +632,7 @@ object UIDTNotificationManager {
             null
         }
 
-        val builder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_FINISHED_ID)
             .setContentTitle(title)
             .setContentText(fileName)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -634,5 +642,39 @@ object UIDTNotificationManager {
 
         notificationManager.notify(notificationId, builder.build())
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Posted finished notification $notificationId for $configId")
+    }
+
+    /**
+     * Resolve the host app's FileProvider authority at runtime by scanning the
+     * providers registered in its manifest, rather than assuming a fixed
+     * "${packageName}.provider". This lets the tap-to-open action work for any
+     * consumer regardless of how their FileProvider is named.
+     *
+     * Preference order: an authority equal to "${packageName}.provider", then
+     * any authority owned by this package, then the conventional default as a
+     * last resort (which may still throw in getUriForFile if unregistered —
+     * that is caught by the caller).
+     */
+    private fun resolveFileProviderAuthority(context: Context): String {
+        val packageName = context.packageName
+        val default = "$packageName.provider"
+        return try {
+            val flags = PackageManager.GET_PROVIDERS
+            val providers = context.packageManager
+                .getPackageInfo(packageName, flags)
+                .providers
+                ?.filter { it.name == "androidx.core.content.FileProvider" || it.name.endsWith("FileProvider") }
+                ?.mapNotNull { it.authority }
+                ?.flatMap { it.split(';') }
+                ?: emptyList()
+
+            providers.firstOrNull { it == default }
+                ?: providers.firstOrNull { it.startsWith(packageName) }
+                ?: providers.firstOrNull()
+                ?: default
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "Failed to resolve FileProvider authority: ${e.message}")
+            default
+        }
     }
 }
