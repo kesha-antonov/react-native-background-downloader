@@ -2,6 +2,8 @@ package com.eko.uidt
 
 import android.app.job.JobParameters
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.ResumableDownloader
 import org.json.JSONObject
@@ -229,6 +231,35 @@ object UIDTJobRegistry {
     // Track groups that have been finalized (all jobs completed)
     // This prevents race conditions where progress updates recreate cancelled notifications
     val finalizedGroups = ConcurrentHashMap.newKeySet<String>()
+
+    // Pending group summary cancellations (delayed to absorb inter-batch gaps)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val pendingGroupCancellations = ConcurrentHashMap<String, Runnable>()
+
+    /**
+     * Schedule a delayed summary cancellation for a group.
+     * If new tasks for the same group register before [delayMs], the cancellation is dropped.
+     */
+    fun scheduleSummaryCancellation(groupId: String, delayMs: Long, action: Runnable) {
+        cancelPendingCancellation(groupId)
+        val runnable = Runnable {
+            pendingGroupCancellations.remove(groupId)
+            action.run()
+        }
+        pendingGroupCancellations[groupId] = runnable
+        mainHandler.postDelayed(runnable, delayMs)
+    }
+
+    /**
+     * Cancel a pending summary cancellation — called when new tasks arrive for the group.
+     */
+    fun cancelPendingCancellation(groupId: String) {
+        val runnable = pendingGroupCancellations.remove(groupId)
+        if (runnable != null) {
+            mainHandler.removeCallbacks(runnable)
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled pending summary cancellation for group $groupId (new batch arriving)")
+        }
+    }
 
     fun isActiveJob(configId: String): Boolean = activeJobs.containsKey(configId)
 

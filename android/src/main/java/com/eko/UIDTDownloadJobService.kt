@@ -218,6 +218,11 @@ class UIDTDownloadJobService : JobService() {
             UIDTJobRegistry.unmarkGroupFinalized(groupId)
         }
 
+        // Cancel any pending group-summary cancellation so the notification survives the inter-batch gap
+        if (groupId.isNotEmpty()) {
+            UIDTJobRegistry.cancelPendingCancellation(groupId)
+        }
+
         // Store job state BEFORE updating summary (so count includes this job)
         UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName, notificationImageUrl)
 
@@ -376,12 +381,14 @@ class UIDTDownloadJobService : JobService() {
                 RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Jobs remaining in group '$groupId': $remainingInGroup, activeJobs count=${UIDTJobRegistry.activeJobs.size}")
 
                 if (remainingInGroup == 0 && groupId.isNotEmpty()) {
-                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Last job in group completed. Marking finalized and cancelling summary.")
-                    // Mark group as finalized FIRST to prevent race conditions
-                    // where delayed progress callbacks might recreate the notification
-                    UIDTJobRegistry.markGroupFinalized(groupId)
-                    // Last job in group - cancel summary notification
-                    UIDTNotificationManager.cancelSummaryNotification(this@UIDTDownloadJobService, groupId)
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Last job in group completed. Scheduling delayed summary cancellation for group $groupId.")
+                    // Delay cancellation to absorb inter-batch gaps: if the next batch's tasks
+                    // register within 600ms, the cancellation is dropped and there's no flicker.
+                    UIDTJobRegistry.scheduleSummaryCancellation(groupId, 600L, Runnable {
+                        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Delayed cancellation firing for group $groupId (no new batch arrived).")
+                        UIDTJobRegistry.markGroupFinalized(groupId)
+                        UIDTNotificationManager.cancelSummaryNotification(this@UIDTDownloadJobService, groupId)
+                    })
                 } else if (groupId.isEmpty()) {
                     RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "groupId is empty in onComplete for $id")
                 } else {
@@ -422,10 +429,12 @@ class UIDTDownloadJobService : JobService() {
                 RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Jobs remaining in group '$groupId' after error: $remainingInGroup")
 
                 if (remainingInGroup == 0 && groupId.isNotEmpty()) {
-                    // Mark group as finalized FIRST to prevent race conditions
-                    UIDTJobRegistry.markGroupFinalized(groupId)
-                    // Last job in group - cancel summary notification
-                    UIDTNotificationManager.cancelSummaryNotification(this@UIDTDownloadJobService, groupId)
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Last job in group failed. Scheduling delayed summary cancellation for group $groupId.")
+                    UIDTJobRegistry.scheduleSummaryCancellation(groupId, 600L, Runnable {
+                        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Delayed cancellation firing for group $groupId after error (no new batch arrived).")
+                        UIDTJobRegistry.markGroupFinalized(groupId)
+                        UIDTNotificationManager.cancelSummaryNotification(this@UIDTDownloadJobService, groupId)
+                    })
                 } else {
                     // Update summary notification for this group (update count/progress)
                     UIDTNotificationManager.updateSummaryNotificationForGroup(this@UIDTDownloadJobService, groupId, groupName)
