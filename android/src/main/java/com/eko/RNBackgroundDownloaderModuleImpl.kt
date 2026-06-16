@@ -283,9 +283,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   fun setMaxParallelDownloads(max: Int) {
-    // Android DownloadManager doesn't support setting max parallel downloads
-    // This is a no-op on Android, but we keep the method for API consistency
-    logD(NAME, "setMaxParallelDownloads called with $max (no-op on Android)")
+    logD(NAME, "setMaxParallelDownloads: $max")
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      com.eko.uidt.UIDTJobManager.setMaxConcurrentJobs(max)
+    }
   }
 
   fun setAllowsCellularAccess(allows: Boolean) {

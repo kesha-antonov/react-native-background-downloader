@@ -410,6 +410,9 @@ class UIDTDownloadJobService : JobService() {
                 // Clear persisted resume state - no longer needed after successful completion
                 UIDTJobRegistry.clearResumeState(this@UIDTDownloadJobService, id)
 
+                // Release the scheduler slot so a queued download can start.
+                UIDTJobManager.onJobDone(id)
+
                 // Notify external listener
                 UIDTJobRegistry.downloadListener?.onComplete(id, location, bytesDownloaded, bytesTotal)
             }
@@ -452,6 +455,9 @@ class UIDTDownloadJobService : JobService() {
 
                 // Clear persisted resume state - no longer needed after failure
                 UIDTJobRegistry.clearResumeState(this@UIDTDownloadJobService, id)
+
+                // Release the scheduler slot so a queued download can start.
+                UIDTJobManager.onJobDone(id)
 
                 // Notify external listener
                 UIDTJobRegistry.downloadListener?.onError(id, error, errorCode)

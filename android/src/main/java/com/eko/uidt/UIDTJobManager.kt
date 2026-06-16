@@ -24,6 +24,52 @@ object UIDTJobManager {
     private val config: NotificationConfig
         get() = UIDTJobRegistry.notificationConfig
 
+    // ── Download queue ────────────────────────────────────────────────────────
+    // Android caps apps at 150 distinct scheduled jobs (pending + running).
+    // We maintain our own queue so only `maxConcurrentJobs` are ever sent to
+    // JobScheduler at the same time; the rest wait here until a slot opens.
+
+    private data class PendingDownload(
+        val context: Context,
+        val configId: String,
+        val url: String,
+        val destination: String,
+        val headers: Map<String, String>,
+        val startByte: Long,
+        val totalBytes: Long,
+        val metadata: String
+    )
+
+    private val pendingQueue = ArrayDeque<PendingDownload>()
+    private var scheduledCount = 0
+    @Volatile private var maxConcurrentJobs: Int = 4
+    private val queueLock = Any()
+
+    fun setMaxConcurrentJobs(max: Int) {
+        synchronized(queueLock) { maxConcurrentJobs = max }
+        drainQueue()
+    }
+
+    /** Call whenever a scheduled job finishes (complete, error, cancel, pause). */
+    fun onJobDone(configId: String) {
+        synchronized(queueLock) { if (scheduledCount > 0) scheduledCount-- }
+        drainQueue()
+    }
+
+    private fun drainQueue() {
+        while (true) {
+            val next: PendingDownload
+            synchronized(queueLock) {
+                if (scheduledCount >= maxConcurrentJobs || pendingQueue.isEmpty()) return
+                next = pendingQueue.removeFirst()
+                scheduledCount++
+            }
+            doScheduleJob(next.context, next.configId, next.url, next.destination, next.headers, next.startByte, next.totalBytes, next.metadata)
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
      * Check if UIDT is available on this device.
      */
@@ -32,17 +78,13 @@ object UIDTJobManager {
     }
 
     /**
-     * Schedule a UIDT download job.
+     * Schedule a UIDT download job, or enqueue it if the concurrent-job limit has been reached.
      *
-     * @param context Application context
-     * @param configId Unique download identifier
-     * @param url Download URL
-     * @param destination File destination path
-     * @param headers HTTP headers for the request
-     * @param startByte Byte position to resume from (0 for new downloads)
-     * @param totalBytes Total expected bytes (-1 if unknown)
-     * @param metadata JSON metadata with course info for notification grouping
-     * @return true if job was scheduled successfully
+     * Android caps apps at 150 distinct scheduled jobs. We cap at [maxConcurrentJobs] (default 4,
+     * overridden by [setMaxConcurrentJobs]) and queue the rest in [pendingQueue]. Each time a job
+     * finishes (complete / error / cancel / pause) we call [onJobDone] which drains the queue.
+     *
+     * @return true if the job was scheduled or enqueued successfully
      */
     fun scheduleDownload(
         context: Context,
@@ -59,16 +101,40 @@ object UIDTJobManager {
             return false
         }
 
+        // Store headers/resume state immediately so they survive even if this download is queued.
+        UIDTJobRegistry.pendingHeaders[configId] = headers
+        UIDTJobRegistry.saveResumeState(context, configId, headers, startByte)
+
+        synchronized(queueLock) {
+            if (scheduledCount >= maxConcurrentJobs) {
+                pendingQueue.addLast(PendingDownload(context, configId, url, destination, headers, startByte, totalBytes, metadata))
+                RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Queued download for $configId (active=$scheduledCount, max=$maxConcurrentJobs, queued=${pendingQueue.size})")
+                return true
+            }
+            scheduledCount++
+        }
+
+        return doScheduleJob(context, configId, url, destination, headers, startByte, totalBytes, metadata)
+    }
+
+    /**
+     * Actually hand the download off to [JobScheduler]. Must only be called when a slot is free
+     * (i.e. after [scheduledCount] has already been incremented by the caller).
+     */
+    private fun doScheduleJob(
+        context: Context,
+        configId: String,
+        url: String,
+        destination: String,
+        headers: Map<String, String>,
+        startByte: Long,
+        totalBytes: Long,
+        metadata: String
+    ): Boolean {
         val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
 
         // Create unique job ID from config ID
         val jobId = UIDTConstants.JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
-
-        // Store headers for later retrieval (PersistableBundle can't store Map<String, String>)
-        UIDTJobRegistry.pendingHeaders[configId] = headers
-        // Also persist to disk so headers survive process death and are available
-        // in onStartJob even when the process is restarted by the JobScheduler.
-        UIDTJobRegistry.saveResumeState(context, configId, headers, startByte)
 
         // Create extras bundle
         val extras = PersistableBundle().apply {
@@ -110,20 +176,41 @@ object UIDTJobManager {
         } else {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to schedule UIDT job for $configId")
             UIDTJobRegistry.pendingHeaders.remove(configId)
+            synchronized(queueLock) { if (scheduledCount > 0) scheduledCount-- }
+            drainQueue()
         }
 
         return success
     }
 
     /**
-     * Cancel a scheduled UIDT job.
+     * Cancel a scheduled or queued UIDT job.
+     *
+     * If the job is still in [pendingQueue] (not yet handed to JobScheduler) we just remove it
+     * from the queue — no slot was consumed so [scheduledCount] is not touched. If the job was
+     * already scheduled we cancel it via JobScheduler and release the slot via [onJobDone].
      */
     fun cancelJob(context: Context, configId: String) {
         if (!isUIDTAvailable()) return
 
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "cancelJob called for $configId")
 
-        // Get job state before removing (for notification cleanup)
+        // If the download is still in our internal queue (never handed to JobScheduler),
+        // just drop it — no slot was consumed.
+        synchronized(queueLock) {
+            val iter = pendingQueue.iterator()
+            while (iter.hasNext()) {
+                if (iter.next().configId == configId) {
+                    iter.remove()
+                    UIDTJobRegistry.pendingHeaders.remove(configId)
+                    UIDTJobRegistry.clearResumeState(context, configId)
+                    RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Removed queued (unscheduled) download for $configId")
+                    return
+                }
+            }
+        }
+
+        // Job was handed to JobScheduler — cancel it and release the slot.
         val jobState = UIDTJobRegistry.activeJobs[configId]
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "cancelJob: jobState=$jobState")
 
@@ -167,6 +254,9 @@ object UIDTJobManager {
         }
 
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled UIDT job for $configId")
+
+        // Release the slot — this also drains the queue so a waiting download can start.
+        onJobDone(configId)
     }
 
     /**
@@ -207,6 +297,9 @@ object UIDTJobManager {
             if (config.showNotificationsEnabled) {
                 UIDTNotificationManager.showPausedNotification(context, configId, notificationId, progress, groupName, jobState.notificationImageUrl)
             }
+
+            // Release the slot so a waiting download can start.
+            onJobDone(configId)
         }
         return result
     }
