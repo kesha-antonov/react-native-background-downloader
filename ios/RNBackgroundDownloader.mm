@@ -1588,7 +1588,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     NSString *method = options.method() ? options.method() : @"POST";
     NSString *metadata = options.metadata() ? options.metadata() : @"";
     NSDictionary *headers = options.headers() ? (NSDictionary *)options.headers() : nil;
-    NSString *fieldName = options.fieldName() ? options.fieldName() : @"file";
+    NSString *fieldName = options.fieldName() ? options.fieldName() : nil;
     NSString *mimeType = options.mimeType() ? options.mimeType() : nil;
     NSDictionary *parameters = options.parameters() ? (NSDictionary *)options.parameters() : nil;
 
@@ -1610,7 +1610,7 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
     NSString *method = options[@"method"] ?: @"POST";
     NSString *metadata = options[@"metadata"] ?: @"";
     NSDictionary *headers = options[@"headers"];
-    NSString *fieldName = options[@"fieldName"] ?: @"file";
+    NSString *fieldName = options[@"fieldName"];
     NSString *mimeType = options[@"mimeType"];
     NSDictionary *parameters = options[@"parameters"];
 
@@ -1697,8 +1697,9 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
             NSString *filename = [source lastPathComponent];
             NSString *contentType = mimeType ?: @"application/octet-stream";
 
+            NSString *multipartFieldName = fieldName ?: @"file";
             [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-            [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", fieldName, filename] dataUsingEncoding:NSUTF8StringEncoding]];
+            [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", multipartFieldName, filename] dataUsingEncoding:NSUTF8StringEncoding]];
             [body appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", contentType] dataUsingEncoding:NSUTF8StringEncoding]];
 
             NSData *fileData = [NSData dataWithContentsOfFile:source];

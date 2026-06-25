@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **iOS: `upload` without `fieldName` forced multipart even for raw PUT uploads (fix [#167](https://github.com/kesha-antonov/react-native-background-downloader/issues/167)):** iOS defaulted `fieldName` to `@"file"` during option parsing, so `fieldName` was never `nil` and `useMultipart` was always `true` - every upload was wrapped in `multipart/form-data`, even a `PUT` with an explicit `Content-Type` header that intended a raw body upload. iOS now keeps `fieldName` `nil` when the option is omitted (matching Android), only defaulting to `"file"` when actually building the multipart body. A raw file upload now sends the file as-is with the caller's `Content-Type`.
+
 ## v4.5.5
 
 ### 🐛 Bug Fixes
