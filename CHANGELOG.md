@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v4.5.6
 
 ### 🐛 Bug Fixes
 
