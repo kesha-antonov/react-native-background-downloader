@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
+    "postinstall": "node ./scripts/postinstall.js",
     "start": "npx expo start --dev-client --clear",
     "start:android": "npx expo start --android --dev-client --clear",
     "start:ios": "npx expo start --ios --dev-client --clear",

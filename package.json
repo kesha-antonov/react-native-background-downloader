@@ -55,7 +55,7 @@
     "lint": "eslint .",
     "typecheck": "tsc src/*.ts --noEmit --strict --skipLibCheck",
     "build": "rm -rf lib && tsc -p tsconfig.build.json",
-    "prepare": "npm run build",
+    "prepare": "npm run build && npm run build-plugin",
     "prepublishOnly": "npm run build-plugin && npm run build && npm run typecheck && jest && npm run lint",
     "build-plugin": "tsc plugin/src/index.ts --outDir plugin/build --target ES2018 --module commonjs --declaration --esModuleInterop --strict --skipLibCheck",
     "release": "npm publish",
