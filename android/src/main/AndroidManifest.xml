@@ -34,6 +34,21 @@
         <action android:name="com.eko.uidt.ACTION_CANCEL_DOWNLOAD" />
       </intent-filter>
     </receiver>
+
+    <!-- Library-owned FileProvider so tapping the "download complete"
+         notification can open the saved file via the system viewer with no
+         host-app configuration. A dedicated subclass + unique authority avoid
+         manifest-merger / authority collisions with the host app's own
+         FileProvider. -->
+    <provider
+      android:name=".uidt.RNBGDFileProvider"
+      android:authorities="${applicationId}.rnbackgrounddownloader.fileprovider"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/rnbgd_file_paths" />
+    </provider>
   </application>
 
 </manifest>

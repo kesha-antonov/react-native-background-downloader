@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paths the library-owned RNBGDFileProvider can expose via getUriForFile.
+
+  Downloads default to the app's internal files dir (documents == filesDir),
+  but consumers may pass any `destination` under the app's private storage, so
+  every app-scoped root is covered. Names are arbitrary URI path segments and
+  do not need to match the host app's own file_paths.xml.
+
+  Only app-scoped roots are declared — the directories this library writes to.
+  Shared/public storage is deliberately not exposed; a download saved outside
+  these roots falls back to a host-app FileProvider (see resolveContentUri).
+-->
+<paths>
+  <!-- context.getFilesDir() — default download location (documents) -->
+  <files-path name="rnbgd_files" path="." />
+  <!-- context.getCacheDir() -->
+  <cache-path name="rnbgd_cache" path="." />
+  <!-- context.getExternalFilesDir(null) -->
+  <external-files-path name="rnbgd_external_files" path="." />
+  <!-- context.getExternalCacheDir() -->
+  <external-cache-path name="rnbgd_external_cache" path="." />
+</paths>

@@ -77,19 +77,9 @@ const task = createDownloadTask({
 })
 ```
 
-**Tap-to-open (FileProvider):** Tapping the completion notification opens the saved file via a `FileProvider` content URI and the system chooser. The library auto-detects the host app's `FileProvider` authority from its merged manifest — no configuration is required if your app (or one of its dependencies) registers a `FileProvider`. If no `FileProvider` is registered, the notification is still posted, but **without** a tap action (the failure is logged, not thrown). To enable tap-to-open in an app that has no `FileProvider`, register one in your `AndroidManifest.xml`:
+**Tap-to-open (FileProvider):** Tapping the completion notification opens the saved file via a `FileProvider` content URI and the system chooser. This works out of the box with **no configuration** — the library ships its own `FileProvider` (`RNBGDFileProvider`, authority `${applicationId}.rnbackgrounddownloader.fileprovider`) declared in its manifest, covering the app-scoped directories downloads are written to. The unique subclass and authority avoid manifest-merger collisions with any `FileProvider` your app already registers.
 
-```xml
-<provider
-  android:name="androidx.core.content.FileProvider"
-  android:authorities="${applicationId}.provider"
-  android:exported="false"
-  android:grantUriPermissions="true">
-  <meta-data
-    android:name="android.support.FILE_PROVIDER_PATHS"
-    android:resource="@xml/file_provider_paths" />
-</provider>
-```
+If a download is saved to a directory the library's provider does not cover, the library falls back to auto-detecting a host-app `FileProvider` authority from the merged manifest. If neither can serve the file, the notification is still posted, but **without** a tap action (the failure is logged, not thrown).
 
 ### MMKV Dependency
 
