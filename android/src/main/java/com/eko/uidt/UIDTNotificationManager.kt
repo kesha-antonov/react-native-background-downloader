@@ -8,6 +8,7 @@ import android.app.job.JobService
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
@@ -604,14 +605,15 @@ object UIDTNotificationManager {
         val title = config.getText("downloadFinished")
 
         // Build a PendingIntent that lets the user open the saved file with the
-        // system viewer (Files app / Drive / Extract...). The FileProvider
-        // authority is auto-detected from the host app's manifest (see
-        // resolveFileProviderAuthority); if no provider is registered the tap
-        // action is simply omitted and the notification is still posted.
+        // system viewer (Files app / Drive / Extract...). We resolve the file
+        // through the library-owned FileProvider first (declared in this
+        // library's manifest, so it works with no host-app configuration) and
+        // only fall back to auto-detecting a host-app provider if that fails.
+        // If neither produces a URI the tap action is simply omitted and the
+        // notification is still posted.
         val pendingIntent: PendingIntent? = try {
             val file = File(destination)
-            val authority = resolveFileProviderAuthority(context)
-            val uri = FileProvider.getUriForFile(context, authority, file)
+            val uri = resolveContentUri(context, file)
             val mime = URLConnection.guessContentTypeFromName(fileName) ?: "*/*"
             val viewIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, mime)
@@ -645,10 +647,37 @@ object UIDTNotificationManager {
     }
 
     /**
+     * Resolve a content:// URI for [file], preferring this library's own
+     * FileProvider (authority "${packageName}.rnbackgrounddownloader.fileprovider",
+     * declared in the library manifest with [RNBGDFileProvider] +
+     * rnbgd_file_paths.xml) so tap-to-open works with no host-app setup.
+     *
+     * If the file falls outside the library provider's configured roots — e.g.
+     * a consumer downloads to a directory not covered by rnbgd_file_paths.xml —
+     * fall back to auto-detecting a host-app FileProvider authority. Throws if
+     * neither can serve the file; the caller catches and omits the tap action.
+     */
+    private fun resolveContentUri(context: Context, file: File): Uri {
+        val libraryAuthority = "${context.packageName}.rnbackgrounddownloader.fileprovider"
+        return try {
+            FileProvider.getUriForFile(context, libraryAuthority, file)
+        } catch (e: IllegalArgumentException) {
+            // File not under any root declared in rnbgd_file_paths.xml; try a
+            // host-app provider as a secondary path.
+            RNBackgroundDownloaderModuleImpl.logW(
+                UIDTConstants.TAG,
+                "Library FileProvider can't serve $file (${e.message}); trying host-app provider",
+            )
+            val fallbackAuthority = resolveFileProviderAuthority(context)
+            FileProvider.getUriForFile(context, fallbackAuthority, file)
+        }
+    }
+
+    /**
      * Resolve the host app's FileProvider authority at runtime by scanning the
      * providers registered in its manifest, rather than assuming a fixed
-     * "${packageName}.provider". This lets the tap-to-open action work for any
-     * consumer regardless of how their FileProvider is named.
+     * "${packageName}.provider". Used only as a secondary fallback when the
+     * library-owned provider cannot serve a file (see [resolveContentUri]).
      *
      * Preference order: an authority equal to "${packageName}.provider", then
      * any authority owned by this package, then the conventional default as a
@@ -658,6 +687,8 @@ object UIDTNotificationManager {
     private fun resolveFileProviderAuthority(context: Context): String {
         val packageName = context.packageName
         val default = "$packageName.provider"
+        // Skip our own provider — resolveContentUri already tried it.
+        val libraryAuthority = "$packageName.rnbackgrounddownloader.fileprovider"
         return try {
             val flags = PackageManager.GET_PROVIDERS
             val providers = context.packageManager
@@ -666,6 +697,7 @@ object UIDTNotificationManager {
                 ?.filter { it.name == "androidx.core.content.FileProvider" || it.name.endsWith("FileProvider") }
                 ?.mapNotNull { it.authority }
                 ?.flatMap { it.split(';') }
+                ?.filter { it != libraryAuthority }
                 ?: emptyList()
 
             providers.firstOrNull { it == default }
