@@ -6,6 +6,7 @@
   <a href="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader"><img src="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/@kesha-antonov/react-native-background-downloader"><img src="https://img.shields.io/npm/dm/@kesha-antonov/react-native-background-downloader.svg" alt="npm downloads"></a>
   <a href="https://npm-stat.com/charts.html?package=%40kesha-antonov%2Freact-native-background-downloader&from=2015-01-01"><img src="https://img.shields.io/badge/total%20downloads-1.07M-blue.svg" alt="total npm downloads"></a>
+  <a href="https://www.npmjs.com/package/@kesha-antonov/react-native-background-downloader"><img src="https://img.shields.io/npm/dt/@kesha-antonov/react-native-background-downloader.svg?label=18-months%20downloads" alt="npm downloads (last 18 months)"></a>
   <a href="https://github.com/kesha-antonov/react-native-background-downloader/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license"></a>
   <img src="https://img.shields.io/badge/platforms-iOS%20%7C%20Android-lightgrey.svg" alt="platforms">
   <img src="https://img.shields.io/badge/TypeScript-supported-blue.svg" alt="TypeScript">
