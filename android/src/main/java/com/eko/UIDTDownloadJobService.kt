@@ -155,12 +155,14 @@ class UIDTDownloadJobService : JobService() {
         val metadataJson = extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
         var groupId = ""
         var groupName = ""
+        var customTitle = ""
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStartJob: configId=$configId, metadataJson=$metadataJson")
         try {
             val json = JSONObject(metadataJson)
             groupId = json.optString("groupId", "")
             groupName = json.optString("groupName", "")
-            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Parsed metadata: groupId='$groupId', groupName='$groupName'")
+            customTitle = json.optString("notificationTitle", "")
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Parsed metadata: groupId='$groupId', groupName='$groupName', customTitle='$customTitle'")
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to parse metadata: ${e.message}")
         }
@@ -198,7 +200,7 @@ class UIDTDownloadJobService : JobService() {
 
         // Create notification for UIDT job (required)
         val notificationId = UIDTNotificationManager.getNotificationIdForConfig(configId)
-        val notification = UIDTNotificationManager.createDownloadNotification(this, configId, groupId, groupName)
+        val notification = UIDTNotificationManager.createDownloadNotification(this, configId, groupId, groupName, customTitle)
 
         // Set the notification for this job (required for UIDT)
         setNotification(params, notificationId, notification, JOB_END_NOTIFICATION_POLICY_DETACH)
@@ -215,7 +217,7 @@ class UIDTDownloadJobService : JobService() {
         }
 
         // Store job state BEFORE updating summary (so count includes this job)
-        UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName)
+        UIDTJobRegistry.activeJobs[configId] = JobState(params, resumableDownloader, notificationId, groupId, groupName, customTitle)
 
         // Update summary notification if grouping enabled (now includes new job in count)
         UIDTNotificationManager.updateSummaryNotificationForGroup(this, groupId, groupName)
@@ -293,7 +295,7 @@ class UIDTDownloadJobService : JobService() {
                 if (jobState != null) {
                     // Store total bytes for summary progress calculation
                     jobState.bytesTotal = expectedBytes
-                    UIDTNotificationManager.updateProgressNotification(this@UIDTDownloadJobService, jobState, 0, expectedBytes)
+                    UIDTNotificationManager.updateProgressNotification(this@UIDTDownloadJobService, id, jobState, 0, expectedBytes)
                 }
 
                 // Notify external listener
@@ -344,7 +346,7 @@ class UIDTDownloadJobService : JobService() {
                             } else {
                                 // Update individual notification
                                 UIDTNotificationManager.updateProgressNotification(
-                                    this@UIDTDownloadJobService, jobState, bytesDownloaded, bytesTotal
+                                    this@UIDTDownloadJobService, id, jobState, bytesDownloaded, bytesTotal
                                 )
                             }
                         }
@@ -362,6 +364,27 @@ class UIDTDownloadJobService : JobService() {
                 val notificationId = jobState?.notificationId
 
                 RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onComplete: notificationId=$notificationId, jobState groupId=${jobState?.groupId}")
+
+                // Resolve a display name for the completion notification.
+                // Prefer metadata.fileName (set from JS), fall back to the
+                // saved file's basename.
+                val displayName = try {
+                    val metadataStr = params.extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
+                    val metadata = JSONObject(metadataStr)
+                    metadata.optString("fileName", "").ifEmpty { location.substringAfterLast('/') }
+                } catch (e: Exception) {
+                    location.substringAfterLast('/')
+                }
+
+                // Post a standalone "download complete" notification BEFORE
+                // we tear down the UIDT-controlled one so it persists. Tap
+                // opens the saved file via FileProvider (system file viewer).
+                UIDTNotificationManager.showFinishedNotification(
+                    this@UIDTDownloadJobService,
+                    id,
+                    location,
+                    displayName,
+                )
 
                 // Clean up - remove from activeJobs first
                 UIDTJobRegistry.activeJobs.remove(id)

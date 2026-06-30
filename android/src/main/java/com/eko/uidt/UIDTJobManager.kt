@@ -117,9 +117,13 @@ object UIDTJobManager {
 
     /**
      * Cancel a scheduled UIDT job.
+     *
+     * @return `true` if a live (active) job was found and cancelled, `false`
+     * if there was nothing to cancel (e.g. the download already completed).
+     * Callers can use this to avoid dispatching a spurious downloadFailed event.
      */
-    fun cancelJob(context: Context, configId: String) {
-        if (!isUIDTAvailable()) return
+    fun cancelJob(context: Context, configId: String): Boolean {
+        if (!isUIDTAvailable()) return false
 
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "cancelJob called for $configId")
 
@@ -167,6 +171,7 @@ object UIDTJobManager {
         }
 
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled UIDT job for $configId")
+        return jobState != null
     }
 
     /**

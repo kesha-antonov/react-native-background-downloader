@@ -60,6 +60,27 @@ The library uses a Foreground Service for pause/resume functionality. This requi
 - `FOREGROUND_SERVICE` permission (automatically added)
 - Notification displayed during downloads
 
+### Download Notifications (Android 14+)
+
+On Android 14+ (API 34) downloads run as user-initiated data transfers (UIDT) and the library manages a richer notification flow. These features apply only when `showNotificationsEnabled` is `true`:
+
+- **Cancel action** — the in-progress notification shows a **Cancel** button. Tapping it stops the download, removes the notification, and fires the task's `.error()` handler with `errorCode = -1` (`CANCELLED`).
+- **Completion notification** — when a download finishes, a persistent "download complete" notification is posted on its own `IMPORTANCE_DEFAULT` channel (so it surfaces to the user, unlike the silent progress channel). It uses the `downloadFinished` text as its title.
+- **Per-download title** — pass `metadata.notificationTitle` when creating a task to override the notification title for that download. Precedence: `notificationTitle` → `groupName` (when grouping is enabled) → the default `downloadTitle` text.
+
+```javascript
+const task = createDownloadTask({
+  id: 'file123',
+  url: 'https://example.com/file.mp3',
+  destination: `${directories.documents}/file.mp3`,
+  metadata: { notificationTitle: 'My Custom Title' },
+})
+```
+
+**Tap-to-open (FileProvider):** Tapping the completion notification opens the saved file via a `FileProvider` content URI and the system chooser. This works out of the box with **no configuration** — the library ships its own `FileProvider` (`RNBGDFileProvider`, authority `${applicationId}.rnbackgrounddownloader.fileprovider`) declared in its manifest, covering the app-scoped directories downloads are written to. The unique subclass and authority avoid manifest-merger collisions with any `FileProvider` your app already registers.
+
+If a download is saved to a directory the library's provider does not cover, the library falls back to auto-detecting a host-app `FileProvider` authority from the merged manifest. If neither can serve the file, the notification is still posted, but **without** a tap action (the failure is logged, not thrown).
+
 ### MMKV Dependency
 
 Android uses MMKV for persistent state storage. This is required for:

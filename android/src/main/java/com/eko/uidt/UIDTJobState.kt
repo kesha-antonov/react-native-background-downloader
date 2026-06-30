@@ -16,6 +16,9 @@ data class JobState(
     var notificationId: Int,
     val groupId: String = "",
     val groupName: String = "",
+    // Optional per-download notification title (read from metadata.notificationTitle).
+    // When non-empty, overrides both groupName and the config's default downloadTitle.
+    val customTitle: String = "",
     var lastNotifiedProgress: Int = -1,
     var lastNotificationUpdateTime: Long = 0,
     // Track download progress for summary notification
@@ -103,6 +106,11 @@ object UIDTConstants {
     // Notification channel for UIDT jobs (ultra-silent for summaryOnly mode)
     const val NOTIFICATION_CHANNEL_ULTRA_SILENT_ID = "uidt_download_channel_ultra_silent"
 
+    // Notification channel for the one-shot "download complete" notification.
+    // Uses IMPORTANCE_DEFAULT so completion is actually surfaced to the user
+    // (the progress channel is IMPORTANCE_LOW and never alerts).
+    const val NOTIFICATION_CHANNEL_FINISHED_ID = "uidt_download_channel_finished"
+
     // Notification group for grouping all download notifications together
     const val NOTIFICATION_GROUP_KEY = "com.eko.DOWNLOAD_GROUP"
 
@@ -111,6 +119,12 @@ object UIDTConstants {
 
     // Base for individual notification IDs
     const val NOTIFICATION_ID_BASE = 20000
+
+    // Base for one-shot "download complete" notification IDs. Kept in a
+    // disjoint range from NOTIFICATION_ID_BASE (which spans 20000..119999 via
+    // hash % 100000) so a finished notification can never collide with another
+    // download's in-progress notification.
+    const val FINISHED_NOTIFICATION_ID_BASE = 200000
 }
 
 /**
