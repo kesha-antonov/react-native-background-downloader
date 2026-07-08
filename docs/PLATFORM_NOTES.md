@@ -60,15 +60,6 @@ The library uses a Foreground Service for pause/resume functionality. This requi
 - `FOREGROUND_SERVICE` permission (automatically added)
 - Notification displayed during downloads
 
-### MMKV Dependency
-
-Android uses MMKV for persistent state storage. This is required for:
-- Tracking download progress across app restarts
-- Storing download metadata
-- Managing pause/resume state
-
-If you're using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, you don't need to add MMKV separately.
-
 ### Handling Redirects
 
 Android's DownloadManager has a built-in redirect limit. If you're downloading from URLs with many redirects (common with podcast URLs, tracking services, CDNs), use the `maxRedirects` option:
@@ -114,7 +105,6 @@ If you encounter `TypeToken` errors in release builds, add the following to your
 -keepattributes Signature
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
--keep class com.tencent.mmkv.** { *; }
 ```
 
 ---
@@ -127,14 +117,6 @@ This can happen with slow-responding servers. Try:
 - Enable debug logs to see what's happening: `setConfig({ isLogsEnabled: true })`
 - Check if the server supports the download URL
 - Increase timeout by setting custom headers
-
-### Duplicate class errors with react-native-mmkv (Android)
-
-If you're using `react-native-mmkv`, you don't need to add the MMKV dependency manually - it's already included. The library uses `compileOnly` to avoid conflicts.
-
-### EXC_BAD_ACCESS crash on iOS with react-native-mmkv
-
-This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
 
 ### Downloads not resuming after app restart
 

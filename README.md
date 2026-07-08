@@ -40,7 +40,7 @@
 
 **The Solution:** Both iOS and Android provide system-level APIs for background file transfers:
 - **iOS:** [`NSURLSession`](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background) - handles downloads in a separate process, continuing even after your app is terminated by the OS. Note: if the user explicitly force-kills the app via the App Switcher, iOS cancels all background tasks — this is an iOS system limitation that cannot be overridden
-- **Android:** A combination of [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) for system-managed downloads, [Foreground Services](https://developer.android.com/develop/background-work/services/foreground-services) for pause/resume support, and [MMKV](https://github.com/Tencent/MMKV) for persistent state storage
+- **Android:** A combination of [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) for system-managed downloads, [Foreground Services](https://developer.android.com/develop/background-work/services/foreground-services) for pause/resume support, and `SharedPreferences` for persistent state storage
 
 **The Challenge:** These APIs are powerful but complex. Downloads run in a separate process, so your app might restart from scratch while downloads are still in progress. Keeping your UI in sync with background downloads requires careful state management.
 
@@ -55,7 +55,6 @@
 - [📦 Installation](#-installation)
   - [Expo Projects](#expo-projects)
   - [Bare React Native Projects](#bare-react-native-projects)
-    - [MMKV version comparison](#mmkv-version-comparison)
 - [🚀 Usage](#-usage)
   - [Downloading a file](#downloading-a-file)
   - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
@@ -107,30 +106,6 @@ npx expo install @kesha-antonov/react-native-background-downloader
 }
 ```
 
-<details>
-<summary><strong>Plugin Options (optional)</strong></summary>
-
-```js
-// app.config.js
-export default {
-  expo: {
-    plugins: [
-      ["@kesha-antonov/react-native-background-downloader", {
-        mmkvVersion: "1.3.16",  // Customize MMKV version on Android
-        skipMmkvDependency: true  // Skip if you want to add MMKV manually
-      }]
-    ]
-  }
-}
-```
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `mmkvVersion` | string | `'1.3.16'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. See [MMKV version comparison](#mmkv-version-comparison) for details. |
-| `skipMmkvDependency` | boolean | `false` | Skip adding MMKV dependency. Set to `true` if you're using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) to avoid duplicate class errors. The plugin auto-detects `react-native-mmkv` but you can use this option to explicitly skip. See [MMKV version comparison](#mmkv-version-comparison). |
-
-</details>
-
 **Step 3:** Rebuild your app
 
 ```bash
@@ -140,7 +115,6 @@ npx expo run:ios   # or npx expo run:android
 
 The plugin automatically handles:
 - **iOS:** Adding the required `handleEventsForBackgroundURLSession` method to AppDelegate
-- **Android:** Adding the required MMKV dependency
 
 ---
 
@@ -210,36 +184,6 @@ In your `AppDelegate.m`:
 ```
 
 </details>
-
-**Step 4:** Configure Android MMKV dependency
-
-Add MMKV to your `android/app/build.gradle`:
-
-```gradle
-dependencies {
-    implementation 'com.tencent:mmkv-shared:1.3.16'
-}
-```
-
-> **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, skip this step — it already includes MMKV. Note that `react-native-mmkv` v4.x uses [Margelo's fork of MMKV](https://github.com/margelo/MMKV) (`io.github.zhongwuzw:mmkv`) which re-adds armeabi-v7a (32-bit ARM) support that was dropped in the official MMKV 2.x release.
-
-> **⚠️ armeabi-v7a (32-bit ARM) users:** MMKV 2.x dropped 32-bit ABI support (since v2.0.0). If you need armeabi-v7a support and get a CMake error like `No compatible library found for //mmkv/mmkv`, use the MMKV 1.3.x LTS series instead — it supports both armeabi-v7a **and** 16KB page sizes (since v1.3.14):
-> ```gradle
-> dependencies {
->     implementation 'com.tencent:mmkv-shared:1.3.16'
-> }
-> ```
-
-#### MMKV version comparison
-
-| Dependency | armeabi-v7a (32-bit) | arm64-v8a | 16KB page size | Recommended for |
-|---|:---:|:---:|:---:|---|
-| `com.tencent:mmkv-shared:1.3.16` (**default**) | ✅ | ✅ | ✅ (since 1.3.14) | Most apps — broadest device coverage |
-| `com.tencent:mmkv-shared:2.x` | ❌ | ✅ | ✅ | 64-bit only apps (no legacy devices) |
-| `io.github.zhongwuzw:mmkv:2.3.0` ([Margelo fork](https://github.com/margelo/MMKV)) | ✅ | ✅ | ✅ | Used automatically by `react-native-mmkv` v4.x — skip manual dependency |
-| `react-native-mmkv` (already in project) | ✅ | ✅ | ✅ | If you already use `react-native-mmkv` — skip Step 4 entirely |
-
-**TL;DR:** Use the default `1.3.16`. If you already have `react-native-mmkv` in your project, skip Step 4.
 
 ## 🚀 Usage
 
@@ -872,7 +816,7 @@ For detailed platform-specific information, see **[Platform Notes](./docs/PLATFO
 
 Key points:
 - **iOS**: Uses `NSURLSession` for true background downloads
-- **Android**: Uses `DownloadManager` + Foreground Services + MMKV
+- **Android**: Uses `DownloadManager` + Foreground Services + SharedPreferences
 - **Pause/Resume**: Works on both platforms (Android requires server Range header support)
 
 ## ❓ Troubleshooting
@@ -884,20 +828,6 @@ This can happen with slow-responding servers. The library automatically adds kee
 - Increase timeout by setting custom headers
 - Check if the server supports the download URL
 - Enable debug logs to see what's happening: `setConfig({ isLogsEnabled: true })`
-</details>
-
-<details>
-<summary><strong>Duplicate class errors with react-native-mmkv (Android)</strong></summary>
-
-If you're using `react-native-mmkv`, you don't need to add the MMKV dependency manually - it's already included. The library uses `compileOnly` to avoid conflicts.
-
-`react-native-mmkv` v4.x uses [Margelo's fork of MMKV](https://github.com/margelo/MMKV) (`io.github.zhongwuzw:mmkv`) which re-adds armeabi-v7a (32-bit ARM) support, so you have full ABI coverage including 32-bit devices when using `react-native-mmkv`.
-</details>
-
-<details>
-<summary><strong>EXC_BAD_ACCESS crash on iOS with react-native-mmkv</strong></summary>
-
-This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
 </details>
 
 <details>
