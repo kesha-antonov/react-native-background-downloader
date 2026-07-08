@@ -1,6 +1,6 @@
 # Platform Notes
 
-Platform-specific information, requirements, and troubleshooting for `@kesha-antonov/react-native-background-downloader`.
+Platform-specific information, requirements, and troubleshooting for `@fivecar/react-native-background-downloader`.
 
 ## Table of Contents
 

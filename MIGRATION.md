@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide helps you upgrade between major versions of `@kesha-antonov/react-native-background-downloader`.
+This guide helps you upgrade between major versions of `@fivecar/react-native-background-downloader`.
 
 ## Table of Contents
 
@@ -279,7 +279,7 @@ The internal source structure changed from `lib/` to `src/`, but the public API 
 
 ```javascript
 // No changes needed - imports work the same way
-import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader'
+import RNBackgroundDownloader from '@fivecar/react-native-background-downloader'
 
 // Or named imports
 import {
@@ -287,7 +287,7 @@ import {
   createDownloadTask,
   getExistingDownloadTasks,
   directories
-} from '@kesha-antonov/react-native-background-downloader'
+} from '@fivecar/react-native-background-downloader'
 ```
 
 ### 2. Rename API Methods
@@ -461,7 +461,7 @@ import RNBackgroundDownloader, {
   ProgressHandlerParams,
   DoneHandlerParams,
   ErrorHandlerParams,
-} from '@kesha-antonov/react-native-background-downloader'
+} from '@fivecar/react-native-background-downloader'
 
 const task: DownloadTask = createDownloadTask({
   id: 'typed-download',
@@ -497,7 +497,7 @@ v4.0.0 includes an Expo config plugin for automatic iOS setup.
 {
   "expo": {
     "plugins": [
-      "@kesha-antonov/react-native-background-downloader"
+      "@fivecar/react-native-background-downloader"
     ]
   }
 }
@@ -536,5 +536,5 @@ npx expo run:android
 
 If you encounter issues during migration, please:
 1. Check the [README](./README.md) for updated documentation
-2. Search [existing issues](https://github.com/kesha-antonov/react-native-background-downloader/issues)
+2. Search [existing issues](https://github.com/fivecar/react-native-background-downloader/issues)
 3. Open a new issue with details about your setup

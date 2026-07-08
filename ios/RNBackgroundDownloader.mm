@@ -450,7 +450,7 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
     // background queue, and on the new architecture the TurboModule bridge would
     // convert an escaping exception into a JS error via Hermes JSI on this thread
     // (not the JS thread). Hermes is not thread-safe, so that crashes with SIGSEGV.
-    // See https://github.com/kesha-antonov/react-native-background-downloader/issues/161
+    // See https://github.com/fivecar/react-native-background-downloader/issues/161
     @try {
         @synchronized (sharedLock) {
             if (max >= 1) {
@@ -650,7 +650,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 //    been invalidated"
 // In that case we recreate the background session and retry once.
 // Must be called while holding sharedLock.
-// See https://github.com/kesha-antonov/react-native-background-downloader/issues/157
+// See https://github.com/fivecar/react-native-background-downloader/issues/157
 - (NSURLSessionDownloadTask *)createDownloadTaskWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier {
     @try {
         return [urlSession downloadTaskWithRequest:request];
@@ -2095,7 +2095,7 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
 // Maps the JS data-protection key to an NSFileProtection* constant.
 // nil / unknown -> NSFileProtectionCompleteUntilFirstUserAuthentication, which lets a
 // background download save its file even while the device is locked (after first unlock).
-// See https://github.com/kesha-antonov/react-native-background-downloader/issues/101
+// See https://github.com/fivecar/react-native-background-downloader/issues/101
 - (NSString *)nsFileProtectionFromKey:(NSString *)key {
     if ([key isEqualToString:@"complete"]) return NSFileProtectionComplete;
     if ([key isEqualToString:@"completeUnlessOpen"]) return NSFileProtectionCompleteUnlessOpen;

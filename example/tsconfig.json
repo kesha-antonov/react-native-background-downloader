@@ -7,7 +7,7 @@
     "jsx": "react-native",
     "baseUrl": ".",
     "paths": {
-      "@kesha-antonov/react-native-background-downloader": ["../src/index"]
+      "@fivecar/react-native-background-downloader": ["../src/index"]
     }
   },
   "include": [

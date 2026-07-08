@@ -52,7 +52,7 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
 
   if (!RNBackgroundDownloader)
     throw new Error(
-      'The package \'@kesha-antonov/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
+      'The package \'@fivecar/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
       Platform.select({ ios: '- You have run \'pod install\'\n', default: '' }) +
       '- You rebuilt the app after installing the package\n' +
       '- You are not using Expo Go\n'

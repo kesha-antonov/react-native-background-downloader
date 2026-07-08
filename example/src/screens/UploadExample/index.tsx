@@ -7,8 +7,8 @@ import {
   createUploadTask,
   setConfig,
   directories,
-} from '@kesha-antonov/react-native-background-downloader'
-import type { UploadTask } from '@kesha-antonov/react-native-background-downloader'
+} from '@fivecar/react-native-background-downloader'
+import type { UploadTask } from '@fivecar/react-native-background-downloader'
 import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

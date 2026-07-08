@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API documentation for `@kesha-antonov/react-native-background-downloader`.
+Complete API documentation for `@fivecar/react-native-background-downloader`.
 
 ## Table of Contents
 
@@ -51,7 +51,7 @@ import {
   getExistingUploadTasks,
   completeHandler,
   directories
-} from '@kesha-antonov/react-native-background-downloader'
+} from '@fivecar/react-native-background-downloader'
 ```
 
 ---
@@ -169,7 +169,7 @@ Sets global configuration for the downloader.
 ### Example
 
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@fivecar/react-native-background-downloader'
 
 // Configure parallel downloads (iOS only) and cellular access
 setConfig({
@@ -348,7 +348,7 @@ A class representing an upload task created by `createUploadTask()`.
 An absolute path to the app's documents directory. It is recommended that you use this path as the target of downloaded files.
 
 ```javascript
-import { directories } from '@kesha-antonov/react-native-background-downloader'
+import { directories } from '@fivecar/react-native-background-downloader'
 
 const destination = `${directories.documents}/my-file.zip`
 ```

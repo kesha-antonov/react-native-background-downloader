@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
-    "@kesha-antonov/react-native-background-downloader": "link:..",
+    "@fivecar/react-native-background-downloader": "link:..",
     "@react-navigation/native": "^7.1.22",
     "@react-navigation/stack": "^7.6.8",
     "expo": "~54.0.25",

@@ -17,7 +17,7 @@ config.resolver.nodeModulesPaths = [
 
 // Extra node_modules to look for
 config.resolver.extraNodeModules = {
-  '@kesha-antonov/react-native-background-downloader': libraryRoot,
+  '@fivecar/react-native-background-downloader': libraryRoot,
 }
 
 // Exclude react-native from the library root to avoid duplicate module issues

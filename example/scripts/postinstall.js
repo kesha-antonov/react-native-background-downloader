@@ -7,7 +7,7 @@
  *  1. Yarn Berry does not materialize the `link:..` dependency, because the link
  *     target (the repo root) is an ANCESTOR of the example directory. Yarn
  *     resolves it (linkType: soft) but never creates the symlink, so
- *     node_modules/@kesha-antonov/react-native-background-downloader is missing
+ *     node_modules/@fivecar/react-native-background-downloader is missing
  *     and both Metro and Expo autolinking fail to find the library. We create
  *     that symlink here.
  *
@@ -24,7 +24,7 @@ const { execSync } = require('child_process')
 
 const exampleDir = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(exampleDir, '..')
-const PKG = '@kesha-antonov/react-native-background-downloader'
+const PKG = '@fivecar/react-native-background-downloader'
 
 function ensureLibSymlink () {
   const linkPath = path.join(exampleDir, 'node_modules', PKG)

@@ -13,7 +13,7 @@ Pod::Spec.new do |s|
   s.license      = package['license']
   s.platform     = :ios, '15.1'
   s.author       = package['author']
-  s.source       = { git: 'https://github.com/kesha-antonov/react-native-background-downloader.git', tag: 'main' }
+  s.source       = { git: 'https://github.com/fivecar/react-native-background-downloader.git', tag: 'main' }
 
   s.source_files = 'ios/**/*.{h,m,mm,swift}'
   # React Native Core dependency

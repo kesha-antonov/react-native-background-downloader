@@ -38,7 +38,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "@kesha-antonov/react-native-background-downloader"
+      "@fivecar/react-native-background-downloader"
     ]
   }
 }
