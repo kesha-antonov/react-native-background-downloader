@@ -121,3 +121,35 @@ storage. New storage starts empty on both platforms.
 
 None — this design covers the library (Android + iOS + Expo plugin), its tests,
 its docs, and the example app.
+
+## Package rename (bundled into this branch)
+
+Alongside the MMKV removal, rescope the npm package from
+`@kesha-antonov/react-native-background-downloader` to
+`@fivecar/react-native-background-downloader`, since this fork is now
+maintained independently.
+
+- **`package.json`**: `name` → `@fivecar/react-native-background-downloader`;
+  `repository.url` → `git+https://github.com/fivecar/react-native-background-downloader.git`;
+  `homepage` → `https://github.com/fivecar/react-native-background-downloader`;
+  add `bugs.url` → `https://github.com/fivecar/react-native-background-downloader/issues`.
+  `author` is already `{ "name": "Philip Su", "email": "39933441+fivecar@users.noreply.github.com" }`
+  — leave as is. Keep the existing `contributors` entry crediting
+  Kesha Antonov / Elad Gil for the original work.
+- **`plugin/package.json`**: `name` → `@fivecar/react-native-background-downloader-expo-plugin`.
+- **`react-native-background-downloader.podspec`**: `s.source` git URL →
+  `https://github.com/fivecar/react-native-background-downloader.git`; update
+  the issue-tracker URL comment similarly.
+- **All package-name references** across `README.md`, `MIGRATION.md`,
+  `docs/API.md`, `docs/PLATFORM_NOTES.md`, `example/app.json`,
+  `example/package.json`, `example/tsconfig.json`: replace every
+  `@kesha-antonov/react-native-background-downloader` occurrence (import
+  statements, `npm install`/`yarn add`/`npx expo install` commands, Expo plugin
+  config array entries, prose) with `@fivecar/react-native-background-downloader`.
+  Includes the README npm badges (`badge.fury.io`, `npmjs.com`, `npm-stat.com`
+  URLs), which will read zero/no-data until this scope is published — expected
+  for a freshly re-scoped package.
+- **Not touched**: `CHANGELOG.md` (historical record of past releases under the
+  old name — do not rewrite history), and the README "Maintained by Kesha
+  Antonov" / sponsor-link attribution line (original-author credit, orthogonal
+  to the package-name/repo-metadata rename).
