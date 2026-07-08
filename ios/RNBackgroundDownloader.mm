@@ -1,7 +1,7 @@
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
 #import "RNBGDUploadTaskConfig.h"
-#import <MMKV/MMKV.h>
+#import "RNBGDStorage.h"
 #import <React/RCTBridge.h>
 
 #ifdef RCT_NEW_ARCH_ENABLED
@@ -43,7 +43,7 @@ static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for com
 static CompletionHandler storedCompletionHandler;
 
 @implementation RNBackgroundDownloader {
-    MMKV *mmkv;
+    RNBGDStorage *storage;
     NSURLSession *urlSession;
     NSURLSessionConfiguration *sessionConfig;
     NSNumber *sharedLock;
@@ -211,8 +211,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     self = [super initWithDisabledObservation];
 #endif
     if (self) {
-        [MMKV initializeMMKV:nil];
-        mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
+        storage = [RNBGDStorage storageWithID:@"RNBackgroundDownloader"];
 
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
@@ -228,7 +227,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
         sharedLock = [NSNumber numberWithInt:1];
 
-        NSData *taskToConfigMapData = [mmkv getDataForKey:ID_TO_CONFIG_MAP_KEY];
+        NSData *taskToConfigMapData = [storage getDataForKey:ID_TO_CONFIG_MAP_KEY];
         NSMutableDictionary *taskToConfigMapDataDefault = [[NSMutableDictionary alloc] init];
         NSMutableDictionary *taskToConfigMapDataDecoded = taskToConfigMapData != nil ? [self deserialize:taskToConfigMapData] : nil;
         taskToConfigMap = taskToConfigMapDataDecoded != nil ? taskToConfigMapDataDecoded : taskToConfigMapDataDefault;
@@ -239,9 +238,9 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
         progressReports = [[NSMutableDictionary alloc] init];
         idToLastBytesMap = [[NSMutableDictionary alloc] init];
-        float progressIntervalScope = [mmkv getFloatForKey:PROGRESS_INTERVAL_KEY];
+        float progressIntervalScope = [storage getFloatForKey:PROGRESS_INTERVAL_KEY];
         progressInterval = isnan(progressIntervalScope) ? 1.0 : progressIntervalScope;
-        int64_t progressMinBytesScope = [mmkv getInt64ForKey:PROGRESS_MIN_BYTES_KEY];
+        int64_t progressMinBytesScope = [storage getInt64ForKey:PROGRESS_MIN_BYTES_KEY];
         progressMinBytes = progressMinBytesScope > 0 ? progressMinBytesScope : 0;
         lastProgressReportedAt = [[NSDate alloc] init];
         decodeErrorRetriedIds = [[NSMutableSet alloc] init];
@@ -250,7 +249,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         pendingDownloads = [[NSMutableArray alloc] init];
 
         // Restore any downloads whose file move was deferred because the device was locked
-        NSData *pendingMovesData = [mmkv getDataForKey:PENDING_MOVES_MAP_KEY];
+        NSData *pendingMovesData = [storage getDataForKey:PENDING_MOVES_MAP_KEY];
         NSMutableDictionary *pendingMovesDecoded = pendingMovesData != nil ? [self deserializePendingMoves:pendingMovesData] : nil;
         pendingMoves = pendingMovesDecoded != nil ? pendingMovesDecoded : [[NSMutableDictionary alloc] init];
 
@@ -259,7 +258,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 #endif
 
         // Initialize upload-specific data structures
-        NSData *uploadTaskToConfigMapData = [mmkv getDataForKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
+        NSData *uploadTaskToConfigMapData = [storage getDataForKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
         NSMutableDictionary *uploadTaskToConfigMapDataDefault = [[NSMutableDictionary alloc] init];
         NSMutableDictionary *uploadTaskToConfigMapDataDecoded = uploadTaskToConfigMapData != nil ? [self deserializeUploadConfig:uploadTaskToConfigMapData] : nil;
         uploadTaskToConfigMap = uploadTaskToConfigMapDataDecoded != nil ? uploadTaskToConfigMapDataDecoded : uploadTaskToConfigMapDataDefault;
@@ -416,7 +415,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [removeTaskFromMap]");
 
         [taskToConfigMap removeObjectForKey:taskId];
-        [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+        [storage setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         if (taskConfig) {
             [self -> idToTaskMap removeObjectForKey:taskConfig.id];
@@ -519,12 +518,12 @@ RCT_EXPORT_METHOD(setAllowsCellularAccess:(BOOL)allows) {
 
     if (options.progressInterval().has_value()) {
         progressInterval = options.progressInterval().value() / 1000.0;
-        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+        [storage setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
 
     if (options.progressMinBytes().has_value()) {
         progressMinBytes = (int64_t)options.progressMinBytes().value();
-        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+        [storage setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
 
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
@@ -541,13 +540,13 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     NSNumber *progressIntervalScope = options[@"progressInterval"];
     if (progressIntervalScope) {
         progressInterval = [progressIntervalScope intValue] / 1000.0;
-        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+        [storage setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
 
     NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
     if (progressMinBytesScope) {
         progressMinBytes = [progressMinBytesScope longLongValue];
-        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+        [storage setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
 
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
@@ -632,7 +631,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         taskConfig.dataProtection = dataProtection;
 
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
-        [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+        [storage setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
 
         self->idToTaskMap[identifier] = task;
         idToPercentMap[identifier] = @0.0;
@@ -693,12 +692,12 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
                             // Save resume data to file and update task config with hasResumeData flag
                             RNBGDTaskConfig *taskConfig = self->taskToConfigMap[@(task.taskIdentifier)];
                             if (taskConfig) {
-                                // Save resume data to file instead of storing in MMKV
+                                // Save resume data to file instead of storing in persistent storage
                                 [self saveResumeData:resumeData forTaskId:identifier];
                                 taskConfig.hasResumeData = YES;
                                 taskConfig.state = NSURLSessionTaskStateCanceling;
                                 taskConfig.errorCode = -999;
-                                [self->mmkv setData:[self serialize:self->taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                                [self->storage setData:[self serialize:self->taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
                                 DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask] persisted resume data to file for %@", identifier);
                             }
                         } else {
@@ -803,7 +802,7 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                         taskConfig.errorCode = 0;
                         taskConfig.hasResumeData = NO; // Clear flag after resuming
                         taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
-                        [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                        [storage setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
                     }
 
                     self->idToTaskMap[identifier] = newTask;
@@ -858,7 +857,7 @@ RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)res
                     NSNumber *key = [self findTaskKeyById:identifier];
                     if (key != nil) {
                         [taskToConfigMap removeObjectForKey:key];
-                        [mmkv setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                        [storage setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
                     }
                 }
             }
@@ -1140,7 +1139,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             } else {
                 // Resume data file doesn't exist, clear the flag
                 taskConfig.hasResumeData = NO;
-                [mmkv setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                [storage setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
                 DLog(taskConfig.id, @"[RNBackgroundDownloader] - [addPausedTasksToResults] resume data file not found for task: %@", taskConfig.id);
             }
         }
@@ -1526,7 +1525,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
                 taskConfig.bytesDownloaded = 0;
                 taskConfig.bytesTotal = 0;
                 taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
-                [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                [storage setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
                 idToTaskMap[taskConfig.id] = newTask;
                 idToPercentMap[taskConfig.id] = @0.0;
                 idToLastBytesMap[taskConfig.id] = @0;
@@ -1569,7 +1568,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [removeUploadTaskFromMap]");
 
         [uploadTaskToConfigMap removeObjectForKey:taskId];
-        [mmkv setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
+        [storage setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
 
         if (taskConfig) {
             [idToUploadTaskMap removeObjectForKey:taskConfig.id];
@@ -1594,12 +1593,12 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
     if (options.progressInterval().has_value()) {
         progressInterval = options.progressInterval().value() / 1000.0;
-        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+        [storage setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
 
     if (options.progressMinBytes().has_value()) {
         progressMinBytes = (int64_t)options.progressMinBytes().value();
-        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+        [storage setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
 #else
 RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
@@ -1617,13 +1616,13 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
     NSNumber *progressIntervalScope = options[@"progressInterval"];
     if (progressIntervalScope) {
         progressInterval = [progressIntervalScope intValue] / 1000.0;
-        [mmkv setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
+        [storage setFloat:progressInterval forKey:PROGRESS_INTERVAL_KEY];
     }
 
     NSNumber *progressMinBytesScope = options[@"progressMinBytes"];
     if (progressMinBytesScope) {
         progressMinBytes = [progressMinBytesScope longLongValue];
-        [mmkv setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
+        [storage setInt64:progressMinBytes forKey:PROGRESS_MIN_BYTES_KEY];
     }
 #endif
 
@@ -1730,7 +1729,7 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
         }
 
         uploadTaskToConfigMap[@(uploadTask.taskIdentifier)] = taskConfig;
-        [mmkv setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
+        [storage setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
 
         idToUploadTaskMap[identifier] = uploadTask;
         idToUploadPercentMap[identifier] = @0.0;
@@ -2280,7 +2279,7 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
         DLog(nil, @"[RNBackgroundDownloader] - [persistPendingMoves] serialization error: %@", error);
         return;
     }
-    [mmkv setData:data forKey:PENDING_MOVES_MAP_KEY];
+    [storage setData:data forKey:PENDING_MOVES_MAP_KEY];
 }
 
 - (NSMutableDictionary *)deserializePendingMoves:(NSData *)data {
