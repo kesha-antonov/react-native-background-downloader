@@ -14,12 +14,12 @@ import type { DownloadTask } from '@kesha-antonov/react-native-background-downlo
 import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { createMMKV } from 'react-native-mmkv'
+import { Storage } from 'expo-sqlite/kv-store'
 
 const DOWNLOADS_SUBDIR = 'downloads'
 
 // Storage helper for persisting task IDs between app restarts
-const storage = createMMKV({ id: 'download-example-storage' })
+const storage = Storage
 const TASK_IDS_KEY = 'taskIds'
 const SHOW_NOTIFICATIONS_KEY = 'showNotificationsEnabled'
 const NOTIFICATION_GROUPING_KEY = 'notificationGroupingEnabled'
@@ -28,7 +28,7 @@ const SUMMARY_ONLY_MODE_KEY = 'summaryOnlyMode'
 const TaskIdStorage = {
   load: (): Record<string, string> => {
     try {
-      const json = storage.getString(TASK_IDS_KEY)
+      const json = storage.getItemSync(TASK_IDS_KEY)
       return json ? JSON.parse(json) : {}
     } catch (e) {
       console.warn('Failed to load persisted task IDs:', e)
@@ -37,7 +37,7 @@ const TaskIdStorage = {
   },
 
   save: (mapping: Record<string, string>) => {
-    storage.set(TASK_IDS_KEY, JSON.stringify(mapping))
+    storage.setItemSync(TASK_IDS_KEY, JSON.stringify(mapping))
   },
 
   getOrCreate: (url: string): string => {
@@ -57,7 +57,7 @@ const TaskIdStorage = {
   },
 
   clearAll: () => {
-    storage.remove(TASK_IDS_KEY)
+    storage.removeItemSync(TASK_IDS_KEY)
   },
 }
 
@@ -432,19 +432,19 @@ const BasicExampleScreen = () => {
   const [destinations, setDestinations] = useState<Map<string, string>>(new Map())
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([])
   const [notificationGroupingEnabled, setNotificationGroupingEnabled] = useState(() => {
-    return storage.getBoolean(NOTIFICATION_GROUPING_KEY) ?? false
+    return storage.getItemSync(NOTIFICATION_GROUPING_KEY) === 'true'
   })
   const [showNotificationsEnabled, setShowNotificationsEnabled] = useState(() => {
-    return storage.getBoolean(SHOW_NOTIFICATIONS_KEY) ?? false
+    return storage.getItemSync(SHOW_NOTIFICATIONS_KEY) === 'true'
   })
   const [summaryOnlyMode, setSummaryOnlyMode] = useState(() => {
-    return storage.getBoolean(SUMMARY_ONLY_MODE_KEY) ?? false
+    return storage.getItemSync(SUMMARY_ONLY_MODE_KEY) === 'true'
   })
 
   // Handle notification grouping toggle with persistence
   const handleNotificationGroupingChange = useCallback((enabled: boolean) => {
     setNotificationGroupingEnabled(enabled)
-    storage.set(NOTIFICATION_GROUPING_KEY, enabled)
+    storage.setItemSync(NOTIFICATION_GROUPING_KEY, String(enabled))
     // Apply to native immediately via setConfig
     setConfig({
       notificationsGrouping: {
@@ -466,7 +466,7 @@ const BasicExampleScreen = () => {
   // Handle summaryOnly mode toggle with persistence
   const handleSummaryOnlyModeChange = useCallback((enabled: boolean) => {
     setSummaryOnlyMode(enabled)
-    storage.set(SUMMARY_ONLY_MODE_KEY, enabled)
+    storage.setItemSync(SUMMARY_ONLY_MODE_KEY, String(enabled))
     // Apply to native immediately via setConfig
     setConfig({
       notificationsGrouping: {
@@ -543,7 +543,7 @@ const BasicExampleScreen = () => {
       }
     }
     setShowNotificationsEnabled(show)
-    storage.set(SHOW_NOTIFICATIONS_KEY, show)
+    storage.setItemSync(SHOW_NOTIFICATIONS_KEY, String(show))
     // Apply to native immediately via setConfig
     setConfig({
       notificationsGrouping: {
@@ -882,7 +882,7 @@ const BasicExampleScreen = () => {
   }, [notificationGroupingEnabled, showNotificationsEnabled, summaryOnlyMode])
 
   useEffect(() => {
-    // Initialize URL list with persisted IDs after mount (when MMKV is ready)
+    // Initialize URL list with persisted IDs after mount
     const initializedUrlList = urlDefinitions.map(def => ({
       id: TaskIdStorage.getOrCreate(def.url),
       ...def,
