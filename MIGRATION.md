@@ -6,6 +6,11 @@ This guide helps you upgrade between major versions of `@kesha-antonov/react-nat
 
 - [Migration Guide](#migration-guide)
   - [Table of Contents](#table-of-contents)
+- [Migration Guide: v4.5.x → v5.0.0](#migration-guide-v45x--v500)
+  - [MMKV Removed](#mmkv-removed)
+    - [Before (v4.5.x)](#before-v45x)
+    - [After (v5.0.0)](#after-v500)
+    - [Why This Change?](#why-this-change-4)
 - [Migration Guide: v4.1.x → v4.2.0](#migration-guide-v41x--v420)
   - [Android Pause/Resume Now Supported](#android-pauseresume-now-supported)
     - [Before (v4.1.x)](#before-v41x)
@@ -47,6 +52,33 @@ This guide helps you upgrade between major versions of `@kesha-antonov/react-nat
     - [Rebuild Required](#rebuild-required)
   - [Quick Migration Checklist](#quick-migration-checklist)
   - [Need Help?](#need-help)
+
+---
+
+# Migration Guide: v4.5.x → v5.0.0
+
+## MMKV Removed
+
+Starting in v5.0.0, the library no longer depends on MMKV on either platform.
+
+### Before (v4.5.x)
+
+- **Android:** required a `com.tencent:mmkv-shared` (or `react-native-mmkv`-provided) Gradle dependency; fell back to `SharedPreferences` only if MMKV failed to initialize.
+- **iOS:** required the `MMKV` CocoaPod; no fallback existed.
+- The Expo config plugin injected/skipped the Android MMKV Gradle dependency automatically.
+
+### After (v5.0.0)
+
+- **Android:** uses `SharedPreferences` exclusively. No MMKV Gradle dependency, no `mmkvVersion`/`skipMmkvDependency` plugin options.
+- **iOS:** uses `NSUserDefaults` exclusively. No `MMKV` CocoaPod dependency.
+- **No action required** for the storage change itself — just update to v5.0.0 and rebuild (`pod install` on iOS; no Gradle changes needed on Android).
+- **Important:** this is a clean cutover, not a migration. Any downloads that were paused, active, or queued under the old MMKV-backed storage will **not** carry over — after upgrading, call `getExistingDownloadTasks()` / `getExistingUploadTasks()` as usual, but be aware it will return an empty list for any transfers that were only recorded in the old storage. Re-initiate those downloads/uploads as needed.
+- If you were passing `mmkvVersion` or `skipMmkvDependency` to the Expo config plugin, remove them — they are no longer recognized options.
+- If you had manually added `implementation 'com.tencent:mmkv-shared:...'` (Android) or `pod 'MMKV', '>= 1.0.0'` (iOS) solely for this library, you may remove it (unless another dependency, like `react-native-mmkv`, still needs it).
+
+### Why This Change?
+
+MMKV caused real integration friction: duplicate-class errors with `react-native-mmkv`, the 32-bit ARM (`armeabi-v7a`) support drop in MMKV 2.x, and past `EXC_BAD_ACCESS` crashes from symbol conflicts on iOS. Both `SharedPreferences` and `NSUserDefaults` are built into their platforms, need no version coordination with other dependencies, and remove an entire class of setup problems for consumers.
 
 ---
 
