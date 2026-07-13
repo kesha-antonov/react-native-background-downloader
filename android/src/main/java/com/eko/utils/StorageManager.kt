@@ -202,6 +202,30 @@ class StorageManager(context: Context, private val name: String) {
         val isAllowedOverMetered: Boolean? = null
     )
 
+    // Single mapping pair between the runtime record and the persisted DTO so a
+    // new field is added in one place instead of once per save/load method
+    private fun Downloader.PausedDownloadInfo.toData() = PausedDownloadInfoData(
+        configId = configId,
+        url = url,
+        destination = destination,
+        headers = headers,
+        bytesDownloaded = bytesDownloaded,
+        bytesTotal = bytesTotal,
+        metadata = metadata,
+        isAllowedOverMetered = isAllowedOverMetered
+    )
+
+    private fun PausedDownloadInfoData.toInfo() = Downloader.PausedDownloadInfo(
+        configId = configId,
+        url = url,
+        destination = destination,
+        headers = headers,
+        bytesDownloaded = bytesDownloaded,
+        bytesTotal = bytesTotal,
+        metadata = metadata,
+        isAllowedOverMetered = isAllowedOverMetered ?: true
+    )
+
     /**
      * Save paused downloads map.
      */
@@ -209,18 +233,7 @@ class StorageManager(context: Context, private val name: String) {
         try {
             val gson = Gson()
             // Convert to serializable data class
-            val mapCopy = pausedDownloads.mapValues { (_, info) ->
-                PausedDownloadInfoData(
-                    configId = info.configId,
-                    url = info.url,
-                    destination = info.destination,
-                    headers = info.headers,
-                    bytesDownloaded = info.bytesDownloaded,
-                    bytesTotal = info.bytesTotal,
-                    metadata = info.metadata,
-                    isAllowedOverMetered = info.isAllowedOverMetered
-                )
-            }
+            val mapCopy = pausedDownloads.mapValues { (_, info) -> info.toData() }
             val str = gson.toJson(mapCopy)
 
             if (isMMKVAvailable && mmkv != null) {
@@ -252,18 +265,7 @@ class StorageManager(context: Context, private val name: String) {
                 val mapType = object : TypeToken<Map<String, PausedDownloadInfoData>>() {}.type
                 val dataMap: Map<String, PausedDownloadInfoData> = gson.fromJson(str, mapType)
                 // Convert back to PausedDownloadInfo
-                return dataMap.mapValues { (_, data) ->
-                    Downloader.PausedDownloadInfo(
-                        configId = data.configId,
-                        url = data.url,
-                        destination = data.destination,
-                        headers = data.headers,
-                        bytesDownloaded = data.bytesDownloaded,
-                        bytesTotal = data.bytesTotal,
-                        metadata = data.metadata,
-                        isAllowedOverMetered = data.isAllowedOverMetered ?: true
-                    )
-                }.toMutableMap()
+                return dataMap.mapValues { (_, data) -> data.toInfo() }.toMutableMap()
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load paused downloads: ${e.message}")
@@ -296,18 +298,7 @@ class StorageManager(context: Context, private val name: String) {
     fun saveActiveDownloads(activeDownloads: Map<String, Downloader.PausedDownloadInfo>) {
         try {
             val gson = Gson()
-            val mapCopy = activeDownloads.mapValues { (_, info) ->
-                PausedDownloadInfoData(
-                    configId = info.configId,
-                    url = info.url,
-                    destination = info.destination,
-                    headers = info.headers,
-                    bytesDownloaded = info.bytesDownloaded,
-                    bytesTotal = info.bytesTotal,
-                    metadata = info.metadata,
-                    isAllowedOverMetered = info.isAllowedOverMetered
-                )
-            }
+            val mapCopy = activeDownloads.mapValues { (_, info) -> info.toData() }
             val str = gson.toJson(mapCopy)
 
             if (isMMKVAvailable && mmkv != null) {
@@ -337,18 +328,7 @@ class StorageManager(context: Context, private val name: String) {
                 val gson = Gson()
                 val mapType = object : TypeToken<Map<String, PausedDownloadInfoData>>() {}.type
                 val dataMap: Map<String, PausedDownloadInfoData> = gson.fromJson(str, mapType)
-                return dataMap.mapValues { (_, data) ->
-                    Downloader.PausedDownloadInfo(
-                        configId = data.configId,
-                        url = data.url,
-                        destination = data.destination,
-                        headers = data.headers,
-                        bytesDownloaded = data.bytesDownloaded,
-                        bytesTotal = data.bytesTotal,
-                        metadata = data.metadata,
-                        isAllowedOverMetered = data.isAllowedOverMetered ?: true
-                    )
-                }.toMutableMap()
+                return dataMap.mapValues { (_, data) -> data.toInfo() }.toMutableMap()
             }
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to load active downloads: ${e.message}")

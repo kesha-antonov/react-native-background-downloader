@@ -6,10 +6,6 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -60,34 +56,31 @@ class ResumableDownloadService : Service() {
   // across cancel/restart cycles where the job is removed and re-added
   private val downloadGeneration = ConcurrentHashMap<String, Long>()
 
-  // --- Unmetered-network gate (isAllowedOverMetered=false on Android < 14 / UIDT fallback) ---
-  // All gate state below is guarded by gateLock. The lock serializes transitions
-  // between "waiting" and "running" against user pause/cancel and network
-  // callbacks, so a download can never be started and paused concurrently, and
-  // the callback can never be unregistered while a transition is in flight.
-  private val gateLock = Any()
-  // Downloads waiting for an unmetered network before (re)starting
-  private val waitingForUnmetered = mutableSetOf<String>()
-  // Gated downloads currently transferring, keyed to the network they are bound to
-  private val gatedRunning = mutableMapOf<String, Network>()
-  // Unmetered networks currently known to be available
-  private val unmeteredNetworks = mutableSetOf<Network>()
-  @Volatile
-  private var unmeteredCallback: ConnectivityManager.NetworkCallback? = null
-  // Gate work runs on a dedicated single thread: network callbacks must return
-  // quickly (they share the process-wide ConnectivityThread with every other
-  // library), and a single thread preserves onAvailable/onLost ordering
-  private val gateExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-
-  private val connectivityManager by lazy {
-    getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-  }
-
   // Throttle progress logging to reduce log noise
   private val lastProgressLogTime = ConcurrentHashMap<String, Long>()
 
   // Shared ResumableDownloader instance
   val resumableDownloader = ResumableDownloader()
+
+  // Enforces isAllowedOverMetered=false on this path (no scheduler to hold the
+  // transfer): parks downloads until an unmetered network is available, binds
+  // the transfer to it, auto-pauses on loss and auto-resumes
+  private val unmeteredGate by lazy {
+    UnmeteredNetworkGate(this, resumableDownloader, object : UnmeteredNetworkGate.Host {
+      override fun createGateListener(id: String): ResumableDownloader.DownloadListener? {
+        val job = activeDownloads[id] ?: return null
+        return createValidatingListener(id, job.sessionToken, downloadGeneration[id] ?: 0)
+      }
+
+      override fun onGatedTransferStarting() {
+        acquireWakeLock()
+      }
+
+      override fun onGateStateChanged() {
+        updateNotification()
+      }
+    })
+  }
 
   inner class LocalBinder : Binder() {
     fun getService(): ResumableDownloadService = this@ResumableDownloadService
@@ -170,7 +163,7 @@ class ResumableDownloadService : Service() {
           // A gated download whose bound network died raises a socket error before
           // the ConnectivityManager onLost callback arrives - reclassify it as
           // "waiting for unmetered network" instead of failing the download
-          if (regateAfterNetworkLoss(id, errorCode)) {
+          if (unmeteredGate.regateAfterNetworkLoss(id, errorCode)) {
             RNBackgroundDownloaderModuleImpl.logD(TAG, "Gated download $id lost its unmetered network mid-transfer, re-waiting (suppressed error: $error)")
             updateNotification()
             return
@@ -279,12 +272,7 @@ class ResumableDownloadService : Service() {
 
   override fun onDestroy() {
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Service destroyed")
-    synchronized(gateLock) {
-      waitingForUnmetered.clear()
-      gatedRunning.clear()
-      maybeUnregisterUnmeteredCallbackLocked()
-    }
-    gateExecutor.shutdownNow()
+    unmeteredGate.shutdown()
     releaseWakeLock()
     executorService.shutdownNow()
     isForeground = false
@@ -299,9 +287,7 @@ class ResumableDownloadService : Service() {
   private fun cleanupTerminalDownload(id: String) {
     activeDownloads.remove(id)
     lastProgressLogTime.remove(id)
-    synchronized(gateLock) {
-      clearUnmeteredGateLocked(id)
-    }
+    unmeteredGate.clear(id)
     stopServiceIfIdle()
   }
 
@@ -309,6 +295,8 @@ class ResumableDownloadService : Service() {
     this.listener = listener
   }
 
+  // isAllowedOverMetered is deliberately not defaulted: a call site that forgets
+  // it must not compile, or the metered restriction silently reverts to allowed
   fun startDownload(
     id: String,
     url: String,
@@ -316,7 +304,7 @@ class ResumableDownloadService : Service() {
     headers: Map<String, String>,
     startByte: Long = 0,
     totalBytes: Long = -1,
-    isAllowedOverMetered: Boolean = true
+    isAllowedOverMetered: Boolean
   ) {
     startDownloadInternal(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
   }
@@ -328,7 +316,7 @@ class ResumableDownloadService : Service() {
     headers: Map<String, String>,
     startByte: Long,
     totalBytes: Long,
-    isAllowedOverMetered: Boolean = true
+    isAllowedOverMetered: Boolean
   ) {
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Starting download: $id from byte $startByte (isAllowedOverMetered=$isAllowedOverMetered)")
 
@@ -345,25 +333,12 @@ class ResumableDownloadService : Service() {
     activeDownloads[id] = job
 
     if (!isAllowedOverMetered) {
-      // Register the download in a waiting state and let the unmetered-network
-      // gate start it: it starts immediately when an unmetered network is already
-      // connected, otherwise it waits like DownloadManager's "queued for WiFi"
-      // state. No wake lock while waiting - one is acquired when the transfer
-      // actually starts.
-      val gated = synchronized(gateLock) {
-        // Drop any gate bookkeeping left over from a previous download with the
-        // same ID so a stale gatedRunning entry can't wrongly pause the new one
-        clearUnmeteredGateLocked(id)
+      // Park the download and let the unmetered-network gate start it: it starts
+      // immediately when an unmetered network is already connected, otherwise it
+      // waits like DownloadManager's "queued for WiFi" state. No wake lock while
+      // waiting - one is acquired when the transfer actually starts.
+      val gated = unmeteredGate.parkNewDownload(id) {
         resumableDownloader.prepareWaitingDownload(id, url, destination, headers, startByte, totalBytes)
-        if (ensureUnmeteredCallbackLocked()) {
-          waitingForUnmetered.add(id)
-          // The onAvailable replay only fires when the callback is first
-          // registered - drain explicitly for networks we already know about
-          unmeteredNetworks.firstOrNull()?.let { startWaitingDownloadsLocked(it) }
-          true
-        } else {
-          false
-        }
       }
       if (!gated) {
         // The constraint can't be enforced (network callback registration
@@ -380,9 +355,7 @@ class ResumableDownloadService : Service() {
     }
 
     // Clear stale gate bookkeeping from a previous gated download with this ID
-    synchronized(gateLock) {
-      clearUnmeteredGateLocked(id)
-    }
+    unmeteredGate.clear(id)
 
     acquireWakeLock()
 
@@ -397,17 +370,17 @@ class ResumableDownloadService : Service() {
       headers = headers,
       listener = serviceListener,
       startByte = startByte,
-      totalBytes = totalBytes
+      totalBytes = totalBytes,
+      isAllowedOverMetered = isAllowedOverMetered
     )
   }
 
   fun pauseDownload(id: String): Boolean {
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Pausing download: $id")
-    // Both steps under the gate lock: a user pause takes the download out of the
-    // unmetered gate atomically, so a concurrent onAvailable drain can't claim it
+    // Atomic with the gate: a user pause takes the download out of the unmetered
+    // gate under the gate lock, so a concurrent onAvailable drain can't claim it
     // and restart the transfer the user just paused
-    val result = synchronized(gateLock) {
-      clearUnmeteredGateLocked(id)
+    val result = unmeteredGate.withGateCleared(id) {
       resumableDownloader.pause(id)
     }
     if (result) {
@@ -433,24 +406,7 @@ class ResumableDownloadService : Service() {
     // only starts (and stays) on an unmetered network
     val state = resumableDownloader.getState(id)
     if (state != null && !state.isAllowedOverMetered) {
-      val gated = synchronized(gateLock) {
-        if (!state.isPaused.get()) {
-          // Already transferring (or about to) - nothing to resume, and re-adding
-          // a running download to the waiting set would corrupt the gate state
-          RNBackgroundDownloaderModuleImpl.logW(TAG, "Download $id is not paused")
-          return@synchronized false
-        }
-        if (!ensureUnmeteredCallbackLocked()) {
-          RNBackgroundDownloaderModuleImpl.logE(TAG, "Cannot register unmetered network callback for $id")
-          return@synchronized false
-        }
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Resume of $id waits for an unmetered network")
-        waitingForUnmetered.add(id)
-        // The onAvailable replay only fires when the callback is first
-        // registered - drain explicitly for networks we already know about
-        unmeteredNetworks.firstOrNull()?.let { startWaitingDownloadsLocked(it) }
-        true
-      }
+      val gated = unmeteredGate.parkForResume(id)
       if (gated) {
         updateNotification()
       }
@@ -467,247 +423,14 @@ class ResumableDownloadService : Service() {
 
   fun cancelDownload(id: String): Boolean {
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling download: $id")
-    // Under the gate lock so an in-flight onAvailable drain can't restart the
+    // Atomic with the gate so an in-flight onAvailable drain can't restart the
     // download between the bookkeeping removal and the downloader cancel
-    val result = synchronized(gateLock) {
+    val result = unmeteredGate.withGateCleared(id) {
       activeDownloads.remove(id)
-      clearUnmeteredGateLocked(id)
       resumableDownloader.cancel(id)
     }
     stopServiceIfIdle()
     return result
-  }
-
-  // --- Unmetered-network gate ---
-
-  /**
-   * Register the shared callback for unmetered networks (idempotent). Caller must
-   * hold gateLock. Returns false when registration failed, in which case the gate
-   * cannot work and gated downloads must not be parked in the waiting set.
-   *
-   * NET_CAPABILITY_NOT_VPN is removed (Builder default) so unmetered VPN networks
-   * are accepted, consistent with the UIDT job's NetworkRequest.
-   * The callback bodies hop to gateExecutor: network callbacks share the
-   * process-wide ConnectivityThread, which must never be blocked by socket
-   * teardown or notification IPC; a single-threaded executor also preserves the
-   * onAvailable/onLost ordering.
-   */
-  private fun ensureUnmeteredCallbackLocked(): Boolean {
-    if (unmeteredCallback != null) return true
-
-    val request = NetworkRequest.Builder()
-      .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-      .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-      .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-      .build()
-
-    val callback = object : ConnectivityManager.NetworkCallback() {
-      override fun onAvailable(network: Network) {
-        runOnGateExecutor {
-          RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network available: $network")
-          synchronized(gateLock) {
-            unmeteredNetworks.add(network)
-            startWaitingDownloadsLocked(network)
-          }
-          updateNotification()
-        }
-      }
-
-      override fun onLost(network: Network) {
-        // Also delivered when a network stops satisfying the request
-        // (e.g. WiFi becomes metered), not only on disconnect
-        runOnGateExecutor {
-          RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network lost: $network")
-          synchronized(gateLock) {
-            unmeteredNetworks.remove(network)
-            pauseGatedDownloadsOnLocked(network)
-          }
-          updateNotification()
-        }
-      }
-    }
-
-    return try {
-      connectivityManager.registerNetworkCallback(request, callback)
-      unmeteredCallback = callback
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Registered unmetered network callback")
-      true
-    } catch (e: Exception) {
-      RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to register network callback: ${e.message}")
-      false
-    }
-  }
-
-  private fun runOnGateExecutor(block: () -> Unit) {
-    try {
-      gateExecutor.execute(block)
-    } catch (e: java.util.concurrent.RejectedExecutionException) {
-      // Service is being destroyed - gate state is going away with it
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Gate executor rejected task (service destroyed)")
-    }
-  }
-
-  /** Caller must hold gateLock. */
-  private fun maybeUnregisterUnmeteredCallbackLocked() {
-    if (waitingForUnmetered.isNotEmpty() || gatedRunning.isNotEmpty()) return
-    val callback = unmeteredCallback ?: return
-    unmeteredCallback = null
-    unmeteredNetworks.clear()
-    try {
-      connectivityManager.unregisterNetworkCallback(callback)
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Unregistered unmetered network callback")
-    } catch (e: Exception) {
-      RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to unregister network callback: ${e.message}")
-    }
-  }
-
-  /**
-   * Remove a download from the gate bookkeeping (terminal state, user pause or
-   * cancel). Caller must hold gateLock.
-   */
-  private fun clearUnmeteredGateLocked(id: String) {
-    waitingForUnmetered.remove(id)
-    gatedRunning.remove(id)
-    // Drop the network binding so a later non-gated restart of the same ID
-    // doesn't inherit a stale network
-    resumableDownloader.getState(id)?.network = null
-    maybeUnregisterUnmeteredCallbackLocked()
-  }
-
-  /**
-   * Start every waiting unmetered-only download on the given network.
-   * Caller must hold gateLock; callers update the notification afterwards.
-   */
-  private fun startWaitingDownloadsLocked(network: Network) {
-    for (id in waitingForUnmetered.toList()) {
-      val job = activeDownloads[id]
-      val state = resumableDownloader.getState(id)
-      if (job == null || state == null) {
-        // Cancelled concurrently (cancel runs under gateLock) - drop the entry
-        RNBackgroundDownloaderModuleImpl.logW(TAG, "Gated download $id has no job/state, dropping")
-        waitingForUnmetered.remove(id)
-        continue
-      }
-
-      waitingForUnmetered.remove(id)
-      acquireWakeLock()
-      state.network = network
-      // Record the binding before resuming so an immediate transfer error
-      // classifies correctly in regateAfterNetworkLoss
-      gatedRunning[id] = network
-      val generation = downloadGeneration[id] ?: 0
-      val serviceListener = createValidatingListener(id, job.sessionToken, generation)
-      if (resumableDownloader.resume(id, serviceListener)) {
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Started gated download $id on unmetered network $network")
-      } else {
-        RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to start gated download $id")
-        gatedRunning.remove(id)
-        state.network = null
-      }
-    }
-  }
-
-  /**
-   * If a gated download errored because its bound network died or became metered,
-   * move it back into the waiting set (silently - no error is surfaced) and return
-   * true. Returns false for genuine errors (HTTP failures, or IO errors while the
-   * bound network is verifiably still unmetered) so they propagate normally.
-   *
-   * Runs on the download thread, which is about to exit - blocking it briefly is
-   * fine. The grace re-check is needed because the socket abort from a network
-   * loss/metering change usually lands before ConnectivityService updates the
-   * network's capabilities and delivers onLost.
-   */
-  private fun regateAfterNetworkLoss(id: String, errorCode: Int): Boolean {
-    // Only IO/exception-type errors (-1) qualify; positive codes are HTTP errors
-    if (errorCode != -1) return false
-    val state = resumableDownloader.getState(id) ?: return false
-    if (state.isAllowedOverMetered) return false
-
-    val boundNetwork = synchronized(gateLock) {
-      gatedRunning[id]
-        ?: // onLost already moved this download back to the waiting set between the
-        // socket error and this classification - suppress the error, it's handled
-        return waitingForUnmetered.contains(id)
-    }
-
-    var lostUnmetered = !isNetworkUnmetered(boundNetwork)
-    if (!lostUnmetered) {
-      // Capabilities still look fine - give the connectivity stack a moment to
-      // catch up with reality, then trust both the capability query and the
-      // callback-maintained set of unmetered networks. Runs unlocked on the
-      // exiting download thread.
-      try {
-        Thread.sleep(DownloadConstants.UNMETERED_RECHECK_DELAY_MS)
-      } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-      }
-      lostUnmetered = !isNetworkUnmetered(boundNetwork) ||
-        synchronized(gateLock) { !unmeteredNetworks.contains(boundNetwork) }
-    }
-
-    synchronized(gateLock) {
-      // Re-validate under the lock: the grace period may have raced a cancel, a
-      // user pause, or an onLost-driven re-gate that already restarted this
-      // download on another network. Mutate only if we still own the binding.
-      val currentState = resumableDownloader.getState(id)
-        ?: return true // cancelled during the grace period - nothing to report
-      if (currentState.isCancelled.get()) return true
-      if (waitingForUnmetered.contains(id)) return true // already re-gated by onLost
-      val currentNetwork = gatedRunning[id]
-        ?: return true // released by a concurrent pause/cancel - error is stale
-      if (currentNetwork != boundNetwork) {
-        // Restarted on another network during the grace period - the error from
-        // the old connection is stale; the new transfer reports for itself
-        return true
-      }
-      if (!lostUnmetered) {
-        // The network is genuinely fine - this is a real error (server, disk...)
-        return false
-      }
-
-      gatedRunning.remove(id)
-      currentState.network = null
-      // Paused-like state so the gate can restart it via resume()
-      currentState.isPaused.set(true)
-      waitingForUnmetered.add(id)
-      ensureUnmeteredCallbackLocked()
-      // If another unmetered network is already up, restart right away
-      unmeteredNetworks.firstOrNull()?.let { startWaitingDownloadsLocked(it) }
-      return true
-    }
-  }
-
-  private fun isNetworkUnmetered(network: Network): Boolean {
-    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-      capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-  }
-
-  /**
-   * Pause gated downloads bound to a network that is no longer unmetered/available
-   * and put them back into the waiting set. If another unmetered network is still
-   * available they restart on it immediately. Caller must hold gateLock; callers
-   * update the notification afterwards.
-   */
-  private fun pauseGatedDownloadsOnLocked(network: Network) {
-    var movedToWaiting = false
-    for ((id, boundNetwork) in gatedRunning.entries.toList()) {
-      if (boundNetwork != network) continue
-      gatedRunning.remove(id)
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network lost, pausing gated download $id")
-      resumableDownloader.pause(id)
-      resumableDownloader.getState(id)?.network = null
-      // Back to waiting: auto-restarts when an unmetered network is available again
-      waitingForUnmetered.add(id)
-      movedToWaiting = true
-    }
-
-    if (movedToWaiting) {
-      // Another unmetered network may still be up (e.g. ethernet next to WiFi) -
-      // its onAvailable already fired, so re-drain the waiting set explicitly
-      unmeteredNetworks.firstOrNull()?.let { startWaitingDownloadsLocked(it) }
-    }
   }
 
   fun isPaused(id: String): Boolean = resumableDownloader.isPaused(id)
@@ -750,7 +473,7 @@ class ResumableDownloadService : Service() {
   private fun createNotification(): Notification {
     val activeCount = activeDownloads.size
     // Downloads held by the unmetered-network gate are paused-like but shown separately
-    val waitingIds = synchronized(gateLock) { waitingForUnmetered.toSet() }
+    val waitingIds = unmeteredGate.waitingIds()
     val waitingCount = activeDownloads.keys.count { waitingIds.contains(it) }
     val pausedCount = activeDownloads.keys.count { resumableDownloader.isPaused(it) && !waitingIds.contains(it) }
     val runningCount = activeCount - pausedCount - waitingCount

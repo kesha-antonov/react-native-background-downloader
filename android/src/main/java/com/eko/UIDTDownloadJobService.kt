@@ -54,7 +54,7 @@ class UIDTDownloadJobService : JobService() {
             startByte: Long = 0,
             totalBytes: Long = -1,
             metadata: String = "{}",
-            isAllowedOverMetered: Boolean = true
+            isAllowedOverMetered: Boolean
         ): Boolean = UIDTJobManager.scheduleDownload(context, configId, url, destination, headers, startByte, totalBytes, metadata, isAllowedOverMetered)
 
         /**

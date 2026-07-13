@@ -6,7 +6,7 @@ import android.app.job.JobScheduler
 import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
-import android.net.NetworkRequest
+import com.eko.utils.NetworkRequestUtils
 import android.os.Build
 import android.os.PersistableBundle
 import androidx.annotation.RequiresApi
@@ -118,7 +118,7 @@ object UIDTJobManager {
         startByte: Long = 0,
         totalBytes: Long = -1,
         metadata: String = "{}",
-        isAllowedOverMetered: Boolean = true
+        isAllowedOverMetered: Boolean
     ): Boolean {
         if (!isUIDTAvailable()) {
             RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "UIDT requires Android 14+, falling back to foreground service")
@@ -147,21 +147,10 @@ object UIDTJobManager {
             putBoolean(UIDTConstants.KEY_IS_ALLOWED_OVER_METERED, isAllowedOverMetered)
         }
 
-        // Build network request - require internet connectivity.
-        // Remove NET_CAPABILITY_NOT_VPN (added by Builder default) so that VPN networks
-        // (e.g. Proton VPN, full-tunnel VPNs) are accepted. Without this, the JobScheduler
-        // only considers non-VPN networks; a kill-switch VPN blocks that traffic and the
-        // job never starts, causing callbacks to never fire.
-        val networkRequestBuilder = NetworkRequest.Builder()
-            .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         // When metered networks are not allowed, require an unmetered network so the
         // JobScheduler holds the job until Wi-Fi/ethernet is available - the same
         // behavior as DownloadManager.Request.setAllowedOverMetered(false).
-        if (!isAllowedOverMetered) {
-            networkRequestBuilder.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-        }
-        val networkRequest = networkRequestBuilder.build()
+        val networkRequest = NetworkRequestUtils.internetRequest(requireUnmetered = !isAllowedOverMetered)
 
         // Build the job with UIDT flag
         val jobInfo = JobInfo.Builder(jobId, ComponentName(context, UIDTDownloadJobService::class.java))

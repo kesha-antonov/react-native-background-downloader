@@ -57,6 +57,8 @@ class ResumableDownloader {
    * @param startByte The byte position to start from (for resuming paused DownloadManager downloads)
    * @param totalBytes The total bytes if known (for resuming)
    */
+  // isAllowedOverMetered is deliberately not defaulted: a call site that forgets
+  // it must not compile, or the metered restriction silently reverts to allowed
   fun startDownload(
     id: String,
     url: String,
@@ -65,7 +67,7 @@ class ResumableDownloader {
     listener: DownloadListener,
     startByte: Long = 0,
     totalBytes: Long = -1,
-    isAllowedOverMetered: Boolean = true,
+    isAllowedOverMetered: Boolean,
     network: Network? = null
   ) {
     val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)

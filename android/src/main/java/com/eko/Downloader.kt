@@ -76,6 +76,12 @@ class Downloader(private val context: Context, private val storageManager: com.e
   val resumableDownloader: ResumableDownloader
     get() = downloadService?.resumableDownloader ?: fallbackResumableDownloader
 
+  /**
+   * The canonical per-download record: everything needed to start, persist, or
+   * resume one download. It travels through start, pause/resume and the
+   * recovery-snapshot paths, so a new per-download option is added here once
+   * instead of in every signature along the way.
+   */
   data class PausedDownloadInfo(
     val configId: String,
     val url: String,
@@ -200,7 +206,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
    * Pause a download. This cancels the DownloadManager download and saves state
    * so it can be resumed later using HTTP Range headers.
    */
-  fun pause(downloadId: Long, configId: String, url: String, destination: String, headers: Map<String, String>, metadata: String = "{}", isAllowedOverMetered: Boolean = true): Boolean {
+  fun pause(downloadId: Long, configId: String, url: String, destination: String, headers: Map<String, String>, metadata: String, isAllowedOverMetered: Boolean): Boolean {
     // Mark this download as being paused to ignore broadcast events
     cancellingDownloads[downloadId] = CancelIntent.PAUSING
 
@@ -213,56 +219,35 @@ class Downloader(private val context: Context, private val storageManager: com.e
     downloadManager.remove(downloadId)
 
     // Save paused state for later resume
-    val pausedInfo = PausedDownloadInfo(
-      configId = configId,
-      url = url,
-      destination = destination,
-      headers = headers,
-      bytesDownloaded = bytesDownloaded,
-      bytesTotal = bytesTotal,
-      metadata = metadata,
-      isAllowedOverMetered = isAllowedOverMetered
+    savePausedDownloadState(
+      PausedDownloadInfo(
+        configId = configId,
+        url = url,
+        destination = destination,
+        headers = headers,
+        bytesDownloaded = bytesDownloaded,
+        bytesTotal = bytesTotal,
+        metadata = metadata,
+        isAllowedOverMetered = isAllowedOverMetered
+      )
     )
-    pausedDownloads[configId] = pausedInfo
-
-    // Persist to storage for app restart persistence
-    savePausedDownloads()
 
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Paused download $configId at $bytesDownloaded/$bytesTotal bytes")
     return true
   }
 
   /**
-   * Save paused download state for a ResumableDownloader download.
+   * Save paused download state so the download can be resumed later.
    * This is called when pausing a download that was started via ResumableDownloader
    * (e.g., on Android 16+ or when DownloadManager path restrictions apply).
    */
-  fun savePausedDownloadState(
-    configId: String,
-    url: String,
-    destination: String,
-    headers: Map<String, String>,
-    bytesDownloaded: Long,
-    bytesTotal: Long,
-    metadata: String = "{}",
-    isAllowedOverMetered: Boolean = true
-  ) {
-    val pausedInfo = PausedDownloadInfo(
-      configId = configId,
-      url = url,
-      destination = destination,
-      headers = headers,
-      bytesDownloaded = bytesDownloaded,
-      bytesTotal = bytesTotal,
-      metadata = metadata,
-      isAllowedOverMetered = isAllowedOverMetered
-    )
-    pausedDownloads[configId] = pausedInfo
+  fun savePausedDownloadState(info: PausedDownloadInfo) {
+    pausedDownloads[info.configId] = info
 
     // Persist to storage for app restart persistence
     savePausedDownloads()
 
-    RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved paused state for resumable download $configId at $bytesDownloaded/$bytesTotal bytes")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Saved paused state for download ${info.configId} at ${info.bytesDownloaded}/${info.bytesTotal} bytes")
   }
 
   /**
@@ -292,17 +277,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
     savePausedDownloads()
 
     // Start the foreground service for background download
-    startDownloadService(
-      configId,
-      pausedInfo.url,
-      pausedInfo.destination,
-      pausedInfo.headers,
-      pausedInfo.bytesDownloaded,
-      pausedInfo.bytesTotal,
-      listener,
-      pausedInfo.metadata,
-      pausedInfo.isAllowedOverMetered
-    )
+    startDownloadService(pausedInfo, listener)
 
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes via service")
     return true
@@ -318,17 +293,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
    *
    * On Android < 14, uses the foreground service with dataSync type.
    */
-  private fun startDownloadService(
-    configId: String,
-    url: String,
-    destination: String,
-    headers: Map<String, String>,
-    startByte: Long,
-    totalBytes: Long,
-    listener: ResumableDownloader.DownloadListener,
-    metadata: String = "{}",
-    isAllowedOverMetered: Boolean = true
-  ) {
+  private fun startDownloadService(info: PausedDownloadInfo, listener: ResumableDownloader.DownloadListener) {
     // On Android 14+, use UIDT jobs for better background execution
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       // Set the listener for UIDT job callbacks
@@ -337,18 +302,18 @@ class Downloader(private val context: Context, private val storageManager: com.e
       // Schedule UIDT job
       val scheduled = UIDTDownloadJobService.scheduleDownload(
         context = context,
-        configId = configId,
-        url = url,
-        destination = destination,
-        headers = headers,
-        startByte = startByte,
-        totalBytes = totalBytes,
-        metadata = metadata,
-        isAllowedOverMetered = isAllowedOverMetered
+        configId = info.configId,
+        url = info.url,
+        destination = info.destination,
+        headers = info.headers,
+        startByte = info.bytesDownloaded,
+        totalBytes = info.bytesTotal,
+        metadata = info.metadata,
+        isAllowedOverMetered = info.isAllowedOverMetered
       )
 
       if (scheduled) {
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Using UIDT job for download: $configId")
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Using UIDT job for download: ${info.configId}")
         return
       }
 
@@ -376,7 +341,15 @@ class Downloader(private val context: Context, private val storageManager: com.e
     // Now use the direct service call path
     executeWhenServiceReady {
       downloadService?.setDownloadListener(listener)
-      downloadService?.startDownload(configId, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
+      downloadService?.startDownload(
+        info.configId,
+        info.url,
+        info.destination,
+        info.headers,
+        info.bytesDownloaded,
+        info.bytesTotal,
+        info.isAllowedOverMetered
+      )
     }
   }
 
@@ -385,27 +358,9 @@ class Downloader(private val context: Context, private val storageManager: com.e
    * This is used as a fallback when DownloadManager can't handle the external storage path
    * on devices like OnePlus that return invalid paths from getExternalFilesDir().
    */
-  fun startResumableDownload(
-    configId: String,
-    url: String,
-    destination: String,
-    headers: Map<String, String>,
-    listener: ResumableDownloader.DownloadListener,
-    metadata: String = "{}",
-    isAllowedOverMetered: Boolean = true
-  ) {
-    startDownloadService(
-      configId,
-      url,
-      destination,
-      headers,
-      0L,  // Start from beginning
-      -1L, // Total bytes unknown
-      listener,
-      metadata,
-      isAllowedOverMetered
-    )
-    RNBackgroundDownloaderModuleImpl.logD(TAG, "Started ResumableDownloader for $configId (DownloadManager fallback)")
+  fun startResumableDownload(info: PausedDownloadInfo, listener: ResumableDownloader.DownloadListener) {
+    startDownloadService(info, listener)
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Started ResumableDownloader for ${info.configId} (DownloadManager fallback)")
   }
 
   /**
@@ -500,28 +455,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
    * The byte counter stored here is advisory only - on recovery the resume offset
    * is recomputed from the actual on-disk file length to avoid corruption.
    */
-  fun saveActiveDownloadSnapshot(
-    configId: String,
-    url: String,
-    destination: String,
-    headers: Map<String, String>,
-    bytesDownloaded: Long,
-    bytesTotal: Long,
-    metadata: String = "{}",
-    isAllowedOverMetered: Boolean = true
-  ) {
-    storageManager?.saveActiveDownload(
-      PausedDownloadInfo(
-        configId = configId,
-        url = url,
-        destination = destination,
-        headers = headers,
-        bytesDownloaded = bytesDownloaded,
-        bytesTotal = bytesTotal,
-        metadata = metadata,
-        isAllowedOverMetered = isAllowedOverMetered
-      )
-    )
+  fun saveActiveDownloadSnapshot(info: PausedDownloadInfo) {
+    storageManager?.saveActiveDownload(info)
   }
 
   /**

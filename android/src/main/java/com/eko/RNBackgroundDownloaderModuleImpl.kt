@@ -164,6 +164,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   // recovery snapshots keep the constraint that the download was started with
   private val configIdToIsAllowedOverMetered = mutableMapOf<String, Boolean>()
 
+  /**
+   * Resolve the metered-network permission for a download: the in-memory intent
+   * recorded at start wins, then the caller-supplied persisted source (UIDT job
+   * extras, download state or task config), then the permissive default. Keeps
+   * the precedence policy in one place for every pause/snapshot path.
+   */
+  private fun resolveIsAllowedOverMetered(configId: String, persistedValue: Boolean?): Boolean {
+    return configIdToIsAllowedOverMetered[configId] ?: persistedValue ?: true
+  }
+
   // Last time (ms) a recovery snapshot was persisted for a resumable download,
   // used to throttle snapshot writes from the frequent progress callbacks.
   private val configIdToLastSnapshotMs = mutableMapOf<String, Long>()
@@ -566,24 +576,26 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       ?: return
     val headers = configIdToHeaders[configId] ?: state.headers
     val metadata = configIdToMetadata[configId] ?: "{}"
-    // In-memory map first; fall back to the UIDT job extras (survive process death
-    // for jobs the JobScheduler restarted in a fresh process), then to the download
-    // state itself, which carries the flag on the foreground-service path.
-    val isAllowedOverMetered = configIdToIsAllowedOverMetered[configId]
-      ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    // Persisted fallback: the UIDT job extras survive process death for jobs the
+    // JobScheduler restarted in a fresh process; the download state carries the
+    // flag on the foreground-service path.
+    val persistedIsAllowedOverMetered =
+      (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
         UIDTDownloadJobService.getJobIsAllowedOverMetered(configId)
       else null)
-      ?: state.isAllowedOverMetered
+        ?: state.isAllowedOverMetered
 
     downloader.saveActiveDownloadSnapshot(
-      configId = configId,
-      url = state.url,
-      destination = state.destination,
-      headers = headers,
-      bytesDownloaded = bytesDownloaded,
-      bytesTotal = bytesTotal,
-      metadata = metadata,
-      isAllowedOverMetered = isAllowedOverMetered
+      Downloader.PausedDownloadInfo(
+        configId = configId,
+        url = state.url,
+        destination = state.destination,
+        headers = headers,
+        bytesDownloaded = bytesDownloaded,
+        bytesTotal = bytesTotal,
+        metadata = metadata,
+        isAllowedOverMetered = resolveIsAllowedOverMetered(configId, persistedIsAllowedOverMetered)
+      )
     )
   }
 
@@ -808,6 +820,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Helper function to fall back to ResumableDownloader
     fun startWithResumableDownloader() {
+      val spec = Downloader.PausedDownloadInfo(
+        configId = id,
+        url = url,
+        destination = destination,
+        headers = headersMap,
+        bytesDownloaded = 0L,
+        bytesTotal = -1L,
+        metadata = metadataValue,
+        isAllowedOverMetered = isAllowedOverMetered
+      )
       synchronized(sharedLock) {
         // Clean up any stale state from previous downloads with the same ID
         downloader.cleanupStaleState(id)
@@ -821,19 +843,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         // snapshots only start with the first received byte, so without this a
         // download parked at 0 bytes (e.g. waiting for an unmetered network)
         // would vanish without a trace if the app is force-stopped.
-        downloader.saveActiveDownloadSnapshot(
-          configId = id,
-          url = url,
-          destination = destination,
-          headers = headersMap,
-          bytesDownloaded = 0L,
-          bytesTotal = -1L,
-          metadata = metadataValue,
-          isAllowedOverMetered = isAllowedOverMetered
-        )
+        downloader.saveActiveDownloadSnapshot(spec)
         configIdToLastSnapshotMs[id] = System.currentTimeMillis()
       }
-      downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener, metadataValue, isAllowedOverMetered)
+      downloader.startResumableDownload(spec, resumableDownloadListener)
     }
 
     // On Android 16+ (API 36), DownloadManager has strict path restrictions and throws
@@ -911,19 +924,21 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           // Save to persistent storage so we can resume after app restart
           val headers = configIdToHeaders[configId] ?: state.headers
           val metadata = configIdToMetadata[configId] ?: "{}"
-          val isAllowedOverMetered = configIdToIsAllowedOverMetered[configId]
-            ?: uidtIsAllowedOverMetered
-            ?: state.isAllowedOverMetered
 
           downloader.savePausedDownloadState(
-            configId = configId,
-            url = state.url,
-            destination = state.destination,
-            headers = headers,
-            bytesDownloaded = state.bytesDownloaded.get(),
-            bytesTotal = state.bytesTotal,
-            metadata = metadata,
-            isAllowedOverMetered = isAllowedOverMetered
+            Downloader.PausedDownloadInfo(
+              configId = configId,
+              url = state.url,
+              destination = state.destination,
+              headers = headers,
+              bytesDownloaded = state.bytesDownloaded.get(),
+              bytesTotal = state.bytesTotal,
+              metadata = metadata,
+              isAllowedOverMetered = resolveIsAllowedOverMetered(
+                configId,
+                uidtIsAllowedOverMetered ?: state.isAllowedOverMetered
+              )
+            )
           )
 
           // Now tracked as an explicit paused download - drop the recovery snapshot.
@@ -942,9 +957,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         if (config != null) {
           val headers = configIdToHeaders[configId] ?: emptyMap()
           val metadata = configIdToMetadata[configId] ?: config.metadata
-          val isAllowedOverMetered = configIdToIsAllowedOverMetered[configId]
-            ?: config.isAllowedOverMetered
-            ?: true
+          val isAllowedOverMetered = resolveIsAllowedOverMetered(configId, config.isAllowedOverMetered)
 
           // Stop progress tracking
           stopTaskProgress(configId)
@@ -972,14 +985,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val pending = UIDTDownloadJobService.cancelPendingJob(reactContext, configId)
         if (pending != null) {
           downloader.savePausedDownloadState(
-            configId = configId,
-            url = pending.url,
-            destination = pending.destination,
-            headers = configIdToHeaders[configId] ?: pending.headers,
-            bytesDownloaded = pending.startByte,
-            bytesTotal = pending.totalBytes,
-            metadata = configIdToMetadata[configId] ?: pending.metadata,
-            isAllowedOverMetered = pending.isAllowedOverMetered
+            Downloader.PausedDownloadInfo(
+              configId = configId,
+              url = pending.url,
+              destination = pending.destination,
+              headers = configIdToHeaders[configId] ?: pending.headers,
+              bytesDownloaded = pending.startByte,
+              bytesTotal = pending.totalBytes,
+              metadata = configIdToMetadata[configId] ?: pending.metadata,
+              isAllowedOverMetered = pending.isAllowedOverMetered
+            )
           )
           logD(NAME, "Paused pending UIDT job: $configId at byte ${pending.startByte}")
         }
