@@ -276,10 +276,23 @@ class Downloader(private val context: Context, private val storageManager: com.e
     // Persist the removal from paused state (it's now actively downloading)
     savePausedDownloads()
 
-    // Start the foreground service for background download
-    startDownloadService(pausedInfo, listener)
+    // The record's byte count can lag the partial file (e.g. the download was
+    // resumed in-service and transferred further before a force-stop froze the
+    // record). The file grows by sequential appends, so its on-disk length is
+    // the authoritative resume offset - resuming below it would append
+    // mid-stream data at the end of the file and corrupt it.
+    val destFile = File(pausedInfo.destination)
+    val resumeInfo = if (destFile.exists() && destFile.length() != pausedInfo.bytesDownloaded) {
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Adjusting resume offset for $configId from ${pausedInfo.bytesDownloaded} to on-disk ${destFile.length()} bytes")
+      pausedInfo.copy(bytesDownloaded = destFile.length())
+    } else {
+      pausedInfo
+    }
 
-    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes via service")
+    // Start the foreground service for background download
+    startDownloadService(resumeInfo, listener)
+
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download $configId from ${resumeInfo.bytesDownloaded} bytes via service")
     return true
   }
 
@@ -389,7 +402,16 @@ class Downloader(private val context: Context, private val storageManager: com.e
     executeWhenServiceReady {
       downloadService?.setDownloadListener(listener)
     }
-    return downloadService?.resumeDownload(configId) ?: false
+    val resumed = downloadService?.resumeDownload(configId) ?: false
+    if (resumed) {
+      // The download is transferring again - drop the paused record so it can't
+      // resurface after a restart with a byte count that lags the partial file
+      val removed = pausedDownloads.remove(configId)
+      if (removed != null) {
+        savePausedDownloads()
+      }
+    }
+    return resumed
   }
 
   /**
