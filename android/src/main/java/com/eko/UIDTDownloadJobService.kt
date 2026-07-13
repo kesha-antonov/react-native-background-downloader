@@ -88,6 +88,13 @@ class UIDTDownloadJobService : JobService() {
         fun pauseJob(context: Context, configId: String): Boolean = UIDTJobManager.pauseJob(context, configId)
 
         /**
+         * Cancel a scheduled-but-not-running UIDT job (e.g. held pending by its
+         * unmetered-network constraint) and return its persistable info.
+         */
+        fun cancelPendingJob(context: Context, configId: String): UIDTJobManager.PendingJobInfo? =
+            UIDTJobManager.cancelPendingJob(context, configId)
+
+        /**
          * Resume a paused UIDT download.
          */
         fun resumeJob(context: Context, configId: String, listener: ResumableDownloader.DownloadListener): Boolean =
@@ -156,6 +163,7 @@ class UIDTDownloadJobService : JobService() {
         val destination = extras.getString(UIDTConstants.KEY_DESTINATION) ?: return false
         val startByteFromExtras = extras.getLong(UIDTConstants.KEY_START_BYTE, 0)
         val totalBytes = extras.getLong(UIDTConstants.KEY_TOTAL_BYTES, -1)
+        val isAllowedOverMetered = extras.getBoolean(UIDTConstants.KEY_IS_ALLOWED_OVER_METERED, true)
 
         // Extract group info from metadata (for notification grouping)
         val metadataJson = extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
@@ -229,7 +237,12 @@ class UIDTDownloadJobService : JobService() {
         // Create listener that will notify completion
         val jobListener = createJobListener(configId, params, groupId, groupName)
 
-        // Start the download asynchronously
+        // Start the download asynchronously. The network constraint is enforced by
+        // the JobScheduler; the flag is passed so the DownloadState stays truthful
+        // (it is a fallback source for pause/snapshot persistence in the module).
+        // Bind the transfer to the network that satisfied the job's constraint -
+        // otherwise the sockets use the DEFAULT network, which can be metered
+        // cellular even while the satisfying unmetered network is connected.
         resumableDownloader.startDownload(
             id = configId,
             url = url,
@@ -237,7 +250,9 @@ class UIDTDownloadJobService : JobService() {
             headers = headers,
             listener = jobListener,
             startByte = startByte,
-            totalBytes = totalBytes
+            totalBytes = totalBytes,
+            isAllowedOverMetered = isAllowedOverMetered,
+            network = params.network
         )
 
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Started UIDT download: $configId from byte $startByte")

@@ -566,13 +566,14 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       ?: return
     val headers = configIdToHeaders[configId] ?: state.headers
     val metadata = configIdToMetadata[configId] ?: "{}"
-    // In-memory map first; fall back to the UIDT job extras, which survive process
-    // death (covers jobs the JobScheduler restarted in a fresh process).
+    // In-memory map first; fall back to the UIDT job extras (survive process death
+    // for jobs the JobScheduler restarted in a fresh process), then to the download
+    // state itself, which carries the flag on the foreground-service path.
     val isAllowedOverMetered = configIdToIsAllowedOverMetered[configId]
       ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
         UIDTDownloadJobService.getJobIsAllowedOverMetered(configId)
       else null)
-      ?: true
+      ?: state.isAllowedOverMetered
 
     downloader.saveActiveDownloadSnapshot(
       configId = configId,
@@ -816,6 +817,21 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         configIdToHeaders[id] = headersMap
         configIdToMetadata[id] = metadataValue
         configIdToIsAllowedOverMetered[id] = isAllowedOverMetered
+        // Persist an initial recovery snapshot right away: progress-driven
+        // snapshots only start with the first received byte, so without this a
+        // download parked at 0 bytes (e.g. waiting for an unmetered network)
+        // would vanish without a trace if the app is force-stopped.
+        downloader.saveActiveDownloadSnapshot(
+          configId = id,
+          url = url,
+          destination = destination,
+          headers = headersMap,
+          bytesDownloaded = 0L,
+          bytesTotal = -1L,
+          metadata = metadataValue,
+          isAllowedOverMetered = isAllowedOverMetered
+        )
+        configIdToLastSnapshotMs[id] = System.currentTimeMillis()
       }
       downloader.startResumableDownload(id, url, destination, headersMap, resumableDownloadListener, metadataValue, isAllowedOverMetered)
     }
@@ -897,7 +913,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           val metadata = configIdToMetadata[configId] ?: "{}"
           val isAllowedOverMetered = configIdToIsAllowedOverMetered[configId]
             ?: uidtIsAllowedOverMetered
-            ?: true
+            ?: state.isAllowedOverMetered
 
           downloader.savePausedDownloadState(
             configId = configId,
@@ -943,6 +959,29 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             saveDownloadIdToConfigMap()
             logD(NAME, "Paused DownloadManager download: $configId")
           }
+        }
+        return
+      }
+
+      // Finally, check for a UIDT job that is scheduled but not yet running -
+      // e.g. held pending by its unmetered-network constraint. Such a job is
+      // invisible to the branches above (no registry entry until onStartJob),
+      // and without this it would start downloading despite the user's pause
+      // once its network constraint is satisfied.
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        val pending = UIDTDownloadJobService.cancelPendingJob(reactContext, configId)
+        if (pending != null) {
+          downloader.savePausedDownloadState(
+            configId = configId,
+            url = pending.url,
+            destination = pending.destination,
+            headers = configIdToHeaders[configId] ?: pending.headers,
+            bytesDownloaded = pending.startByte,
+            bytesTotal = pending.totalBytes,
+            metadata = configIdToMetadata[configId] ?: pending.metadata,
+            isAllowedOverMetered = pending.isAllowedOverMetered
+          )
+          logD(NAME, "Paused pending UIDT job: $configId at byte ${pending.startByte}")
         }
       }
     }

@@ -65,9 +65,11 @@ class ResumableDownloader {
     listener: DownloadListener,
     startByte: Long = 0,
     totalBytes: Long = -1,
-    isAllowedOverMetered: Boolean = true
+    isAllowedOverMetered: Boolean = true,
+    network: Network? = null
   ) {
     val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
+    state.network = network
 
     val currentSessionId = state.sessionId.get()
     val thread = Thread {
@@ -78,10 +80,10 @@ class ResumableDownloader {
   }
 
   /**
-   * Register a download in a paused/waiting state WITHOUT starting the transfer.
-   * Used by the unmetered-network gate on Android < 14: the state is visible to
-   * pause/cancel/getState immediately, and the actual transfer is started later
-   * via resume() once a suitable network is available.
+   * Register an unmetered-only download in a paused/waiting state WITHOUT
+   * starting the transfer. Used by the unmetered-network gate on Android < 14:
+   * the state is visible to pause/cancel/getState immediately, and the actual
+   * transfer is started later via resume() once a suitable network is available.
    */
   fun prepareWaitingDownload(
     id: String,
@@ -89,10 +91,9 @@ class ResumableDownloader {
     destination: String,
     headers: Map<String, String>,
     startByte: Long = 0,
-    totalBytes: Long = -1,
-    isAllowedOverMetered: Boolean = true
+    totalBytes: Long = -1
   ): DownloadState {
-    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
+    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered = false)
     // Paused-like state so resume() can start the first transfer
     state.isPaused.set(true)
     return state

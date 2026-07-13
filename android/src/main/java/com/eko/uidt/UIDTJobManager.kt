@@ -31,6 +31,68 @@ object UIDTJobManager {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     }
 
+    /** Derive the stable job ID for a download config ID. */
+    private fun jobIdFor(configId: String): Int =
+        UIDTConstants.JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
+
+    /**
+     * Everything needed to persist a scheduled-but-not-yet-running job as a
+     * paused download after cancelling it.
+     */
+    data class PendingJobInfo(
+        val url: String,
+        val destination: String,
+        val startByte: Long,
+        val totalBytes: Long,
+        val metadata: String,
+        val isAllowedOverMetered: Boolean,
+        val headers: Map<String, String>
+    )
+
+    /**
+     * Cancel a UIDT job that is scheduled but not yet running - e.g. held pending
+     * by its unmetered-network constraint - and return the info needed to persist
+     * it as a paused download. A pending job has no entry in the registry's
+     * activeJobs (that is only populated in onStartJob), so the regular pause
+     * path can't see it. Returns null when the job is running or doesn't exist.
+     */
+    fun cancelPendingJob(context: Context, configId: String): PendingJobInfo? {
+        if (!isUIDTAvailable()) return null
+        if (UIDTJobRegistry.isActiveJob(configId)) return null
+
+        val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+        val jobId = jobIdFor(configId)
+        val pendingJob = jobScheduler.getPendingJob(jobId) ?: return null
+
+        val extras = pendingJob.extras
+        // Guard against job-ID hash collisions between different config IDs
+        if (extras.getString(UIDTConstants.KEY_DOWNLOAD_ID) != configId) return null
+        val url = extras.getString(UIDTConstants.KEY_URL) ?: return null
+        val destination = extras.getString(UIDTConstants.KEY_DESTINATION) ?: return null
+
+        // Prefer the persisted resume state (more recent than the extras)
+        val resumeState = UIDTJobRegistry.loadResumeState(context, configId)
+        val headers = resumeState?.first
+            ?: UIDTJobRegistry.pendingHeaders[configId]
+            ?: emptyMap()
+        val startByte = maxOf(resumeState?.second ?: 0L, extras.getLong(UIDTConstants.KEY_START_BYTE, 0))
+
+        jobScheduler.cancel(jobId)
+        UIDTJobRegistry.pendingHeaders.remove(configId)
+        UIDTJobRegistry.clearResumeState(context, configId)
+        RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled pending UIDT job for $configId (jobId=$jobId) at byte $startByte")
+
+        return PendingJobInfo(
+            url = url,
+            destination = destination,
+            startByte = startByte,
+            totalBytes = extras.getLong(UIDTConstants.KEY_TOTAL_BYTES, -1),
+            metadata = extras.getString(UIDTConstants.KEY_METADATA) ?: "{}",
+            isAllowedOverMetered = extras.getBoolean(UIDTConstants.KEY_IS_ALLOWED_OVER_METERED, true),
+            headers = headers
+        )
+    }
+
     /**
      * Schedule a UIDT download job.
      *
@@ -66,7 +128,7 @@ object UIDTJobManager {
         val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
 
         // Create unique job ID from config ID
-        val jobId = UIDTConstants.JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
+        val jobId = jobIdFor(configId)
 
         // Store headers for later retrieval (PersistableBundle can't store Map<String, String>)
         UIDTJobRegistry.pendingHeaders[configId] = headers
@@ -164,7 +226,7 @@ object UIDTJobManager {
         }
 
         val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
-        val jobId = UIDTConstants.JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
+        val jobId = jobIdFor(configId)
 
         jobScheduler.cancel(jobId)
         UIDTJobRegistry.pendingHeaders.remove(configId)

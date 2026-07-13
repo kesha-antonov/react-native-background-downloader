@@ -558,12 +558,10 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
       val destFile = File(info.destination)
       val fileLength = if (destFile.exists()) destFile.length() else 0L
-      if (fileLength <= 0L) {
-        // Nothing downloaded yet - nothing to resume from.
-        continue
-      }
 
-      // Use the on-disk length as the authoritative resume offset.
+      // Use the on-disk length as the authoritative resume offset. A length of 0
+      // is still recoverable (restart from the beginning) - e.g. a download that
+      // was parked waiting for an unmetered network when the app was killed.
       pausedDownloads[configId] = info.copy(bytesDownloaded = fileLength)
       recoveredCount++
     }
