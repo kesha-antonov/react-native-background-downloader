@@ -955,13 +955,19 @@ const BasicExampleScreen = () => {
     />
   ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange, summaryOnlyMode, handleSummaryOnlyModeChange, startBatchDownload])
 
+  // Pass an element, not the renderHeader function itself: the function identity
+  // changes on every progress update, and a changed ListHeaderComponent function
+  // is a new component type to React - it remounts the whole header and replays
+  // the file items' entering animations (visible as blinking)
+  const headerElement = renderHeader()
+
   return (
     <FlatList
       style={styles.list}
       data={downloadItems}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
-      ListHeaderComponent={renderHeader}
+      ListHeaderComponent={headerElement}
       contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
     />
   )
