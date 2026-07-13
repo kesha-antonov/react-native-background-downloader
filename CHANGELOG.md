@@ -1,6 +1,6 @@
 # Changelog
 
-## v4.5.7
+## v4.5.8
 
 ### 🐛 Bug Fixes
 
