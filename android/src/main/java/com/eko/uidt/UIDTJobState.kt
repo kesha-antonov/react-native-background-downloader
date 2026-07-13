@@ -93,6 +93,7 @@ object UIDTConstants {
     const val KEY_START_BYTE = "start_byte"
     const val KEY_TOTAL_BYTES = "total_bytes"
     const val KEY_METADATA = "metadata"
+    const val KEY_IS_ALLOWED_OVER_METERED = "is_allowed_over_metered"
 
     // Notification channel for UIDT jobs (visible notifications)
     const val NOTIFICATION_CHANNEL_ID = "uidt_download_channel"
@@ -223,6 +224,16 @@ object UIDTJobRegistry {
     fun getJobDownloadState(configId: String): ResumableDownloader.DownloadState? {
         val jobState = activeJobs[configId] ?: return null
         return jobState.resumableDownloader.getState(configId)
+    }
+
+    /**
+     * Read the metered-network permission of an active job from its persisted extras.
+     * Returns null when the job is not active. The extras survive process death, so
+     * this is the source of truth when the module's in-memory map has been lost.
+     */
+    fun getJobIsAllowedOverMetered(configId: String): Boolean? {
+        val jobState = activeJobs[configId] ?: return null
+        return jobState.params.extras.getBoolean(UIDTConstants.KEY_IS_ALLOWED_OVER_METERED, true)
     }
 
     /**

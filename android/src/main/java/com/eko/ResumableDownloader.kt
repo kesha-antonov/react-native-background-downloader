@@ -1,5 +1,6 @@
 package com.eko
 
+import android.net.Network
 import com.eko.utils.HeaderUtils
 import java.io.File
 import java.io.FileOutputStream
@@ -34,7 +35,12 @@ class ResumableDownloader {
     @Volatile var inputStream: InputStream? = null,
     var hasReportedBegin: Boolean = false,
     // Session counter to detect stale threads after pause/resume
-    val sessionId: AtomicLong = AtomicLong(0)
+    val sessionId: AtomicLong = AtomicLong(0),
+    // Whether this download may transfer over metered networks
+    val isAllowedOverMetered: Boolean = true,
+    // When set, the HTTP connection is opened on this specific network so an
+    // unmetered-only download can never leak onto a metered default network
+    @Volatile var network: Network? = null
   )
 
   private val activeDownloads = ConcurrentHashMap<String, DownloadState>()
@@ -58,8 +64,53 @@ class ResumableDownloader {
     headers: Map<String, String>,
     listener: DownloadListener,
     startByte: Long = 0,
-    totalBytes: Long = -1
+    totalBytes: Long = -1,
+    isAllowedOverMetered: Boolean = true
   ) {
+    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
+
+    val currentSessionId = state.sessionId.get()
+    val thread = Thread {
+      downloadWithResume(state, listener, currentSessionId)
+    }
+    state.thread = thread
+    thread.start()
+  }
+
+  /**
+   * Register a download in a paused/waiting state WITHOUT starting the transfer.
+   * Used by the unmetered-network gate on Android < 14: the state is visible to
+   * pause/cancel/getState immediately, and the actual transfer is started later
+   * via resume() once a suitable network is available.
+   */
+  fun prepareWaitingDownload(
+    id: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    startByte: Long = 0,
+    totalBytes: Long = -1,
+    isAllowedOverMetered: Boolean = true
+  ): DownloadState {
+    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
+    // Paused-like state so resume() can start the first transfer
+    state.isPaused.set(true)
+    return state
+  }
+
+  /**
+   * Cancel any existing download with the same ID, clean up a stale destination
+   * file, then create and register a fresh DownloadState (no thread started).
+   */
+  private fun registerNewDownload(
+    id: String,
+    url: String,
+    destination: String,
+    headers: Map<String, String>,
+    startByte: Long,
+    totalBytes: Long,
+    isAllowedOverMetered: Boolean
+  ): DownloadState {
     // Cancel any existing download with the same ID first
     val existingState = activeDownloads[id]
     if (existingState != null) {
@@ -93,7 +144,8 @@ class ResumableDownloader {
       url = url,
       destination = destination,
       headers = headers,
-      bytesTotal = totalBytes
+      bytesTotal = totalBytes,
+      isAllowedOverMetered = isAllowedOverMetered
     )
 
     // Set initial bytes downloaded (only for explicit resume with startByte > 0)
@@ -112,13 +164,7 @@ class ResumableDownloader {
     }
 
     activeDownloads[id] = state
-
-    val currentSessionId = state.sessionId.get()
-    val thread = Thread {
-      downloadWithResume(state, listener, currentSessionId)
-    }
-    state.thread = thread
-    thread.start()
+    return state
   }
 
   fun pause(id: String): Boolean {
@@ -278,7 +324,10 @@ class ResumableDownloader {
       }
 
       val url = URL(state.url)
-      connection = url.openConnection() as HttpURLConnection
+      // When the download is bound to a specific network (unmetered-network gate),
+      // open the connection on that network so bytes can't leak onto the metered
+      // default network. Otherwise use the default network.
+      connection = (state.network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
       // Store connection reference so it can be disconnected on cancel
       state.connection = connection
       connection.connectTimeout = DownloadConstants.CONNECT_TIMEOUT_MS
@@ -549,7 +598,9 @@ class ResumableDownloader {
       connection = this.connection,
       inputStream = this.inputStream,
       hasReportedBegin = this.hasReportedBegin,
-      sessionId = this.sessionId
+      sessionId = this.sessionId,
+      isAllowedOverMetered = this.isAllowedOverMetered,
+      network = this.network
     )
   }
 }

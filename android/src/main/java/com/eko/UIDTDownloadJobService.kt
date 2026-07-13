@@ -53,8 +53,9 @@ class UIDTDownloadJobService : JobService() {
             headers: Map<String, String>,
             startByte: Long = 0,
             totalBytes: Long = -1,
-            metadata: String = "{}"
-        ): Boolean = UIDTJobManager.scheduleDownload(context, configId, url, destination, headers, startByte, totalBytes, metadata)
+            metadata: String = "{}",
+            isAllowedOverMetered: Boolean = true
+        ): Boolean = UIDTJobManager.scheduleDownload(context, configId, url, destination, headers, startByte, totalBytes, metadata, isAllowedOverMetered)
 
         /**
          * Cancel a scheduled UIDT job.
@@ -75,6 +76,11 @@ class UIDTDownloadJobService : JobService() {
          * Get the download state for a UIDT job.
          */
         fun getJobDownloadState(configId: String): ResumableDownloader.DownloadState? = UIDTJobRegistry.getJobDownloadState(configId)
+
+        /**
+         * Get the metered-network permission of an active UIDT job (null if not active).
+         */
+        fun getJobIsAllowedOverMetered(configId: String): Boolean? = UIDTJobRegistry.getJobIsAllowedOverMetered(configId)
 
         /**
          * Pause an active UIDT download.

@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.5.7
+
+### 🐛 Bug Fixes
+
+- **Android: `isAllowedOverMetered` ignored on the UIDT/JobScheduler path (fix [#169](https://github.com/kesha-antonov/react-native-background-downloader/issues/169)):** The flag was only applied via `DownloadManager.Request.setAllowedOverMetered()`, but downloads routed through UIDT jobs (the DownloadManager fallback - always used on Android 16 / API 36 - and every pause/resume on Android 14+) built their `NetworkRequest` with `NET_CAPABILITY_INTERNET` only, so `isAllowedOverMetered: false` still transferred over cellular. The UIDT job's required network now includes `NET_CAPABILITY_NOT_METERED` when metered networks are disallowed, so the JobScheduler holds the transfer until an unmetered network is available and releases it automatically - matching the DownloadManager semantics. The restriction is stored in the job's extras and in the persisted pause/recovery state, so it survives pause/resume, process death and JobScheduler reschedules. Thanks to [@lakshgk](https://github.com/lakshgk) for the detailed report and root-cause analysis.
+- **Android < 14: `isAllowedOverMetered` now enforced on the foreground-service path too ([#169](https://github.com/kesha-antonov/react-native-background-downloader/issues/169)):** Downloads running through `ResumableDownloadService` (Android < 14, and the fallback when UIDT scheduling fails - including any download to internal storage, where `DownloadManager` rejects the path) ignored the flag entirely, since there is no scheduler to hold the transfer. The service now gates unmetered-only downloads on a `ConnectivityManager` network callback: the transfer waits until an unmetered network is available (mirroring DownloadManager's "queued for WiFi" state), the HTTP connection is bound to that specific `Network` so bytes can't leak onto a metered default network, and if the network disappears or becomes metered mid-transfer the download auto-pauses back into the waiting state - a socket abort racing ahead of the connectivity callback is reclassified after a short grace period instead of surfacing as `downloadFailed` - and auto-resumes from its byte offset when an unmetered network returns. The service notification shows how many downloads are waiting for an unmetered network.
+
 ## v4.5.6
 
 ### 🐛 Bug Fixes

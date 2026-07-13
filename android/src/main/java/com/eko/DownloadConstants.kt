@@ -37,6 +37,13 @@ object DownloadConstants {
     /** Interval for persisting in-progress resumable download recovery snapshots (milliseconds) */
     const val RECOVERY_SNAPSHOT_INTERVAL_MS = 2_000L
 
+    /**
+     * Grace period before classifying an IO error on an unmetered-only download (milliseconds).
+     * A socket abort caused by network loss/metering usually arrives before ConnectivityService
+     * updates the network's capabilities and delivers onLost - re-check after this delay.
+     */
+    const val UNMETERED_RECHECK_DELAY_MS = 3_000L
+
     // ========== HTTP Headers ==========
 
     /** Keep-Alive header value for connection pooling */

@@ -196,7 +196,10 @@ class StorageManager(context: Context, private val name: String) {
         val headers: Map<String, String>,
         val bytesDownloaded: Long,
         val bytesTotal: Long,
-        val metadata: String = "{}"
+        val metadata: String = "{}",
+        // Nullable so records persisted by older versions (key absent in JSON)
+        // load as null and fall back to true instead of Gson's default false.
+        val isAllowedOverMetered: Boolean? = null
     )
 
     /**
@@ -214,7 +217,8 @@ class StorageManager(context: Context, private val name: String) {
                     headers = info.headers,
                     bytesDownloaded = info.bytesDownloaded,
                     bytesTotal = info.bytesTotal,
-                    metadata = info.metadata
+                    metadata = info.metadata,
+                    isAllowedOverMetered = info.isAllowedOverMetered
                 )
             }
             val str = gson.toJson(mapCopy)
@@ -256,7 +260,8 @@ class StorageManager(context: Context, private val name: String) {
                         headers = data.headers,
                         bytesDownloaded = data.bytesDownloaded,
                         bytesTotal = data.bytesTotal,
-                        metadata = data.metadata
+                        metadata = data.metadata,
+                        isAllowedOverMetered = data.isAllowedOverMetered ?: true
                     )
                 }.toMutableMap()
             }
@@ -299,7 +304,8 @@ class StorageManager(context: Context, private val name: String) {
                     headers = info.headers,
                     bytesDownloaded = info.bytesDownloaded,
                     bytesTotal = info.bytesTotal,
-                    metadata = info.metadata
+                    metadata = info.metadata,
+                    isAllowedOverMetered = info.isAllowedOverMetered
                 )
             }
             val str = gson.toJson(mapCopy)
@@ -339,7 +345,8 @@ class StorageManager(context: Context, private val name: String) {
                         headers = data.headers,
                         bytesDownloaded = data.bytesDownloaded,
                         bytesTotal = data.bytesTotal,
-                        metadata = data.metadata
+                        metadata = data.metadata,
+                        isAllowedOverMetered = data.isAllowedOverMetered ?: true
                     )
                 }.toMutableMap()
             }

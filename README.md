@@ -510,7 +510,9 @@ setConfig({
 
 This is a cross-platform setting that works on both iOS and Android:
 - **iOS**: Sets the `allowsCellularAccess` property on the NSURLSession configuration
-- **Android**: Sets the `isAllowedOverMetered` flag on DownloadManager requests
+- **Android**: Applied on all three download mechanisms - `DownloadManager` requests (`setAllowedOverMetered`), the UIDT/JobScheduler jobs used on Android 14+ (the job requires an unmetered network), and the foreground-service fallback used on Android < 14 (gated on a `ConnectivityManager` unmetered-network callback)
+
+When cellular is disallowed and the device only has a metered connection, the download doesn't fail - it waits until an unmetered network (e.g. WiFi) becomes available, then starts automatically. If the unmetered network is lost mid-download (e.g. WiFi drops and the device falls back to cellular), the download pauses instead of failing and automatically resumes from where it left off once an unmetered network returns. The restriction is kept across pause/resume and app restarts.
 
 **Per-download override (Android only):** On Android, you can override the global cellular setting for individual downloads using the `isAllowedOverMetered` option in `createDownloadTask()`:
 

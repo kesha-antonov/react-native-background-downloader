@@ -42,6 +42,9 @@ object UIDTJobManager {
      * @param startByte Byte position to resume from (0 for new downloads)
      * @param totalBytes Total expected bytes (-1 if unknown)
      * @param metadata JSON metadata with course info for notification grouping
+     * @param isAllowedOverMetered Whether the transfer may use metered networks (cellular).
+     *        When false the job requires an unmetered network, matching
+     *        DownloadManager.Request.setAllowedOverMetered(false) semantics.
      * @return true if job was scheduled successfully
      */
     fun scheduleDownload(
@@ -52,7 +55,8 @@ object UIDTJobManager {
         headers: Map<String, String>,
         startByte: Long = 0,
         totalBytes: Long = -1,
-        metadata: String = "{}"
+        metadata: String = "{}",
+        isAllowedOverMetered: Boolean = true
     ): Boolean {
         if (!isUIDTAvailable()) {
             RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "UIDT requires Android 14+, falling back to foreground service")
@@ -78,6 +82,7 @@ object UIDTJobManager {
             putLong(UIDTConstants.KEY_START_BYTE, startByte)
             putLong(UIDTConstants.KEY_TOTAL_BYTES, totalBytes)
             putString(UIDTConstants.KEY_METADATA, metadata)
+            putBoolean(UIDTConstants.KEY_IS_ALLOWED_OVER_METERED, isAllowedOverMetered)
         }
 
         // Build network request - require internet connectivity.
@@ -85,10 +90,16 @@ object UIDTJobManager {
         // (e.g. Proton VPN, full-tunnel VPNs) are accepted. Without this, the JobScheduler
         // only considers non-VPN networks; a kill-switch VPN blocks that traffic and the
         // job never starts, causing callbacks to never fire.
-        val networkRequest = NetworkRequest.Builder()
+        val networkRequestBuilder = NetworkRequest.Builder()
             .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .build()
+        // When metered networks are not allowed, require an unmetered network so the
+        // JobScheduler holds the job until Wi-Fi/ethernet is available - the same
+        // behavior as DownloadManager.Request.setAllowedOverMetered(false).
+        if (!isAllowedOverMetered) {
+            networkRequestBuilder.addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        }
+        val networkRequest = networkRequestBuilder.build()
 
         // Build the job with UIDT flag
         val jobInfo = JobInfo.Builder(jobId, ComponentName(context, UIDTDownloadJobService::class.java))
@@ -106,7 +117,7 @@ object UIDTJobManager {
         val success = result == JobScheduler.RESULT_SUCCESS
 
         if (success) {
-            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Scheduled UIDT job for $configId (jobId=$jobId)")
+            RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Scheduled UIDT job for $configId (jobId=$jobId, isAllowedOverMetered=$isAllowedOverMetered)")
         } else {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to schedule UIDT job for $configId")
             UIDTJobRegistry.pendingHeaders.remove(configId)

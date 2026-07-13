@@ -83,7 +83,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
     val headers: Map<String, String>,
     val bytesDownloaded: Long,
     val bytesTotal: Long,
-    val metadata: String = "{}"
+    val metadata: String = "{}",
+    val isAllowedOverMetered: Boolean = true
   )
 
   init {
@@ -199,7 +200,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
    * Pause a download. This cancels the DownloadManager download and saves state
    * so it can be resumed later using HTTP Range headers.
    */
-  fun pause(downloadId: Long, configId: String, url: String, destination: String, headers: Map<String, String>, metadata: String = "{}"): Boolean {
+  fun pause(downloadId: Long, configId: String, url: String, destination: String, headers: Map<String, String>, metadata: String = "{}", isAllowedOverMetered: Boolean = true): Boolean {
     // Mark this download as being paused to ignore broadcast events
     cancellingDownloads[downloadId] = CancelIntent.PAUSING
 
@@ -219,7 +220,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
       headers = headers,
       bytesDownloaded = bytesDownloaded,
       bytesTotal = bytesTotal,
-      metadata = metadata
+      metadata = metadata,
+      isAllowedOverMetered = isAllowedOverMetered
     )
     pausedDownloads[configId] = pausedInfo
 
@@ -242,7 +244,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
     headers: Map<String, String>,
     bytesDownloaded: Long,
     bytesTotal: Long,
-    metadata: String = "{}"
+    metadata: String = "{}",
+    isAllowedOverMetered: Boolean = true
   ) {
     val pausedInfo = PausedDownloadInfo(
       configId = configId,
@@ -251,7 +254,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
       headers = headers,
       bytesDownloaded = bytesDownloaded,
       bytesTotal = bytesTotal,
-      metadata = metadata
+      metadata = metadata,
+      isAllowedOverMetered = isAllowedOverMetered
     )
     pausedDownloads[configId] = pausedInfo
 
@@ -296,7 +300,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
       pausedInfo.bytesDownloaded,
       pausedInfo.bytesTotal,
       listener,
-      pausedInfo.metadata
+      pausedInfo.metadata,
+      pausedInfo.isAllowedOverMetered
     )
 
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download $configId from ${pausedInfo.bytesDownloaded} bytes via service")
@@ -321,7 +326,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
     startByte: Long,
     totalBytes: Long,
     listener: ResumableDownloader.DownloadListener,
-    metadata: String = "{}"
+    metadata: String = "{}",
+    isAllowedOverMetered: Boolean = true
   ) {
     // On Android 14+, use UIDT jobs for better background execution
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -337,7 +343,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
         headers = headers,
         startByte = startByte,
         totalBytes = totalBytes,
-        metadata = metadata
+        metadata = metadata,
+        isAllowedOverMetered = isAllowedOverMetered
       )
 
       if (scheduled) {
@@ -349,7 +356,10 @@ class Downloader(private val context: Context, private val storageManager: com.e
       RNBackgroundDownloaderModuleImpl.logW(TAG, "UIDT scheduling failed, falling back to foreground service")
     }
 
-    // On Android < 14 or if UIDT fails, use foreground service
+    // On Android < 14 or if UIDT fails, use foreground service.
+    // When isAllowedOverMetered=false the service gates the transfer on an
+    // unmetered network via a ConnectivityManager callback (waits like
+    // DownloadManager's "queued for WiFi" instead of failing).
     // First, ensure the service is started as a foreground service
     // Use a no-op action to just wake up the service
     val startIntent = Intent(context, ResumableDownloadService::class.java)
@@ -366,7 +376,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
     // Now use the direct service call path
     executeWhenServiceReady {
       downloadService?.setDownloadListener(listener)
-      downloadService?.startDownload(configId, url, destination, headers, startByte, totalBytes)
+      downloadService?.startDownload(configId, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
     }
   }
 
@@ -381,7 +391,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
     destination: String,
     headers: Map<String, String>,
     listener: ResumableDownloader.DownloadListener,
-    metadata: String = "{}"
+    metadata: String = "{}",
+    isAllowedOverMetered: Boolean = true
   ) {
     startDownloadService(
       configId,
@@ -391,7 +402,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
       0L,  // Start from beginning
       -1L, // Total bytes unknown
       listener,
-      metadata
+      metadata,
+      isAllowedOverMetered
     )
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Started ResumableDownloader for $configId (DownloadManager fallback)")
   }
@@ -495,7 +507,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
     headers: Map<String, String>,
     bytesDownloaded: Long,
     bytesTotal: Long,
-    metadata: String = "{}"
+    metadata: String = "{}",
+    isAllowedOverMetered: Boolean = true
   ) {
     storageManager?.saveActiveDownload(
       PausedDownloadInfo(
@@ -505,7 +518,8 @@ class Downloader(private val context: Context, private val storageManager: com.e
         headers = headers,
         bytesDownloaded = bytesDownloaded,
         bytesTotal = bytesTotal,
-        metadata = metadata
+        metadata = metadata,
+        isAllowedOverMetered = isAllowedOverMetered
       )
     )
   }
