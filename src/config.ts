@@ -1,4 +1,8 @@
 import { Headers, IosDataProtection, NotificationGroupingMode, NotificationsGroupingConfig, NotificationTexts } from './types'
+// Logging lives in ./logger (log, LogCallback); notification-text formatting
+// lives in ./notifications (getGroupText, getNotificationTextsForNative).
+// This module holds only the shared config state and its defaults.
+import type { LogCallback } from './logger'
 
 export const DEFAULT_PROGRESS_INTERVAL = 1000
 export const DEFAULT_PROGRESS_MIN_BYTES = 1024 * 1024 // 1MB
@@ -18,11 +22,6 @@ export const DEFAULT_NOTIFICATION_TEXTS: Required<NotificationTexts> = {
   groupTitle: 'Downloads',
   groupText: (count: number) => `${count} download${count !== 1 ? 's' : ''} in progress`,
 }
-
-// Logging lives in ./logger (log, LogCallback); notification-text formatting
-// lives in ./notifications (getGroupText, getNotificationTextsForNative).
-// This module holds only the shared config state and its defaults.
-import type { LogCallback } from './logger'
 
 interface ConfigState {
   headers: Headers
@@ -53,4 +52,3 @@ export const config: ConfigState = {
     texts: DEFAULT_NOTIFICATION_TEXTS,
   },
 }
-
