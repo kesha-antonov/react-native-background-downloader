@@ -674,6 +674,51 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 }
 
+// Same recovery as -createDownloadTaskWithRequest:identifier:, for uploads:
+// -uploadTaskWithRequest:fromFile: raises NSInvalidArgumentException when the
+// session has been invalidated, so recreate the background session and retry once.
+// Must be called while holding sharedLock.
+// See https://github.com/kesha-antonov/react-native-background-downloader/issues/170
+- (NSURLSessionUploadTask *)createUploadTaskWithRequest:(NSURLRequest *)request fromFile:(NSURL *)fileURL identifier:(NSString *)identifier {
+    @try {
+        return [urlSession uploadTaskWithRequest:request fromFile:fileURL];
+    } @catch (NSException *exception) {
+        DLog(identifier, @"[RNBackgroundDownloader] - [createUploadTask] session invalidated, recreating: %@", exception.reason);
+        [self sendDebugLog:[NSString stringWithFormat:@"createUploadTask: session invalidated, recreating (%@)", exception.reason] taskId:identifier];
+
+        // Recreate the background session directly (do not call unregisterSession,
+        // which would invalidateAndCancel and drop queued downloads).
+        urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+        isSessionActivated = YES;
+
+        @try {
+            return [urlSession uploadTaskWithRequest:request fromFile:fileURL];
+        } @catch (NSException *retryException) {
+            DLog(identifier, @"[RNBackgroundDownloader] - [createUploadTask] retry failed: %@", retryException.reason);
+            [self sendDebugLog:[NSString stringWithFormat:@"createUploadTask: retry failed (%@)", retryException.reason] taskId:identifier];
+            return nil;
+        }
+    }
+}
+
+// Emits uploadFailed so the JS task errors out instead of hanging when upload
+// setup fails before a task exists (bad params, unreadable file, task creation failure).
+- (void)emitUploadFailed:(NSString *)identifier error:(NSString *)error errorCode:(NSInteger)errorCode {
+    if (identifier == nil) {
+        return;
+    }
+    NSDictionary *body = @{
+        @"id": identifier,
+        @"error": error ?: @"unknown error",
+        @"errorCode": @(errorCode)
+    };
+#ifdef RCT_NEW_ARCH_ENABLED
+    [self safeEmitEvent:@"onUploadFailed" value:body];
+#else
+    [self sendEventWithName:@"uploadFailed" body:body];
+#endif
+}
+
 - (void)pauseTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask]");
     @try {
@@ -1630,114 +1675,153 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
     DLog(identifier, @"[RNBackgroundDownloader] - [upload] url %@ source %@ method %@", url, source, method);
     if (identifier == nil || url == nil || source == nil) {
         DLog(identifier, @"[RNBackgroundDownloader] - [Error] id, url and source must be set");
+        [self emitUploadFailed:identifier error:@"id, url and source must be set" errorCode:-1];
         return;
     }
 
-    @synchronized (sharedLock) {
-        [self sendDebugLog:@"upload: calling lazyRegisterSession" taskId:identifier];
-        [self lazyRegisterSession];
+    @try {
+        @synchronized (sharedLock) {
+            [self sendDebugLog:@"upload: calling lazyRegisterSession" taskId:identifier];
+            [self lazyRegisterSession];
 
-        // Get file info
-        NSURL *fileURL = [NSURL fileURLWithPath:source];
-        NSError *fileError;
-        NSDictionary *fileAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:source error:&fileError];
-        if (fileError) {
-            DLog(identifier, @"[RNBackgroundDownloader] - [Error] Could not read file: %@", fileError.localizedDescription);
-            return;
-        }
-        unsigned long long fileSize = [fileAttrs fileSize];
-
-        // Create request
-        NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:url]];
-        request.HTTPMethod = method;
-        [request setValue:identifier forHTTPHeaderField:@"uploadConfigId"];
-
-        // Add custom headers
-        if (headers != nil) {
-            for (NSString *headerKey in headers) {
-                [request setValue:[headers valueForKey:headerKey] forHTTPHeaderField:headerKey];
-            }
-        }
-
-        // Determine if we need multipart
-        BOOL useMultipart = (parameters != nil && parameters.count > 0) || fieldName != nil;
-
-        RNBGDUploadTaskConfig *taskConfig = [[RNBGDUploadTaskConfig alloc] initWithDictionary:@{
-            @"id": identifier,
-            @"url": url,
-            @"source": source,
-            @"method": method,
-            @"metadata": metadata,
-            @"fieldName": fieldName ?: [NSNull null],
-            @"mimeType": mimeType ?: [NSNull null],
-            @"parameters": parameters ?: [NSNull null]
-        }];
-        taskConfig.bytesTotal = fileSize;
-
-        NSURLSessionUploadTask *uploadTask;
-
-        if (useMultipart) {
-            // Create multipart form data
-            NSString *boundary = [[NSUUID UUID] UUIDString];
-            [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
-
-            // Build multipart body
-            NSMutableData *body = [NSMutableData data];
-
-            // Add parameters
-            if (parameters != nil) {
-                for (NSString *key in parameters) {
-                    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-                    [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"\r\n\r\n", key] dataUsingEncoding:NSUTF8StringEncoding]];
-                    [body appendData:[[NSString stringWithFormat:@"%@\r\n", parameters[key]] dataUsingEncoding:NSUTF8StringEncoding]];
+            // Normalize file:// source paths so NSFileManager / fileURLWithPath get a plain path
+            if ([source hasPrefix:@"file://"]) {
+                NSString *sourcePath = [NSURL URLWithString:source].path;
+                if (sourcePath == nil) {
+                    // URLWithString rejects unencoded paths (e.g. containing spaces)
+                    sourcePath = [[source substringFromIndex:@"file://".length] stringByRemovingPercentEncoding];
+                }
+                if (sourcePath != nil) {
+                    source = sourcePath;
                 }
             }
 
-            // Add file
-            NSString *filename = [source lastPathComponent];
-            NSString *contentType = mimeType ?: @"application/octet-stream";
-
-            NSString *multipartFieldName = fieldName ?: @"file";
-            [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-            [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", multipartFieldName, filename] dataUsingEncoding:NSUTF8StringEncoding]];
-            [body appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", contentType] dataUsingEncoding:NSUTF8StringEncoding]];
-
-            NSData *fileData = [NSData dataWithContentsOfFile:source];
-            [body appendData:fileData];
-            [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-
-            // End boundary
-            [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-
-            // Write body to temp file for background upload
-            NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
-            [body writeToFile:tempPath atomically:YES];
-            NSURL *tempFileURL = [NSURL fileURLWithPath:tempPath];
-
-            taskConfig.bytesTotal = body.length;
-            uploadTask = [urlSession uploadTaskWithRequest:request fromFile:tempFileURL];
-        } else {
-            // Simple file upload
-            if (mimeType) {
-                [request setValue:mimeType forHTTPHeaderField:@"Content-Type"];
+            NSURL *requestURL = [NSURL URLWithString:url];
+            if (requestURL == nil) {
+                DLog(identifier, @"[RNBackgroundDownloader] - [Error] invalid url: %@", url);
+                [self emitUploadFailed:identifier error:[NSString stringWithFormat:@"invalid url: %@", url] errorCode:NSURLErrorBadURL];
+                return;
             }
-            uploadTask = [urlSession uploadTaskWithRequest:request fromFile:fileURL];
+
+            // Get file info
+            NSURL *fileURL = [NSURL fileURLWithPath:source];
+            NSError *fileError;
+            NSDictionary *fileAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:source error:&fileError];
+            if (fileError) {
+                DLog(identifier, @"[RNBackgroundDownloader] - [Error] Could not read file: %@", fileError.localizedDescription);
+                [self emitUploadFailed:identifier error:[NSString stringWithFormat:@"Could not read file: %@", fileError.localizedDescription] errorCode:NSURLErrorFileDoesNotExist];
+                return;
+            }
+            unsigned long long fileSize = [fileAttrs fileSize];
+
+            // Create request
+            NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:requestURL];
+            request.HTTPMethod = method;
+            [request setValue:identifier forHTTPHeaderField:@"uploadConfigId"];
+
+            // Add custom headers
+            if (headers != nil) {
+                for (NSString *headerKey in headers) {
+                    [request setValue:[headers valueForKey:headerKey] forHTTPHeaderField:headerKey];
+                }
+            }
+
+            // Determine if we need multipart
+            BOOL useMultipart = (parameters != nil && parameters.count > 0) || fieldName != nil;
+
+            RNBGDUploadTaskConfig *taskConfig = [[RNBGDUploadTaskConfig alloc] initWithDictionary:@{
+                @"id": identifier,
+                @"url": url,
+                @"source": source,
+                @"method": method,
+                @"metadata": metadata,
+                @"fieldName": fieldName ?: [NSNull null],
+                @"mimeType": mimeType ?: [NSNull null],
+                @"parameters": parameters ?: [NSNull null]
+            }];
+            taskConfig.bytesTotal = fileSize;
+
+            NSURLSessionUploadTask *uploadTask;
+
+            if (useMultipart) {
+                // Create multipart form data
+                NSString *boundary = [[NSUUID UUID] UUIDString];
+                [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
+
+                // Build multipart body
+                NSMutableData *body = [NSMutableData data];
+
+                // Add parameters
+                if (parameters != nil) {
+                    for (NSString *key in parameters) {
+                        [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+                        [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"\r\n\r\n", key] dataUsingEncoding:NSUTF8StringEncoding]];
+                        [body appendData:[[NSString stringWithFormat:@"%@\r\n", parameters[key]] dataUsingEncoding:NSUTF8StringEncoding]];
+                    }
+                }
+
+                // Add file
+                NSString *filename = [source lastPathComponent];
+                NSString *contentType = mimeType ?: @"application/octet-stream";
+
+                NSString *multipartFieldName = fieldName ?: @"file";
+                [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+                [body appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\n", multipartFieldName, filename] dataUsingEncoding:NSUTF8StringEncoding]];
+                [body appendData:[[NSString stringWithFormat:@"Content-Type: %@\r\n\r\n", contentType] dataUsingEncoding:NSUTF8StringEncoding]];
+
+                // The file can disappear between the attributes check above and this
+                // read (TOCTOU); appendData:nil would raise NSInvalidArgumentException
+                NSData *fileData = [NSData dataWithContentsOfFile:source];
+                if (fileData == nil) {
+                    DLog(identifier, @"[RNBackgroundDownloader] - [Error] Could not read file: %@", source);
+                    [self emitUploadFailed:identifier error:[NSString stringWithFormat:@"Could not read file: %@", source] errorCode:NSURLErrorCannotOpenFile];
+                    return;
+                }
+                [body appendData:fileData];
+                [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+
+                // End boundary
+                [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
+
+                // Write body to temp file for background upload
+                NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+                if (![body writeToFile:tempPath atomically:YES]) {
+                    DLog(identifier, @"[RNBackgroundDownloader] - [Error] Could not write multipart body to temp file");
+                    [self emitUploadFailed:identifier error:@"Could not write multipart body to temp file" errorCode:NSURLErrorCannotWriteToFile];
+                    return;
+                }
+                NSURL *tempFileURL = [NSURL fileURLWithPath:tempPath];
+
+                taskConfig.bytesTotal = body.length;
+                uploadTask = [self createUploadTaskWithRequest:request fromFile:tempFileURL identifier:identifier];
+            } else {
+                // Simple file upload
+                if (mimeType) {
+                    [request setValue:mimeType forHTTPHeaderField:@"Content-Type"];
+                }
+                uploadTask = [self createUploadTaskWithRequest:request fromFile:fileURL identifier:identifier];
+            }
+
+            if (uploadTask == nil) {
+                DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create upload task");
+                [self emitUploadFailed:identifier error:@"failed to create upload task" errorCode:-1];
+                return;
+            }
+
+            uploadTaskToConfigMap[@(uploadTask.taskIdentifier)] = taskConfig;
+            [mmkv setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
+
+            idToUploadTaskMap[identifier] = uploadTask;
+            idToUploadPercentMap[identifier] = @0.0;
+            idToUploadLastBytesMap[identifier] = @0;
+
+            [uploadTask resume];
+            lastUploadProgressReportedAt = [[NSDate alloc] init];
         }
-
-        if (uploadTask == nil) {
-            DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create upload task");
-            return;
-        }
-
-        uploadTaskToConfigMap[@(uploadTask.taskIdentifier)] = taskConfig;
-        [mmkv setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
-
-        idToUploadTaskMap[identifier] = uploadTask;
-        idToUploadPercentMap[identifier] = @0.0;
-        idToUploadLastBytesMap[identifier] = @0;
-
-        [uploadTask resume];
-        lastUploadProgressReportedAt = [[NSDate alloc] init];
+    } @catch (NSException *exception) {
+        DLog(identifier, @"[RNBackgroundDownloader] - [upload] error: %@", exception.reason);
+        [self sendDebugLog:[NSString stringWithFormat:@"upload: ERROR - %@", exception.reason] taskId:identifier];
+        [self emitUploadFailed:identifier error:exception.reason errorCode:-1];
     }
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.5.9
+
+### 🐛 Bug Fixes
+
+- **iOS: Crash creating an upload task on an invalidated `URLSession` / missing source file (fix [#170](https://github.com/kesha-antonov/react-native-background-downloader/issues/170)):** `upload()` called `uploadTaskWithRequest:fromFile:` directly, so the same `NSInvalidArgumentException` that #157 fixed for downloads (session invalidated after a hot reload or a prior `invalidateAndCancel`) terminated the app when it happened for an upload - the method is a void TurboModule call, so the uncaught exception was rethrown by React and the process died. Upload task creation now goes through the same recovery path as downloads: catch the exception, recreate the background session in place, and retry once. The multipart path also no longer crashes when the source file disappears between the size check and the body build (`appendData:nil`), and a `file://`-prefixed `source` is normalized to a plain path before file access. On top of the crash fixes, every setup failure path (missing id/url/source, invalid URL, unreadable file, failed temp-file write, task creation failure) now emits `uploadFailed` instead of silently returning, so the JS task errors out instead of hanging forever.
+
 ## v4.5.8
 
 ### 🐛 Bug Fixes
