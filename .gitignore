@@ -81,3 +81,6 @@ example/ios/.xcode.env.local
 
 # CodeQL temp files
 _codeql_detected_source_root
+
+# graphify generated knowledge-graph output (regenerate with /graphify)
+graphify-out/
