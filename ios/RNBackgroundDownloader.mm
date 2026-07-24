@@ -301,11 +301,23 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     @synchronized (sharedLock) {
         if (urlSession == nil) {
             [self sendDebugLog:@"lazyRegisterSession: creating new session" taskId:nil];
-            urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
-            // Activate the session by calling getTasksWithCompletionHandler
-            // This forces iOS to fully initialize the background session
-            // On fresh installs, the session may not be ready to process tasks immediately
-            [self activateSession];
+            // +sessionWithConfiguration: can raise NSInvalidArgumentException (the same
+            // failure mode as issues #161/#170). This is the one choke point every entry
+            // point funnels through, so we contain the throw here and leave urlSession nil
+            // rather than let it escape a void/promise method and crash Hermes off the JS
+            // thread. Callers already degrade on a nil session (download queues, the
+            // getExisting* methods reject with ERR_SESSION_NIL).
+            @try {
+                urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+                // Activate the session by calling getTasksWithCompletionHandler
+                // This forces iOS to fully initialize the background session
+                // On fresh installs, the session may not be ready to process tasks immediately
+                [self activateSession];
+            } @catch (NSException *exception) {
+                urlSession = nil;
+                DLog(nil, @"[RNBackgroundDownloader] - [lazyRegisterSession] error: %@", exception.reason);
+                [self sendDebugLog:[NSString stringWithFormat:@"lazyRegisterSession: ERROR - %@", exception.reason] taskId:nil];
+            }
         } else {
             [self sendDebugLog:@"lazyRegisterSession: session already exists" taskId:nil];
         }

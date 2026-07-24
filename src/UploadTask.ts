@@ -16,7 +16,8 @@ import {
   UnsafeObject,
   Headers,
 } from './types'
-import { config, log } from './config'
+import { config } from './config'
+import { log } from './logger'
 
 // Import shared native module getter to avoid duplicating TurboModule lookup
 // This is lazily imported to avoid circular dependency issues at module load time

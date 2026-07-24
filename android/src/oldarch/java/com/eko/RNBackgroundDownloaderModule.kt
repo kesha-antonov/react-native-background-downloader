@@ -33,34 +33,16 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun pauseTask(id: String, promise: Promise) {
-        try {
-            impl.pauseTask(id)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("ERR_PAUSE_TASK", e.message, e)
-        }
-    }
+    fun pauseTask(id: String, promise: Promise) =
+        promise.resolveCatching("ERR_PAUSE_TASK") { impl.pauseTask(id) }
 
     @ReactMethod
-    fun resumeTask(id: String, promise: Promise) {
-        try {
-            impl.resumeTask(id)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("ERR_RESUME_TASK", e.message, e)
-        }
-    }
+    fun resumeTask(id: String, promise: Promise) =
+        promise.resolveCatching("ERR_RESUME_TASK") { impl.resumeTask(id) }
 
     @ReactMethod
-    fun stopTask(id: String, promise: Promise) {
-        try {
-            impl.stopTask(id)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("ERR_STOP_TASK", e.message, e)
-        }
-    }
+    fun stopTask(id: String, promise: Promise) =
+        promise.resolveCatching("ERR_STOP_TASK") { impl.stopTask(id) }
 
     @ReactMethod
     fun updateTaskHeaders(id: String, headers: ReadableMap, promise: Promise) {
@@ -68,23 +50,12 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun completeHandler(jobId: String, promise: Promise) {
-        try {
-            impl.completeHandler(jobId)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("ERR_COMPLETE_HANDLER", e.message, e)
-        }
-    }
+    fun completeHandler(jobId: String, promise: Promise) =
+        promise.resolveCatching("ERR_COMPLETE_HANDLER") { impl.completeHandler(jobId) }
 
     @ReactMethod
-    fun getExistingDownloadTasks(promise: Promise) {
-        try {
-            impl.getExistingDownloadTasks(promise)
-        } catch (e: Exception) {
-            promise.reject("ERR_GET_EXISTING_TASKS", e.message, e)
-        }
-    }
+    fun getExistingDownloadTasks(promise: Promise) =
+        promise.rejectOnThrow("ERR_GET_EXISTING_TASKS") { impl.getExistingDownloadTasks(promise) }
 
     @ReactMethod
     fun setLogsEnabled(enabled: Boolean) {
@@ -124,41 +95,18 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun pauseUploadTask(id: String, promise: Promise) {
-        try {
-            impl.pauseUploadTask(id)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("ERR_PAUSE_UPLOAD_TASK", e.message, e)
-        }
-    }
+    fun pauseUploadTask(id: String, promise: Promise) =
+        promise.resolveCatching("ERR_PAUSE_UPLOAD_TASK") { impl.pauseUploadTask(id) }
 
     @ReactMethod
-    fun resumeUploadTask(id: String, promise: Promise) {
-        try {
-            impl.resumeUploadTask(id)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("ERR_RESUME_UPLOAD_TASK", e.message, e)
-        }
-    }
+    fun resumeUploadTask(id: String, promise: Promise) =
+        promise.resolveCatching("ERR_RESUME_UPLOAD_TASK") { impl.resumeUploadTask(id) }
 
     @ReactMethod
-    fun stopUploadTask(id: String, promise: Promise) {
-        try {
-            impl.stopUploadTask(id)
-            promise.resolve(null)
-        } catch (e: Exception) {
-            promise.reject("ERR_STOP_UPLOAD_TASK", e.message, e)
-        }
-    }
+    fun stopUploadTask(id: String, promise: Promise) =
+        promise.resolveCatching("ERR_STOP_UPLOAD_TASK") { impl.stopUploadTask(id) }
 
     @ReactMethod
-    fun getExistingUploadTasks(promise: Promise) {
-        try {
-            impl.getExistingUploadTasks(promise)
-        } catch (e: Exception) {
-            promise.reject("ERR_GET_EXISTING_UPLOAD_TASKS", e.message, e)
-        }
-    }
+    fun getExistingUploadTasks(promise: Promise) =
+        promise.rejectOnThrow("ERR_GET_EXISTING_UPLOAD_TASKS") { impl.getExistingUploadTasks(promise) }
 }

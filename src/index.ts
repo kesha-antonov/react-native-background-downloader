@@ -2,7 +2,9 @@ import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, Nativ
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
 import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
-import { config, log, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, getNotificationTextsForNative, DEFAULT_NOTIFICATION_TEXTS } from './config'
+import { config, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, DEFAULT_NOTIFICATION_TEXTS } from './config'
+import { log } from './logger'
+import { getNotificationTextsForNative } from './notifications'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 type RNBackgroundDownloaderModule = Spec & {

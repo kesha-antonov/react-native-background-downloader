@@ -188,6 +188,19 @@ class StorageManager(context: Context, private val name: String) {
     /**
      * Serializable data class for storing paused download information.
      * This is needed because Gson requires explicit serialization for complex types.
+     *
+     * PERSISTENCE MIGRATION INVARIANT — read before adding a field here.
+     * This DTO is written to MMKV/SharedPreferences by one app version and read back
+     * by the next, so it must stay forward/backward compatible with in-flight downloads
+     * across an app update. Every NEW field MUST:
+     *   1. be nullable (or have a default) so a record written by an older version -
+     *      where the JSON key is simply absent - deserializes instead of failing; and
+     *   2. resolve its legacy meaning explicitly in [toInfo] with `?: <safe default>`,
+     *      never relying on Gson's zero-value default (e.g. `false`/`0`), which is
+     *      usually the wrong choice for an absent key.
+     * See `isAllowedOverMetered` below for the reference pattern, and keep the
+     * runtime<->DTO mapping in the single [toData]/[toInfo] pair so a field is added
+     * in exactly one place.
      */
     data class PausedDownloadInfoData(
         val configId: String,

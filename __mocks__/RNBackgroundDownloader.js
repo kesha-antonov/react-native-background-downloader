@@ -14,6 +14,10 @@ const eventCallbacks = {
     downloadProgress: null,
     downloadComplete: null,
     downloadFailed: null,
+    uploadBegin: null,
+    uploadProgress: null,
+    uploadComplete: null,
+    uploadFailed: null,
 };
 
 const mockModule = {
@@ -101,6 +105,29 @@ const mockModule = {
     }),
     onDownloadFailed: jest.fn().mockImplementation((callback) => {
         eventCallbacks.downloadFailed = callback;
+        return { remove: jest.fn() };
+    }),
+    // Upload native methods
+    upload: jest.fn(),
+    pauseUploadTask: jest.fn(),
+    resumeUploadTask: jest.fn(),
+    stopUploadTask: jest.fn(),
+    getExistingUploadTasks: jest.fn().mockResolvedValue([]),
+    // Upload event emitters (new architecture) - store callbacks
+    onUploadBegin: jest.fn().mockImplementation((callback) => {
+        eventCallbacks.uploadBegin = callback;
+        return { remove: jest.fn() };
+    }),
+    onUploadProgress: jest.fn().mockImplementation((callback) => {
+        eventCallbacks.uploadProgress = callback;
+        return { remove: jest.fn() };
+    }),
+    onUploadComplete: jest.fn().mockImplementation((callback) => {
+        eventCallbacks.uploadComplete = callback;
+        return { remove: jest.fn() };
+    }),
+    onUploadFailed: jest.fn().mockImplementation((callback) => {
+        eventCallbacks.uploadFailed = callback;
         return { remove: jest.fn() };
     }),
 };
