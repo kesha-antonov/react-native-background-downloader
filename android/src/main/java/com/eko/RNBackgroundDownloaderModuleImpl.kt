@@ -14,6 +14,8 @@ import com.eko.handlers.OnBegin
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
 import com.eko.utils.HeaderUtils
+import com.eko.utils.ReadableConverters
+import com.eko.utils.RedirectResolver
 import com.eko.utils.StorageManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -25,8 +27,6 @@ import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -63,46 +63,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       if (isLogsEnabled) Log.e(tag, message)
     }
 
-    /**
-     * Convert a ReadableMap to JSONObject.
-     * Handles nested maps and arrays properly.
-     */
-    fun readableMapToJsonObject(map: ReadableMap?): JSONObject? {
-      if (map == null) return null
-      val json = JSONObject()
-      val iterator = map.keySetIterator()
-      while (iterator.hasNextKey()) {
-        val key = iterator.nextKey()
-        when (map.getType(key)) {
-          ReadableType.Null -> json.put(key, JSONObject.NULL)
-          ReadableType.Boolean -> json.put(key, map.getBoolean(key))
-          ReadableType.Number -> json.put(key, map.getDouble(key))
-          ReadableType.String -> json.put(key, map.getString(key))
-          ReadableType.Map -> json.put(key, readableMapToJsonObject(map.getMap(key)))
-          ReadableType.Array -> json.put(key, readableArrayToJsonArray(map.getArray(key)))
-        }
-      }
-      return json
-    }
-
-    /**
-     * Convert a ReadableArray to JSONArray.
-     */
-    private fun readableArrayToJsonArray(array: ReadableArray?): org.json.JSONArray? {
-      if (array == null) return null
-      val json = org.json.JSONArray()
-      for (i in 0 until array.size()) {
-        when (array.getType(i)) {
-          ReadableType.Null -> json.put(JSONObject.NULL)
-          ReadableType.Boolean -> json.put(array.getBoolean(i))
-          ReadableType.Number -> json.put(array.getDouble(i))
-          ReadableType.String -> json.put(array.getString(i))
-          ReadableType.Map -> json.put(readableMapToJsonObject(array.getMap(i)))
-          ReadableType.Array -> json.put(readableArrayToJsonArray(array.getArray(i)))
-        }
-      }
-      return json
-    }
   }
 
   // Storage manager for persistent state
@@ -599,88 +559,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     )
   }
 
-  /**
-   * Resolve redirects for a URL up to maxRedirects limit
-   * @param originalUrl The original URL to follow
-   * @param maxRedirects Maximum number of redirects to follow (0 means no redirect resolution)
-   * @param headers Headers to include in redirect resolution requests
-   * @return The final resolved URL, or original URL if maxRedirects is 0 or resolution fails
-   */
-  private fun resolveRedirects(originalUrl: String, maxRedirects: Int, headers: ReadableMap?): String {
-    if (maxRedirects <= 0) {
-      return originalUrl
-    }
-
-    try {
-      var currentUrl = originalUrl
-      var redirectCount = 0
-
-      while (redirectCount < maxRedirects) {
-        val url = URL(currentUrl)
-        val connection = url.openConnection() as HttpURLConnection
-
-        // Add headers to the redirect resolution request
-        HeaderUtils.applyToConnection(connection, headers)
-
-        // Add default headers for consistency with DownloadManager
-        HeaderUtils.applyDefaultHeaders(connection, headers)
-
-        connection.instanceFollowRedirects = false
-        connection.requestMethod = "HEAD" // Use HEAD to avoid downloading content
-        connection.connectTimeout = DownloadConstants.REDIRECT_TIMEOUT_MS
-        connection.readTimeout = DownloadConstants.REDIRECT_TIMEOUT_MS
-
-        val responseCode = connection.responseCode
-
-        if (responseCode in 300..399) {
-          // This is a redirect
-          val location = connection.getHeaderField("Location")
-          if (location == null) {
-            logW(NAME, "Redirect response without Location header at: $currentUrl")
-            break
-          }
-
-          // Handle relative URLs
-          currentUrl = when {
-            location.startsWith("/") -> {
-              val baseUrl = URL(currentUrl)
-              "${baseUrl.protocol}://${baseUrl.host}$location"
-            }
-            !location.startsWith("http") -> {
-              val baseUrl = URL(currentUrl)
-              "${baseUrl.protocol}://${baseUrl.host}/$location"
-            }
-            else -> location
-          }
-
-          logD(NAME, "Redirect ${redirectCount + 1}/$maxRedirects: $currentUrl -> $location")
-          redirectCount++
-        } else {
-          // Not a redirect, we've found the final URL
-          break
-        }
-
-        connection.disconnect()
-      }
-
-      if (redirectCount >= maxRedirects) {
-        logW(
-          NAME,
-          "Reached maximum redirects ($maxRedirects) for URL: $originalUrl. Final URL: $currentUrl"
-        )
-      } else {
-        logD(NAME, "Resolved URL after $redirectCount redirects: $currentUrl")
-      }
-
-      return currentUrl
-
-    } catch (e: Exception) {
-      logE(NAME, "Failed to resolve redirects for URL: $originalUrl. Error: ${e.message}")
-      // Return original URL if redirect resolution fails
-      return originalUrl
-    }
-  }
-
   fun download(options: ReadableMap) {
     // Ensure event emitter is initialized before starting download
     // This fixes issues on first app install where download() might be called
@@ -704,7 +582,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           // If passed as object, convert to JSON string properly
           try {
             val map = options.getMap("metadata")
-            readableMapToJsonObject(map)?.toString() ?: "{}"
+            ReadableConverters.toJsonObject(map)?.toString() ?: "{}"
           } catch (e: Exception) {
             logW(NAME, "Failed to convert metadata map to string: ${e.message}")
             "{}"
@@ -752,7 +630,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // Resolve redirects if maxRedirects is specified
     if (maxRedirects > 0) {
       logD(NAME, "Resolving redirects for URL: $url (maxRedirects: $maxRedirects)")
-      url = resolveRedirects(url, maxRedirects, headers)
+      url = RedirectResolver.resolve(url, maxRedirects, headers)
       logD(NAME, "Final resolved URL: $url")
     }
 
@@ -1435,7 +1313,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         ReadableType.Map -> {
           try {
             val map = options.getMap("metadata")
-            readableMapToJsonObject(map)?.toString() ?: "{}"
+            ReadableConverters.toJsonObject(map)?.toString() ?: "{}"
           } catch (e: Exception) {
             logW(NAME, "Failed to convert metadata map to string: ${e.message}")
             "{}"
