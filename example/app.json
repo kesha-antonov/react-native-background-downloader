@@ -23,7 +23,7 @@
       "package": "com.example.rnbackgrounddownloader",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#2E7BC6"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
