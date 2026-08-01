@@ -40,6 +40,12 @@ enum class NotificationGroupingMode {
 data class NotificationConfig(
     var groupingEnabled: Boolean = false,
     var showNotificationsEnabled: Boolean = false,
+    // Post a "download complete" notification when a download finishes.
+    // Opt-in: it alerts on its own channel, unlike the silent progress one.
+    var showCompletionNotification: Boolean = false,
+    // Add a Cancel button to the progress notification. Opt-in: cancelling
+    // from the shade surfaces in JS as a downloadFailed the app has to handle.
+    var showCancelAction: Boolean = false,
     var mode: NotificationGroupingMode = NotificationGroupingMode.INDIVIDUAL,
     var updateInterval: Long = 500L,
     val texts: MutableMap<String, String> = mutableMapOf(
@@ -48,6 +54,7 @@ data class NotificationConfig(
         "downloadProgress" to "Downloading... {progress}%",
         "downloadPaused" to "Paused",
         "downloadFinished" to "Download complete",
+        "downloadCancel" to "Cancel",
         "groupTitle" to "Downloads",
         "groupText" to "{count} download(s) in progress"
     )

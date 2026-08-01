@@ -373,6 +373,8 @@ export function setConfig ({
   maxParallelDownloads,
   allowsCellularAccess,
   showNotificationsEnabled,
+  showCompletionNotification,
+  showCancelAction,
   notificationsGrouping,
   iosDataProtection,
 }: Config) {
@@ -404,6 +406,13 @@ export function setConfig ({
   if (showNotificationsEnabled !== undefined)
     config.showNotificationsEnabled = showNotificationsEnabled
 
+  // Android 14+ notification extras - both opt-in
+  if (showCompletionNotification !== undefined)
+    config.showCompletionNotification = showCompletionNotification
+
+  if (showCancelAction !== undefined)
+    config.showCancelAction = showCancelAction
+
   // Update notification grouping config
   if (notificationsGrouping !== undefined)
     config.notificationsGrouping = {
@@ -424,7 +433,14 @@ export function setConfig ({
       setLogsEnabled?: (enabled: boolean) => void
       setMaxParallelDownloads?: (max: number) => void
       setAllowsCellularAccess?: (allows: boolean) => void
-      setNotificationGroupingConfig?: (config: { enabled: boolean, showNotificationsEnabled: boolean, mode: string, texts: Record<string, string> }) => void
+      setNotificationGroupingConfig?: (config: {
+        enabled: boolean
+        showNotificationsEnabled: boolean
+        showCompletionNotification: boolean
+        showCancelAction: boolean
+        mode: string
+        texts: Record<string, string>
+      }) => void
     }
     if (nativeModule.setLogsEnabled)
       nativeModule.setLogsEnabled(isLogsEnabled)
@@ -438,6 +454,8 @@ export function setConfig ({
       nativeModule.setNotificationGroupingConfig({
         enabled: config.notificationsGrouping.enabled,
         showNotificationsEnabled: config.showNotificationsEnabled ?? false,
+        showCompletionNotification: config.showCompletionNotification ?? false,
+        showCancelAction: config.showCancelAction ?? false,
         mode: config.notificationsGrouping.mode,
         texts: getNotificationTextsForNative(),
       })

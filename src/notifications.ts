@@ -22,6 +22,7 @@ export function getNotificationTextsForNative (): Record<string, string> {
     downloadProgress: texts.downloadProgress ?? DEFAULT_NOTIFICATION_TEXTS.downloadProgress,
     downloadPaused: texts.downloadPaused ?? DEFAULT_NOTIFICATION_TEXTS.downloadPaused,
     downloadFinished: texts.downloadFinished ?? DEFAULT_NOTIFICATION_TEXTS.downloadFinished,
+    downloadCancel: texts.downloadCancel ?? DEFAULT_NOTIFICATION_TEXTS.downloadCancel,
     groupTitle: texts.groupTitle ?? DEFAULT_NOTIFICATION_TEXTS.groupTitle,
     // For native side, we send a pattern with {count} placeholder
     groupText: typeof texts.groupText === 'function'

@@ -21,6 +21,9 @@ export interface NotificationTexts {
   downloadPaused?: string
   /** Text shown when download is finished (default: "Download complete") */
   downloadFinished?: string
+  /** Label of the Cancel action on the progress notification (default: "Cancel").
+   * Android 14+ only, and only when `showCancelAction` is enabled */
+  downloadCancel?: string
   /** Title for group summary notification (default: "Downloads") */
   groupTitle?: string
   /** Text pattern for group summary. Use {count} for number of downloads.
@@ -74,6 +77,19 @@ export interface Config {
   allowsCellularAccess?: boolean
   /** Show download notifications (Android only, default: false). When false, creates minimal silent notifications (UIDT requires a notification) */
   showNotificationsEnabled?: boolean
+  /**
+   * Post a "download complete" notification when a download finishes
+   * (Android 14+ only, default: false). Tapping it opens the saved file.
+   * Requires `showNotificationsEnabled`; ignored in `summaryOnly` grouping mode.
+   */
+  showCompletionNotification?: boolean
+  /**
+   * Add a Cancel button to the download notification (Android 14+ only, default: false).
+   * Tapping it stops the download and fires the task's `.error()` handler with
+   * `errorCode = -1`, so only enable it if your app handles that.
+   * Requires `showNotificationsEnabled`.
+   */
+  showCancelAction?: boolean
   /** Configuration for notifications grouping on Android */
   notificationsGrouping?: NotificationsGroupingConfig
   /**
@@ -151,6 +167,9 @@ export type DownloadParams = {
   groupId?: string
   /** Group name displayed in notification (only used when grouping is enabled) */
   groupName?: string
+  /** Notification title for this download, overriding `groupName` and the
+   * configured `downloadTitle` text (Android 14+ only) */
+  notificationTitle?: string
   /**
    * iOS Data Protection level for this download's file (iOS only).
    * Overrides the global `iosDataProtection` from setConfig.

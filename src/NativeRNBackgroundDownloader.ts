@@ -92,7 +92,14 @@ export interface Spec extends TurboModule {
   setLogsEnabled(enabled: boolean): void
   setMaxParallelDownloads(max: number): void
   setAllowsCellularAccess(allows: boolean): void
-  setNotificationGroupingConfig?(config: { enabled: boolean, showNotificationsEnabled: boolean, mode: string, texts: UnsafeObject }): void
+  setNotificationGroupingConfig?(config: {
+    enabled: boolean
+    showNotificationsEnabled: boolean
+    showCompletionNotification: boolean
+    showCancelAction: boolean
+    mode: string
+    texts: UnsafeObject
+  }): void
 
   getExistingDownloadTasks(): Promise<Array<{
     id: string

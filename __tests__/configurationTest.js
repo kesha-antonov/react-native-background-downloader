@@ -2,7 +2,7 @@ import {
   setConfig,
 } from '../src/index'
 import { config } from '../src/config'
-import { NativeModules } from 'react-native'
+import { NativeModules, Platform } from 'react-native'
 
 const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
 
@@ -97,6 +97,65 @@ describe('Configuration Options', () => {
   test('default values for new configuration options', () => {
     expect(config.maxParallelDownloads).toBe(4)
     expect(config.allowsCellularAccess).toBe(true)
+  })
+
+  test('android notification extras default to off and are opt-in', () => {
+    expect(config.showCompletionNotification).toBe(false)
+    expect(config.showCancelAction).toBe(false)
+
+    setConfig({
+      showNotificationsEnabled: true,
+    })
+
+    // Enabling notifications alone must not turn on the alerting completion
+    // notification or the Cancel button
+    expect(config.showCompletionNotification).toBe(false)
+    expect(config.showCancelAction).toBe(false)
+
+    setConfig({
+      showNotificationsEnabled: true,
+      showCompletionNotification: true,
+      showCancelAction: true,
+    })
+
+    expect(config.showCompletionNotification).toBe(true)
+    expect(config.showCancelAction).toBe(true)
+  })
+
+  test('setConfig forwards notification config to native on android', () => {
+    const originalOS = Platform.OS
+    Platform.OS = 'android'
+
+    try {
+      setConfig({
+        showNotificationsEnabled: true,
+        showCompletionNotification: true,
+        showCancelAction: true,
+        notificationsGrouping: {
+          enabled: true,
+          mode: 'individual',
+          texts: { downloadCancel: 'Abort' },
+        },
+      })
+
+      expect(RNBackgroundDownloaderNative.setNotificationGroupingConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          showNotificationsEnabled: true,
+          showCompletionNotification: true,
+          showCancelAction: true,
+          mode: 'individual',
+          texts: expect.objectContaining({ downloadCancel: 'Abort' }),
+        })
+      )
+    } finally {
+      Platform.OS = originalOS
+      setConfig({
+        showNotificationsEnabled: false,
+        showCompletionNotification: false,
+        showCancelAction: false,
+      })
+    }
   })
 
   test('setConfig does not call native methods when values are undefined', () => {

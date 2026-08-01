@@ -30,6 +30,7 @@ const mockModule = {
     setLogsEnabled: jest.fn(),
     setMaxParallelDownloads: jest.fn(),
     setAllowsCellularAccess: jest.fn(),
+    setNotificationGroupingConfig: jest.fn(),
     TaskRunning: 0,
     TaskSuspended: 1,
     TaskCanceling: 2,

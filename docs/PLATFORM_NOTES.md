@@ -62,20 +62,30 @@ The library uses a Foreground Service for pause/resume functionality. This requi
 
 ### Download Notifications (Android 14+)
 
-On Android 14+ (API 34) downloads run as user-initiated data transfers (UIDT) and the library manages a richer notification flow. These features apply only when `showNotificationsEnabled` is `true`:
+On Android 14+ (API 34) downloads run as user-initiated data transfers (UIDT) and the library can manage a richer notification flow. All of it requires `showNotificationsEnabled: true`, and the two notification extras are opt-in on top of that so upgrading does not change what your users see:
 
-- **Cancel action** — the in-progress notification shows a **Cancel** button. Tapping it stops the download, removes the notification, and fires the task's `.error()` handler with `errorCode = -1` (`CANCELLED`).
-- **Completion notification** — when a download finishes, a persistent "download complete" notification is posted on its own `IMPORTANCE_DEFAULT` channel (so it surfaces to the user, unlike the silent progress channel). It uses the `downloadFinished` text as its title.
-- **Per-download title** — pass `metadata.notificationTitle` when creating a task to override the notification title for that download. Precedence: `notificationTitle` → `groupName` (when grouping is enabled) → the default `downloadTitle` text.
+- **Cancel action** (`showCancelAction`, default `false`) - the in-progress notification shows a **Cancel** button. Tapping it stops the download exactly like `task.stop()` does, removes the notification, and fires the task's `.error()` handler with `errorCode = -1` (`CANCELLED`). Enable it only if your app handles that error. The button label comes from the `downloadCancel` text.
+- **Completion notification** (`showCompletionNotification`, default `false`) - when a download finishes, a persistent "download complete" notification is posted on its own `IMPORTANCE_DEFAULT` channel, so unlike the silent progress channel it actually alerts. Title is the download's `notificationTitle` if it has one, otherwise the `downloadFinished` text; the body is the file name. Nothing is posted in `summaryOnly` grouping mode, which exists precisely so a batch of downloads produces a single notification.
+- **Per-download title** - pass `metadata.notificationTitle` when creating a task to override the notification title for that download. Precedence: `notificationTitle` -> `groupName` (when grouping is enabled) -> the default `downloadTitle` text.
 
 ```javascript
+setConfig({
+  showNotificationsEnabled: true,
+  showCompletionNotification: true,
+  showCancelAction: true,
+})
+
 const task = createDownloadTask({
   id: 'file123',
   url: 'https://example.com/file.mp3',
   destination: `${directories.documents}/file.mp3`,
-  metadata: { notificationTitle: 'My Custom Title' },
+  // fileName is optional and only used as the completion notification's body;
+  // it falls back to the destination's file name
+  metadata: { notificationTitle: 'My Custom Title', fileName: 'file.mp3' },
 })
 ```
+
+These extras are Android 14+ only. On Android 13 and below downloads run through the foreground service, which keeps its existing single progress notification - `notificationTitle`, the Cancel button and the completion notification have no effect there.
 
 **Tap-to-open (FileProvider):** Tapping the completion notification opens the saved file via a `FileProvider` content URI and the system chooser. This works out of the box with **no configuration** — the library ships its own `FileProvider` (`RNBGDFileProvider`, authority `${applicationId}.rnbackgrounddownloader.fileprovider`) declared in its manifest, covering the app-scoped directories downloads are written to. The unique subclass and authority avoid manifest-merger collisions with any `FileProvider` your app already registers.
 

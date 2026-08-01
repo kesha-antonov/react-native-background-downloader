@@ -19,6 +19,7 @@ export const DEFAULT_NOTIFICATION_TEXTS: Required<NotificationTexts> = {
   downloadProgress: 'Downloading... {progress}%',
   downloadPaused: 'Paused',
   downloadFinished: 'Download complete',
+  downloadCancel: 'Cancel',
   groupTitle: 'Downloads',
   groupText: (count: number) => `${count} download${count !== 1 ? 's' : ''} in progress`,
 }
@@ -32,6 +33,8 @@ interface ConfigState {
   maxParallelDownloads: number
   allowsCellularAccess: boolean
   showNotificationsEnabled: boolean
+  showCompletionNotification: boolean
+  showCancelAction: boolean
   notificationsGrouping: NotificationsGroupingConfig & { mode: NotificationGroupingMode }
   iosDataProtection: IosDataProtection
 }
@@ -45,6 +48,8 @@ export const config: ConfigState = {
   maxParallelDownloads: DEFAULT_MAX_PARALLEL_DOWNLOADS,
   allowsCellularAccess: DEFAULT_ALLOWS_CELLULAR_ACCESS,
   showNotificationsEnabled: false,
+  showCompletionNotification: false,
+  showCancelAction: false,
   iosDataProtection: DEFAULT_IOS_DATA_PROTECTION,
   notificationsGrouping: {
     enabled: false,

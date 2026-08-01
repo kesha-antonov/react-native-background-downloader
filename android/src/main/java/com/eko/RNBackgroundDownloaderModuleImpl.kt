@@ -290,6 +290,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun setNotificationGroupingConfig(config: ReadableMap) {
     val enabled = if (config.hasKey("enabled")) config.getBoolean("enabled") else false
     val showNotificationsEnabled = if (config.hasKey("showNotificationsEnabled")) config.getBoolean("showNotificationsEnabled") else false
+    val showCompletionNotification = if (config.hasKey("showCompletionNotification")) config.getBoolean("showCompletionNotification") else false
+    val showCancelAction = if (config.hasKey("showCancelAction")) config.getBoolean("showCancelAction") else false
     val mode = if (config.hasKey("mode")) config.getString("mode") ?: "individual" else "individual"
     val texts = if (config.hasKey("texts")) config.getMap("texts") else null
 
@@ -304,10 +306,17 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Store the config for use by UIDTDownloadJobService
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      UIDTDownloadJobService.setNotificationGroupingConfig(enabled, showNotificationsEnabled, mode, textsMap)
+      UIDTDownloadJobService.setNotificationGroupingConfig(
+        enabled,
+        showNotificationsEnabled,
+        showCompletionNotification,
+        showCancelAction,
+        mode,
+        textsMap
+      )
     }
 
-    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, mode=$mode, texts=$textsMap")
+    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, showCompletionNotification=$showCompletionNotification, showCancelAction=$showCancelAction, mode=$mode, texts=$textsMap")
   }
 
   fun initialize() {

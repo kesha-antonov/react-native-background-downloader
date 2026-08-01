@@ -692,6 +692,33 @@ setConfig({
 })
 ```
 
+**Cancel button and completion notification (Android 14+):**
+
+Two extras are available on top of `showNotificationsEnabled`. Both are off by default, so enabling notifications alone never adds an alerting notification or a button your app is not ready for:
+
+```javascript
+setConfig({
+  showNotificationsEnabled: true,
+  // Adds a Cancel button to the download notification. Tapping it stops the
+  // download like task.stop() and fires the task's .error() handler with
+  // errorCode = -1, so handle that in your app before enabling it.
+  showCancelAction: true,
+  // Posts a "download complete" notification when a download finishes.
+  // Tapping it opens the saved file with the system chooser.
+  // Skipped in 'summaryOnly' grouping mode.
+  showCompletionNotification: true,
+  notificationsGrouping: {
+    enabled: true,
+    texts: {
+      downloadCancel: 'Cancel',        // Label of the Cancel button
+      downloadFinished: 'Download complete', // Title of the completion notification
+    },
+  },
+})
+```
+
+Per-download notification titles are supported too - pass `metadata.notificationTitle` to override `groupName` and the default `downloadTitle` for a single download. See [Platform Notes](docs/PLATFORM_NOTES.md#download-notifications-android-14) for the full behavior.
+
 **Notification grouping modes:**
 
 When downloading many files (e.g., thousands of photos), you can use the `mode` option to control how notifications are displayed:

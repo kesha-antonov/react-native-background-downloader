@@ -109,6 +109,21 @@ object UIDTNotificationManager {
      * The receiver lives in [CancelDownloadReceiver] and calls
      * [UIDTJobManager.cancelJob] when triggered.
      */
+    /**
+     * Add the "Cancel" action to [builder] when the app opted into it via
+     * `showCancelAction`. The label goes through the notification texts so it
+     * stays localizable like every other string this library renders.
+     */
+    private fun applyCancelAction(builder: NotificationCompat.Builder, context: Context, configId: String) {
+        if (!config.showCancelAction) return
+
+        builder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            config.getText("downloadCancel"),
+            buildCancelPendingIntent(context, configId),
+        )
+    }
+
     private fun buildCancelPendingIntent(context: Context, configId: String): PendingIntent {
         val intent = Intent(context, CancelDownloadReceiver::class.java).apply {
             action = CancelDownloadReceiver.ACTION_CANCEL_DOWNLOAD
@@ -189,11 +204,8 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(0, 0, true)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                context.getString(android.R.string.cancel),
-                buildCancelPendingIntent(context, configId),
-            )
+
+        applyCancelAction(builder, context, configId)
 
         // Apply grouping when enabled and groupId is provided
         if (config.groupingEnabled && groupId.isNotEmpty()) {
@@ -246,11 +258,8 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                context.getString(android.R.string.cancel),
-                buildCancelPendingIntent(context, configId),
-            )
+
+        applyCancelAction(builder, context, configId)
 
         // Apply grouping when enabled
         if (config.groupingEnabled && jobState.groupId.isNotEmpty()) {
@@ -583,6 +592,9 @@ object UIDTNotificationManager {
      * the body is the supplied [fileName]. Posted via NotificationManager (not
      * tied to the JobService) so it survives the service shutdown.
      *
+     * Requires the app to opt in with `showCompletionNotification`, since this
+     * one alerts on its own IMPORTANCE_DEFAULT channel.
+     *
      * Nothing is posted in summaryOnly mode - that mode exists so a batch of
      * downloads produces a single notification, and one completion notification
      * per finished file would defeat it.
@@ -598,7 +610,7 @@ object UIDTNotificationManager {
         groupId: String = "",
         customTitle: String = "",
     ) {
-        if (!config.showNotificationsEnabled) return
+        if (!config.showNotificationsEnabled || !config.showCompletionNotification) return
 
         val isSummaryOnlyMode = config.mode == NotificationGroupingMode.SUMMARY_ONLY
         if (isSummaryOnlyMode && config.groupingEnabled && groupId.isNotEmpty()) {

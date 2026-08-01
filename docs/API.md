@@ -145,6 +145,8 @@ Sets global configuration for the downloader.
 | `maxParallelDownloads` | Number | **iOS only**. Sets the maximum number of simultaneous connections per host for the download session. Must be >= 1. Default is 4. Note: Android's DownloadManager does not support this configuration |
 | `allowsCellularAccess` | Boolean | Controls whether downloads are allowed over cellular (metered) connections. When set to `false`, downloads will only occur over WiFi. Default is `true`. This is a cross-platform abstraction - on iOS it sets `allowsCellularAccess`, on Android it sets `isAllowedOverMetered` |
 | `showNotificationsEnabled` | Boolean | **Android only**. Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs on Android 14+ require a notification, but it will be barely visible). Default is `false` |
+| `showCompletionNotification` | Boolean | **Android 14+ only**. Post a "download complete" notification when a download finishes; tapping it opens the saved file. Requires `showNotificationsEnabled`, and is skipped in `summaryOnly` grouping mode. Default is `false` |
+| `showCancelAction` | Boolean | **Android 14+ only**. Add a Cancel button to the download notification. Tapping it stops the download and fires the task's `.error()` handler with `errorCode = -1`, so only enable it if your app handles that. Requires `showNotificationsEnabled`. Default is `false` |
 | `notificationsGrouping` | Object | **Android only**. Configuration for notification grouping. See below for details |
 
 **notificationsGrouping Options (Android only):**
@@ -163,6 +165,7 @@ Sets global configuration for the downloader.
 | `downloadProgress` | `'Downloading... {progress}%'` | `{progress}` — current percentage (0-100) | Text shown while download is in progress |
 | `downloadPaused` | `'Paused'` | — | Text shown when download is paused |
 | `downloadFinished` | `'Download complete'` | — | Text shown when download completes |
+| `downloadCancel` | `'Cancel'` | — | Label of the Cancel action on the notification (Android 14+, only when `showCancelAction` is enabled) |
 | `groupTitle` | `'Downloads'` | — | Title for the group summary notification (when multiple downloads are active) |
 | `groupText` | `'{count} download(s) in progress'` | `{count}` — number of active downloads | Summary text showing how many downloads are running |
 
@@ -193,6 +196,9 @@ setConfig({
 // Android: Enable notifications with custom texts
 setConfig({
   showNotificationsEnabled: true,
+  // Android 14+ extras, both opt-in
+  showCompletionNotification: true,
+  showCancelAction: true,
   notificationsGrouping: {
     enabled: true,
     texts: {
@@ -201,6 +207,7 @@ setConfig({
       downloadProgress: '{progress}% complete',
       downloadPaused: 'Download paused',
       downloadFinished: 'Done!',
+      downloadCancel: 'Stop',
       groupTitle: 'Downloads',
       groupText: '{count} files downloading',
     },

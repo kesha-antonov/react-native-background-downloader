@@ -103,8 +103,21 @@ class UIDTDownloadJobService : JobService() {
         /**
          * Configure notification grouping and texts.
          */
-        fun setNotificationGroupingConfig(enabled: Boolean, showNotificationsEnabled: Boolean, mode: String, texts: Map<String, String>) =
-            UIDTJobManager.setNotificationConfig(enabled, showNotificationsEnabled, mode, texts)
+        fun setNotificationGroupingConfig(
+            enabled: Boolean,
+            showNotificationsEnabled: Boolean,
+            showCompletionNotification: Boolean,
+            showCancelAction: Boolean,
+            mode: String,
+            texts: Map<String, String>
+        ) = UIDTJobManager.setNotificationConfig(
+            enabled,
+            showNotificationsEnabled,
+            showCompletionNotification,
+            showCancelAction,
+            mode,
+            texts
+        )
 
         /**
          * Set notification update interval.
