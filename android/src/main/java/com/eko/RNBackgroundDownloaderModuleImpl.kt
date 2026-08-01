@@ -732,8 +732,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
     }
 
-    // Helper function to fall back to ResumableDownloader
-    fun startWithResumableDownloader() {
+    // Helper function to run the download through the library's own downloader:
+    // a UIDT job on Android 14+, the foreground service below that.
+    // Returns whether a mechanism took it; with allowServiceFallback = false a
+    // download that can't get a UIDT job comes back unstarted so the caller can
+    // try DownloadManager instead.
+    fun startWithResumableDownloader(allowServiceFallback: Boolean = true): Boolean {
       val spec = Downloader.PausedDownloadInfo(
         configId = id,
         url = url,
@@ -760,7 +764,17 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         downloader.saveActiveDownloadSnapshot(spec)
         configIdToLastSnapshotMs[id] = System.currentTimeMillis()
       }
-      downloader.startResumableDownload(spec, resumableDownloadListener)
+
+      val started = downloader.startResumableDownload(spec, resumableDownloadListener, allowServiceFallback)
+      if (!started) {
+        // Nothing took the download - drop the bookkeeping so the mechanism the
+        // caller tries next starts from a clean slate
+        synchronized(sharedLock) {
+          downloader.removeActiveDownloadSnapshot(id)
+          configIdToLastSnapshotMs.remove(id)
+        }
+      }
+      return started
     }
 
     // On Android 16+ (API 36), DownloadManager has strict path restrictions and throws
@@ -769,6 +783,21 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       logD(NAME, "Android 16+ detected: Using ResumableDownloader to avoid DownloadManager path restrictions")
       startWithResumableDownloader()
       return
+    }
+
+    // On Android 14/15, prefer a UIDT job: it isn't subject to App Standby
+    // quotas, and it is the only path where the library manages the download's
+    // notification, so grouping, the completion notification, the Cancel action
+    // and per-download titles work for a fresh download instead of only after a
+    // pause/resume. DownloadManager stays as the fallback for when the job can't
+    // be scheduled - most importantly download() called from the background,
+    // where user-initiated jobs are refused.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      if (startWithResumableDownloader(allowServiceFallback = false)) {
+        logD(NAME, "Android 14+: using a UIDT job for download: $id")
+        return
+      }
+      logD(NAME, "Android 14+: no UIDT job for $id, using DownloadManager")
     }
 
     if (isValidExternalPath) {

@@ -308,8 +308,17 @@ class Downloader(private val context: Context, private val storageManager: com.e
    * - Work properly on Android 16+ where foreground services are restricted
    *
    * On Android < 14, uses the foreground service with dataSync type.
+   *
+   * @param allowServiceFallback when false, a download that can't get a UIDT job
+   *        is reported back to the caller (`false`) instead of being handed to
+   *        the foreground service, so the caller can pick another mechanism.
+   * @return whether a mechanism took the download.
    */
-  private fun startDownloadService(info: PausedDownloadInfo, listener: ResumableDownloader.DownloadListener) {
+  private fun startDownloadService(
+    info: PausedDownloadInfo,
+    listener: ResumableDownloader.DownloadListener,
+    allowServiceFallback: Boolean = true
+  ): Boolean {
     // On Android 14+, use UIDT jobs for better background execution
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       // Set the listener for UIDT job callbacks
@@ -330,11 +339,18 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
       if (scheduled) {
         RNBackgroundDownloaderModuleImpl.logD(TAG, "Using UIDT job for download: ${info.configId}")
-        return
+        return true
+      }
+
+      if (!allowServiceFallback) {
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "UIDT scheduling failed for ${info.configId}, leaving the mechanism to the caller")
+        return false
       }
 
       // Fall through to foreground service if UIDT scheduling fails
       RNBackgroundDownloaderModuleImpl.logW(TAG, "UIDT scheduling failed, falling back to foreground service")
+    } else if (!allowServiceFallback) {
+      return false
     }
 
     // On Android < 14 or if UIDT fails, use foreground service.
@@ -372,7 +388,7 @@ class Downloader(private val context: Context, private val storageManager: com.e
       )
     }
 
-    if (settled.get()) return
+    if (settled.get()) return true
 
     // The service wasn't connected, so the download is parked until it is. That
     // normally takes milliseconds, but when the system refuses to start the
@@ -385,16 +401,29 @@ class Downloader(private val context: Context, private val storageManager: com.e
         listener.onError(info.configId, "Could not start the download service", -1)
       }
     }, DownloadConstants.SERVICE_START_TIMEOUT_MS)
+
+    return true
   }
 
   /**
-   * Start a new download using ResumableDownloader (HTTP-based download).
-   * This is used as a fallback when DownloadManager can't handle the external storage path
-   * on devices like OnePlus that return invalid paths from getExternalFilesDir().
+   * Start a new download using ResumableDownloader (HTTP-based download): a UIDT
+   * job on Android 14+, the foreground service below that.
+   *
+   * @param allowServiceFallback when false, a download that can't get a UIDT job
+   *        is reported back as `false` instead of falling back to the foreground
+   *        service - used where DownloadManager is still a viable next choice.
+   * @return whether a mechanism took the download.
    */
-  fun startResumableDownload(info: PausedDownloadInfo, listener: ResumableDownloader.DownloadListener) {
-    startDownloadService(info, listener)
-    RNBackgroundDownloaderModuleImpl.logD(TAG, "Started ResumableDownloader for ${info.configId} (DownloadManager fallback)")
+  fun startResumableDownload(
+    info: PausedDownloadInfo,
+    listener: ResumableDownloader.DownloadListener,
+    allowServiceFallback: Boolean = true
+  ): Boolean {
+    val started = startDownloadService(info, listener, allowServiceFallback)
+    if (started) {
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Started ResumableDownloader for ${info.configId}")
+    }
+    return started
   }
 
   /**

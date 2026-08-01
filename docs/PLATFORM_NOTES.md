@@ -50,9 +50,17 @@ See the [Updating headers on paused downloads](../README.md#-usage) section in t
 
 Pause/resume on Android uses HTTP Range headers. The server must support range requests for resume to work correctly. If the server doesn't support it, the download will restart from the beginning.
 
-### Android 16+ Support
+### Which mechanism runs a download
 
-Downloads are automatically marked as user-initiated data transfers on Android 16+ (API 36) to prevent being killed due to thermal throttling.
+Android has three of them, and the library picks per download:
+
+| Android version | Mechanism | Notes |
+| --- | --- | --- |
+| 16+ (API 36) | UIDT job | `DownloadManager` rejects app-specific external paths there |
+| 14-15 (API 34-35) | UIDT job, falling back to `DownloadManager` | The job can only be scheduled while the app is visible, so a download started from the background runs through `DownloadManager` instead |
+| 13 and below | `DownloadManager`, falling back to the foreground service | The service also takes over when `DownloadManager` refuses the destination path |
+
+A UIDT job is not subject to App Standby quotas, keeps running when the app is backgrounded, and is the only path where the library manages the download's notification - so notification grouping, the completion notification, the Cancel action and per-download titles apply to downloads that run as jobs. A download that resumes after a pause always resumes as a UIDT job on Android 14+, whichever mechanism started it.
 
 ### Max Parallel Downloads
 
