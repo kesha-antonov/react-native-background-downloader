@@ -179,7 +179,9 @@ object UIDTJobManager {
             return false
         }
 
-        // Store headers for later retrieval (PersistableBundle can't store Map<String, String>)
+        // Store headers for later retrieval (PersistableBundle can't store Map<String, String>).
+        // Written before scheduling, not after: onStartJob can run on the main thread
+        // as soon as schedule() registers the job, and it must find the headers.
         UIDTJobRegistry.pendingHeaders[configId] = headers
         // Also persist to disk so headers survive process death and are available
         // in onStartJob even when the process is restarted by the JobScheduler.
@@ -213,12 +215,15 @@ object UIDTJobManager {
             )
             .build()
 
-        // The quota check above races with jobs scheduled elsewhere in the app, and
-        // schedule() throws IllegalStateException once the app is over its limit -
-        // an uncaught crash on what is a recoverable condition for us.
+        // Every rejection here is recoverable for us - the caller falls back to the
+        // foreground service - but schedule() signals some of them by throwing:
+        // IllegalStateException once the app is over its job quota (the check above
+        // races with jobs scheduled elsewhere in the app), and SecurityException when
+        // the app can't run user-initiated jobs at all, e.g. a host app that strips
+        // RUN_USER_INITIATED_JOBS from the merged manifest.
         val result = try {
             jobScheduler.schedule(jobInfo)
-        } catch (e: IllegalStateException) {
+        } catch (e: RuntimeException) {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "JobScheduler rejected the UIDT job for $configId: ${e.message}")
             JobScheduler.RESULT_FAILURE
         }
@@ -228,7 +233,10 @@ object UIDTJobManager {
             RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Scheduled UIDT job for $configId (jobId=$jobId, isAllowedOverMetered=$isAllowedOverMetered)")
         } else {
             RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "Failed to schedule UIDT job for $configId")
+            // Nothing will consume the state written above - the download runs
+            // through the foreground service instead - so don't leave it on disk
             UIDTJobRegistry.pendingHeaders.remove(configId)
+            UIDTJobRegistry.clearResumeState(context, configId)
         }
 
         return success
