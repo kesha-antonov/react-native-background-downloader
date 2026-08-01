@@ -578,10 +578,14 @@ object UIDTNotificationManager {
 
     /**
      * Show a one-shot "download complete" notification that persists after the
-     * UIDT job is removed by the system. Uses the configured "downloadFinished"
-     * text as the title and the supplied [fileName] as the body. Posted via
-     * NotificationManager (not tied to the JobService) so it survives the
-     * service shutdown.
+     * UIDT job is removed by the system. The title is [customTitle] when the
+     * download carries one, otherwise the configured "downloadFinished" text;
+     * the body is the supplied [fileName]. Posted via NotificationManager (not
+     * tied to the JobService) so it survives the service shutdown.
+     *
+     * Nothing is posted in summaryOnly mode - that mode exists so a batch of
+     * downloads produces a single notification, and one completion notification
+     * per finished file would defeat it.
      *
      * Tapping the notification fires ACTION_VIEW with a FileProvider content
      * URI for [destination] so the system file viewer / Files app can open it.
@@ -591,8 +595,19 @@ object UIDTNotificationManager {
         configId: String,
         destination: String,
         fileName: String,
+        groupId: String = "",
+        customTitle: String = "",
     ) {
         if (!config.showNotificationsEnabled) return
+
+        val isSummaryOnlyMode = config.mode == NotificationGroupingMode.SUMMARY_ONLY
+        if (isSummaryOnlyMode && config.groupingEnabled && groupId.isNotEmpty()) {
+            RNBackgroundDownloaderModuleImpl.logD(
+                UIDTConstants.TAG,
+                "Skipping finished notification for $configId (summaryOnly mode)",
+            )
+            return
+        }
 
         createNotificationChannels(context)
 
@@ -602,7 +617,9 @@ object UIDTNotificationManager {
         // download's in-progress notification.
         val notificationId = getFinishedNotificationIdForConfig(configId)
 
-        val title = config.getText("downloadFinished")
+        // Same precedence as the progress notification: a per-download title
+        // wins over the configured default text.
+        val title = customTitle.ifEmpty { config.getText("downloadFinished") }
 
         // Build a PendingIntent that lets the user open the saved file with the
         // system viewer (Files app / Drive / Extract...). We resolve the file
@@ -642,6 +659,11 @@ object UIDTNotificationManager {
             .setAutoCancel(true)
         if (pendingIntent != null) builder.setContentIntent(pendingIntent)
 
+        // Deliberately NOT part of the download's notification group: when the
+        // last job of a group finishes, cancelSummaryNotification tears down
+        // every notification carrying that group key, which would wipe these
+        // completion notifications the moment they are posted. The shade still
+        // bundles them on its own once there are enough of them.
         notificationManager.notify(notificationId, builder.build())
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Posted finished notification $notificationId for $configId")
     }

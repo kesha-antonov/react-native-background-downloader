@@ -237,7 +237,7 @@ class UIDTDownloadJobService : JobService() {
         UIDTNotificationManager.updateSummaryNotificationForGroup(this, groupId, groupName)
 
         // Create listener that will notify completion
-        val jobListener = createJobListener(configId, params, groupId, groupName)
+        val jobListener = createJobListener(configId, params, groupId, groupName, customTitle)
 
         // Start the download asynchronously. The network constraint is enforced by
         // the JobScheduler; the flag is passed so the DownloadState stays truthful
@@ -305,7 +305,8 @@ class UIDTDownloadJobService : JobService() {
         configId: String,
         params: JobParameters,
         groupId: String,
-        groupName: String
+        groupName: String,
+        customTitle: String = ""
     ): ResumableDownloader.DownloadListener {
         return object : ResumableDownloader.DownloadListener {
             override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
@@ -405,6 +406,8 @@ class UIDTDownloadJobService : JobService() {
                     id,
                     location,
                     displayName,
+                    jobState?.groupId ?: groupId,
+                    jobState?.customTitle ?: customTitle,
                 )
 
                 // Clean up - remove from activeJobs first
