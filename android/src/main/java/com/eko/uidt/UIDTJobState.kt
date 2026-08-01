@@ -93,7 +93,8 @@ data class GroupProgress(
 object UIDTConstants {
     const val TAG = "UIDTDownloadJobService"
 
-    // Job ID base - we add hash of config ID to make unique job IDs
+    // Start of the job-ID range owned by the library. IDs inside it are handed
+    // out per download by UIDTJobIds.
     const val JOB_ID_BASE = 10000
 
     // PersistableBundle keys

@@ -45,28 +45,30 @@ object UIDTJobManager {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     }
 
-    /** Derive the stable job ID for a download config ID. */
-    private fun jobIdFor(configId: String): Int =
-        UIDTConstants.JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
-
     /**
-     * Whether a new UIDT job can be handed to the JobScheduler without eating
-     * into the app's remaining job quota.
-     *
-     * Re-scheduling an ID that is already pending replaces that job rather than
-     * adding one, so it never needs a free slot. When the pending-job list can't
-     * be read we return true and let the guarded `schedule()` call decide.
+     * Snapshot of every job the app currently has scheduled, or null when it
+     * can't be read - callers treat null as "unknown", not as "none".
      */
-    private fun hasFreeJobSlot(jobScheduler: JobScheduler, jobId: Int): Boolean {
-        val pendingJobs = try {
+    private fun pendingJobs(jobScheduler: JobScheduler): List<JobInfo>? {
+        return try {
             jobScheduler.allPendingJobs
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "Could not read pending JobScheduler jobs: ${e.message}")
-            return true
+            null
         }
+    }
 
+    /**
+     * Whether a new UIDT job can be handed to the JobScheduler without eating
+     * into the app's remaining job quota. With the pending jobs unknown we return
+     * true and let the guarded `schedule()` call decide.
+     *
+     * A download that already holds a job doesn't go through here: re-scheduling
+     * replaces that job rather than adding one, so it needs no free slot.
+     */
+    private fun hasFreeJobSlot(pendingJobs: List<JobInfo>?): Boolean {
+        if (pendingJobs == null) return true
         if (pendingJobs.size < JOB_SCHEDULER_APP_LIMIT - JOB_SCHEDULER_HEADROOM) return true
-        if (pendingJobs.any { it.id == jobId }) return true
 
         RNBackgroundDownloaderModuleImpl.logW(
             UIDTConstants.TAG,
@@ -101,11 +103,12 @@ object UIDTJobManager {
         if (UIDTJobRegistry.isActiveJob(configId)) return null
 
         val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
-        val jobId = jobIdFor(configId)
+        val jobId = UIDTJobIds.jobIdFor(configId, pendingJobs(jobScheduler)) ?: return null
         val pendingJob = jobScheduler.getPendingJob(jobId) ?: return null
 
         val extras = pendingJob.extras
-        // Guard against job-ID hash collisions between different config IDs
+        // Defensive: the ID came from this job's own extras, but never act on a
+        // job that turns out to belong to another download
         if (extras.getString(UIDTConstants.KEY_DOWNLOAD_ID) != configId) return null
         val url = extras.getString(UIDTConstants.KEY_URL) ?: return null
         val destination = extras.getString(UIDTConstants.KEY_DESTINATION) ?: return null
@@ -168,17 +171,49 @@ object UIDTJobManager {
         }
 
         val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+        val pendingJobs = pendingJobs(jobScheduler)
 
-        // Create unique job ID from config ID
-        val jobId = jobIdFor(configId)
-
-        // Bail out before touching any state when the app is out of job slots -
-        // the caller falls back to the foreground service.
-        if (!hasFreeJobSlot(jobScheduler, jobId)) {
+        // A download that already has a job replaces it and needs no extra slot;
+        // any other one has to fit in the quota. Bail out before touching any
+        // state - the caller falls back to the foreground service.
+        if (UIDTJobIds.jobIdFor(configId, pendingJobs) == null && !hasFreeJobSlot(pendingJobs)) {
             RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "No JobScheduler slot left for $configId, falling back to foreground service")
             return false
         }
 
+        // Reserve an ID no live job and no concurrent schedule is using
+        val jobId = UIDTJobIds.reserveJobId(configId, pendingJobs)
+        if (jobId == null) {
+            RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "No free JobScheduler job ID left for $configId, falling back to foreground service")
+            return false
+        }
+
+        try {
+            return scheduleJob(context, jobScheduler, jobId, configId, url, destination, headers, startByte, totalBytes, metadata, isAllowedOverMetered)
+        } finally {
+            // The job is in the system now (or was rejected), so the reservation
+            // has done its job either way
+            UIDTJobIds.endReservation(configId)
+        }
+    }
+
+    /**
+     * Build and hand over the job for an already reserved ID. Split out of
+     * [scheduleDownload] only so the reservation can be released in one place.
+     */
+    private fun scheduleJob(
+        context: Context,
+        jobScheduler: JobScheduler,
+        jobId: Int,
+        configId: String,
+        url: String,
+        destination: String,
+        headers: Map<String, String>,
+        startByte: Long,
+        totalBytes: Long,
+        metadata: String,
+        isAllowedOverMetered: Boolean
+    ): Boolean {
         // Store headers for later retrieval (PersistableBundle can't store Map<String, String>).
         // Written before scheduling, not after: onStartJob can run on the main thread
         // as soon as schedule() registers the job, and it must find the headers.
@@ -284,9 +319,7 @@ object UIDTJobManager {
         }
 
         val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
-        val jobId = jobIdFor(configId)
-
-        jobScheduler.cancel(jobId)
+        jobScheduler.cancel(UIDTJobIds.jobIdToCancel(configId, pendingJobs(jobScheduler)))
         UIDTJobRegistry.pendingHeaders.remove(configId)
         UIDTJobRegistry.activeJobs.remove(configId)
         // Clear persisted resume state so stale headers/bytes don't affect future downloads
