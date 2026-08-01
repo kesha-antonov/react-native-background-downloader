@@ -502,14 +502,22 @@ class Downloader(private val context: Context, private val storageManager: com.e
     }
 
     var recoveredCount = 0
+    val stillLive = mutableSetOf<String>()
     for ((configId, info) in recoverable) {
-      // Skip if it is already tracked as paused, or still running as a UIDT job.
+      // Skip if it is already tracked as paused, or still live as a UIDT job.
       if (pausedDownloads.containsKey(configId)) {
+        stillLive.add(configId)
         continue
       }
+      // isActiveJob only knows jobs that already started in this process, and
+      // this runs at startup - ask the JobScheduler, which still holds the job
+      // whether it is running or waiting on a constraint. Recovering one of
+      // those as paused would double-track a download that is about to start.
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-        UIDTDownloadJobService.isActiveJob(configId)
+        (UIDTDownloadJobService.isActiveJob(configId) ||
+          UIDTDownloadJobService.isScheduledJob(context, configId))
       ) {
+        stillLive.add(configId)
         continue
       }
 
@@ -528,8 +536,15 @@ class Downloader(private val context: Context, private val storageManager: com.e
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Recovered $recoveredCount interrupted resumable download(s) after force-stop")
     }
 
-    // Clear the active store now that recovery has been processed.
-    sm.clearActiveDownloads()
+    // Drop the snapshots recovery consumed, but keep the ones belonging to
+    // downloads that are still live: a scheduled job that hasn't transferred a
+    // byte yet has no progress callback to re-save its snapshot, so clearing the
+    // whole store would lose it if the app is force-stopped again.
+    for (configId in recoverable.keys) {
+      if (configId !in stillLive) {
+        sm.removeActiveDownload(configId)
+      }
+    }
   }
 
   /**

@@ -1,5 +1,6 @@
 package com.eko.uidt
 
+import android.app.DownloadManager
 import android.app.NotificationManager
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
@@ -75,6 +76,52 @@ object UIDTJobManager {
             "JobScheduler quota nearly exhausted (${pendingJobs.size} pending jobs, app limit $JOB_SCHEDULER_APP_LIMIT)"
         )
         return false
+    }
+
+    /**
+     * Whether a download has a job with the JobScheduler that hasn't started yet -
+     * e.g. one held by its unmetered-network constraint. Such a job has no entry
+     * in [UIDTJobRegistry.activeJobs] (that is only filled in `onStartJob`), and
+     * after a process restart the registry is empty for running jobs too, so the
+     * system is the only place that knows.
+     */
+    fun isScheduledJob(context: Context, configId: String): Boolean {
+        if (!isUIDTAvailable()) return false
+        val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+        return pendingJobs(jobScheduler)?.any { UIDTJobIds.configIdOf(it) == configId } ?: false
+    }
+
+    /**
+     * Downloads that have a scheduled job but haven't started transferring, so
+     * they can be surfaced alongside the running ones. Jobs already tracked in
+     * [UIDTJobRegistry.activeJobs] are left out - those carry live progress and
+     * are reported from there instead.
+     */
+    fun getScheduledJobs(context: Context): List<UIDTJobInfo> {
+        if (!isUIDTAvailable()) return emptyList()
+
+        val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+        return pendingJobs(jobScheduler).orEmpty().mapNotNull { job ->
+            val configId = UIDTJobIds.configIdOf(job) ?: return@mapNotNull null
+            if (UIDTJobRegistry.isActiveJob(configId)) return@mapNotNull null
+
+            val extras = job.extras
+            // The persisted resume state can be ahead of the extras: it is
+            // rewritten whenever the job is stopped and rescheduled
+            val persistedBytes = UIDTJobRegistry.loadResumeState(context, configId)?.second ?: 0L
+
+            UIDTJobInfo(
+                id = configId,
+                // Same status DownloadManager reports for a queued download, so a
+                // download waiting to start looks the same whichever mechanism runs it
+                status = DownloadManager.STATUS_PENDING,
+                bytesDownloaded = maxOf(persistedBytes, extras.getLong(UIDTConstants.KEY_START_BYTE, 0)),
+                bytesTotal = extras.getLong(UIDTConstants.KEY_TOTAL_BYTES, -1),
+                url = extras.getString(UIDTConstants.KEY_URL) ?: "",
+                destination = extras.getString(UIDTConstants.KEY_DESTINATION) ?: "",
+                metadata = extras.getString(UIDTConstants.KEY_METADATA) ?: "{}"
+            )
+        }
     }
 
     /**

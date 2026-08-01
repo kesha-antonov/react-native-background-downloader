@@ -1076,11 +1076,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         logE(NAME, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
       }
 
-      // Phase 2: Query active UIDT jobs (Android 14+)
-      // On Android 14+, downloads may use UIDT instead of DownloadManager
+      // Phase 2: Query UIDT jobs (Android 14+)
+      // On Android 14+, downloads may use UIDT instead of DownloadManager.
+      // Scheduled-but-not-yet-started jobs are included: they have no registry
+      // entry (that is filled in onStartJob), so without them a download waiting
+      // on its network constraint - or every job at all after a process restart -
+      // would be missing from the list while its transfer is still coming.
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
         try {
-          val uidtJobs = UIDTDownloadJobService.getAllActiveJobs()
+          val uidtJobs = UIDTDownloadJobService.getAllActiveJobs() +
+            UIDTDownloadJobService.getScheduledJobs(reactContext)
 
           for (job in uidtJobs) {
             // Skip if already processed from DownloadManager

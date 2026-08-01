@@ -141,6 +141,18 @@ class UIDTDownloadJobService : JobService() {
         fun getAllActiveJobs(): List<UIDTJobInfo> = UIDTJobRegistry.getAllActiveJobs()
 
         /**
+         * Returns the downloads whose job is scheduled but hasn't started yet.
+         * These have no registry entry, so they are invisible to [getAllActiveJobs].
+         */
+        fun getScheduledJobs(context: Context): List<UIDTJobInfo> = UIDTJobManager.getScheduledJobs(context)
+
+        /**
+         * Whether a download has a job with the JobScheduler, running or not yet started.
+         */
+        fun isScheduledJob(context: Context, configId: String): Boolean =
+            UIDTJobManager.isScheduledJob(context, configId)
+
+        /**
          * Set download listener.
          */
         var downloadListener: ResumableDownloader.DownloadListener?
