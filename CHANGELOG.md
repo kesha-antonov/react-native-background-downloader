@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### ✨ Features
+
+- **Android 14+: completion notification, notification Cancel action, and per-download notification titles ([#165](https://github.com/kesha-antonov/react-native-background-downloader/pull/165)):** downloads running as user-initiated data transfers can now post a persistent "download complete" notification on its own alerting channel - tapping it opens the saved file through a library-owned `FileProvider` and the system chooser, with no host-app configuration - and show a **Cancel** button that stops the download through the same path as `task.stop()` and fires the task's `.error()` handler with `errorCode = -1`. A task can also override its notification title by passing `metadata.notificationTitle`, which takes precedence over `groupName` and the configured `downloadTitle`. Both notification extras are opt-in via the new `showCompletionNotification` and `showCancelAction` config options (default `false`), so an upgrade changes nothing until you enable them, and the completion notification is skipped in `summaryOnly` grouping mode, where the whole point is a single notification for the batch. The Cancel button's label is customizable through the new `downloadCancel` notification text. Thanks to [@HuuNguyen312](https://github.com/HuuNguyen312) for the implementation.
+
 ## v4.5.9
 
 ### 🐛 Bug Fixes
