@@ -54,6 +54,10 @@ Pause/resume on Android uses HTTP Range headers. The server must support range r
 
 Downloads are automatically marked as user-initiated data transfers on Android 16+ (API 36) to prevent being killed due to thermal throttling.
 
+### Max Parallel Downloads
+
+`setConfig({ maxParallelDownloads: N })` (default 4) caps how many downloads the library's own downloader transfers at once - the mechanism used on Android 16+, and whenever `DownloadManager` or a UIDT job can't take the download. Downloads over the limit wait for a slot instead of taking a thread and a socket each, and the next one starts as soon as a running transfer completes, fails, is paused or is stopped. Downloads that run through `DownloadManager` or the JobScheduler are queued by those schedulers instead, so the setting does not apply to them.
+
 ### Many concurrent downloads (Android 14+)
 
 Each download on Android 14+ is scheduled as its own `JobScheduler` job, and Android allows an app at most 150 pending jobs across the whole process - a quota shared with WorkManager and any other library that schedules jobs. When a batch of downloads would exhaust it, the library keeps headroom for the rest of the app and routes the remaining downloads through the foreground service instead, which has no such limit. Those downloads still run; they just don't get a user-initiated data transfer job's scheduling privileges. If you regularly start hundreds of downloads at once, queue them in your app rather than starting them all at the same time.

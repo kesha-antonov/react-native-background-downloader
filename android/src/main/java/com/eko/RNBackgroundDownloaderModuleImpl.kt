@@ -275,9 +275,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   fun setMaxParallelDownloads(max: Int) {
-    // Android DownloadManager doesn't support setting max parallel downloads
-    // This is a no-op on Android, but we keep the method for API consistency
-    logD(NAME, "setMaxParallelDownloads called with $max (no-op on Android)")
+    // Caps the transfers the library's own downloader runs at once - the path
+    // with no scheduler in front of it. DownloadManager and the JobScheduler
+    // queue their own work, so downloads running through them are unaffected.
+    ResumableDownloader.setMaxConcurrentTransfers(max)
+    logD(NAME, "setMaxParallelDownloads: $max")
   }
 
   fun setAllowsCellularAccess(allows: Boolean) {

@@ -7,12 +7,15 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.database.Cursor
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Wrapper around Android's DownloadManager for managing file downloads.
@@ -352,7 +355,11 @@ class Downloader(private val context: Context, private val storageManager: com.e
     }
 
     // Now use the direct service call path
+    val settled = AtomicBoolean(false)
     executeWhenServiceReady {
+      // Lost the race to the watchdog below - the download was already failed
+      if (!settled.compareAndSet(false, true)) return@executeWhenServiceReady
+
       downloadService?.setDownloadListener(listener)
       downloadService?.startDownload(
         info.configId,
@@ -364,6 +371,20 @@ class Downloader(private val context: Context, private val storageManager: com.e
         info.isAllowedOverMetered
       )
     }
+
+    if (settled.get()) return
+
+    // The service wasn't connected, so the download is parked until it is. That
+    // normally takes milliseconds, but when the system refuses to start the
+    // service - a background start on Android 12+, say - nothing ever runs the
+    // parked operation, and the task would stay pending in JS with no event
+    // either way. Fail it instead of letting it hang.
+    Handler(Looper.getMainLooper()).postDelayed({
+      if (settled.compareAndSet(false, true)) {
+        RNBackgroundDownloaderModuleImpl.logE(TAG, "Download service never started for ${info.configId}")
+        listener.onError(info.configId, "Could not start the download service", -1)
+      }
+    }, DownloadConstants.SERVICE_START_TIMEOUT_MS)
   }
 
   /**

@@ -97,6 +97,18 @@ object DownloadConstants {
     /** Wake lock timeout (milliseconds) - 1 hour */
     const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L
 
-    /** Number of concurrent download threads */
-    const val DOWNLOAD_THREAD_POOL_SIZE = 3
+    /**
+     * Transfers the library's own downloader runs at once by default, matching
+     * the JS `maxParallelDownloads` default. Downloads over the limit wait for a
+     * slot instead of each taking a thread and a socket of their own.
+     */
+    const val DEFAULT_MAX_PARALLEL_DOWNLOADS = 4
+
+    /**
+     * How long a download may wait for the download service to connect before it
+     * is failed. Binding normally completes in milliseconds; the wait only runs
+     * long when the system refused to start the service at all, and a download
+     * left parked there would never report anything to JS.
+     */
+    const val SERVICE_START_TIMEOUT_MS = 15_000L
 }

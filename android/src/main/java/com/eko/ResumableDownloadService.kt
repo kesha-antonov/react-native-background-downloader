@@ -12,8 +12,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 /**
  * A foreground service that manages resumable downloads in the background.
@@ -46,7 +44,6 @@ class ResumableDownloadService : Service() {
   }
 
   private val binder = LocalBinder()
-  private val executorService: ExecutorService = Executors.newFixedThreadPool(DownloadConstants.DOWNLOAD_THREAD_POOL_SIZE)
   private val activeDownloads = ConcurrentHashMap<String, DownloadJob>()
   private var wakeLock: PowerManager.WakeLock? = null
   private var listener: ResumableDownloader.DownloadListener? = null
@@ -274,7 +271,6 @@ class ResumableDownloadService : Service() {
     RNBackgroundDownloaderModuleImpl.logD(TAG, "Service destroyed")
     unmeteredGate.shutdown()
     releaseWakeLock()
-    executorService.shutdownNow()
     isForeground = false
     super.onDestroy()
   }

@@ -19,6 +19,23 @@ class ResumableDownloader {
 
   companion object {
     private const val TAG = "ResumableDownloader"
+
+    @Volatile
+    private var maxConcurrentTransfers = DownloadConstants.DEFAULT_MAX_PARALLEL_DOWNLOADS
+
+    /**
+     * Cap on transfers running at once, from the JS `maxParallelDownloads`
+     * config. Applies to every downloader instance: this path is the one with no
+     * scheduler of its own in front of it, so without a cap a batch of downloads
+     * takes a thread and a socket each.
+     *
+     * Raising it lets already waiting downloads start on the next slot release;
+     * lowering it never interrupts a transfer that is already running.
+     */
+    fun setMaxConcurrentTransfers(max: Int) {
+      maxConcurrentTransfers = max.coerceAtLeast(1)
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Max concurrent transfers set to $maxConcurrentTransfers")
+    }
   }
 
   data class DownloadState(
@@ -40,10 +57,20 @@ class ResumableDownloader {
     val isAllowedOverMetered: Boolean = true,
     // When set, the HTTP connection is opened on this specific network so an
     // unmetered-only download can never leak onto a metered default network
-    @Volatile var network: Network? = null
+    @Volatile var network: Network? = null,
+    // Kept so a download that had to wait for a concurrency slot can be started
+    // later without the caller having to hand the listener over again
+    @Volatile var listener: DownloadListener? = null
   )
 
   private val activeDownloads = ConcurrentHashMap<String, DownloadState>()
+
+  // Concurrency accounting. `transferring` maps a download to the session ID of
+  // the transfer holding its slot, so a restarted download's old thread can't
+  // release the slot its replacement took. `waitingForSlot` is FIFO.
+  private val transferLock = Any()
+  private val transferring = mutableMapOf<String, Long>()
+  private val waitingForSlot = ArrayDeque<String>()
 
   interface DownloadListener {
     fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>)
@@ -72,13 +99,89 @@ class ResumableDownloader {
   ) {
     val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
     state.network = network
+    state.listener = listener
 
-    val currentSessionId = state.sessionId.get()
+    beginOrQueueTransfer(state)
+  }
+
+  /**
+   * Start the download's transfer, or leave it waiting when the concurrency cap
+   * is already reached. A waiting download starts as soon as a running transfer
+   * ends - completed, failed, paused or cancelled, all of which end its thread.
+   */
+  private fun beginOrQueueTransfer(state: DownloadState) {
+    val sessionId = state.sessionId.get()
+
+    synchronized(transferLock) {
+      if (transferring.size >= maxConcurrentTransfers) {
+        if (!waitingForSlot.contains(state.id)) {
+          waitingForSlot.addLast(state.id)
+        }
+        RNBackgroundDownloaderModuleImpl.logD(
+          TAG,
+          "Queued download ${state.id}: ${transferring.size} transfer(s) running, max $maxConcurrentTransfers"
+        )
+        return
+      }
+      transferring[state.id] = sessionId
+    }
+
+    startTransferThread(state, sessionId)
+  }
+
+  private fun startTransferThread(state: DownloadState, sessionId: Long) {
+    val listener = state.listener
+    if (listener == null) {
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "No listener for ${state.id}, cannot start transfer")
+      releaseTransferSlot(state.id, sessionId)
+      return
+    }
+
     val thread = Thread {
-      downloadWithResume(state, listener, currentSessionId)
+      try {
+        downloadWithResume(state, listener, sessionId)
+      } finally {
+        // The thread ends on every outcome - complete, error, pause, cancel and
+        // stale-session exits - so this is the one place a slot is given back
+        releaseTransferSlot(state.id, sessionId)
+      }
     }
     state.thread = thread
     thread.start()
+  }
+
+  /**
+   * Give back the slot held by this transfer and start the next download waiting
+   * for one. Ignores a release from a superseded session: a restarted download
+   * must not release the slot its replacement is holding.
+   */
+  private fun releaseTransferSlot(id: String, sessionId: Long) {
+    var next: DownloadState? = null
+    var nextSessionId = 0L
+
+    synchronized(transferLock) {
+      if (transferring[id] != sessionId) return
+      transferring.remove(id)
+
+      while (next == null && waitingForSlot.isNotEmpty()) {
+        val candidateId = waitingForSlot.removeFirst()
+        val candidate = activeDownloads[candidateId] ?: continue
+        // Skip downloads that stopped waiting while they were in the queue
+        if (candidate.isCancelled.get() || candidate.isPaused.get()) continue
+        if (transferring.containsKey(candidateId)) continue
+
+        nextSessionId = candidate.sessionId.get()
+        transferring[candidateId] = nextSessionId
+        next = candidate
+      }
+    }
+
+    next?.let { startTransferThread(it, nextSessionId) }
+  }
+
+  /** Drop a download from the waiting queue (paused, cancelled or restarted). */
+  private fun dropFromWaitingQueue(id: String) {
+    synchronized(transferLock) { waitingForSlot.remove(id) }
   }
 
   /**
@@ -128,6 +231,9 @@ class ResumableDownloader {
       }
       existingState.thread?.interrupt()
       activeDownloads.remove(id)
+      // The replacement re-queues itself; the old entry would point at a state
+      // that is no longer registered
+      dropFromWaitingQueue(id)
     }
 
     // Download directly to destination file
@@ -177,6 +283,10 @@ class ResumableDownloader {
     val newSessionId = state.sessionId.incrementAndGet()
     state.isPaused.set(true)
 
+    // A download still waiting for a concurrency slot has no thread to stop, and
+    // must not start once one frees up - the user paused it
+    dropFromWaitingQueue(id)
+
     // Close input stream to force read to fail immediately
     try {
       state.inputStream?.close()
@@ -207,17 +317,12 @@ class ResumableDownloader {
       return false
     }
 
-    // Session ID was already incremented in pause(), use current value
-    val currentSessionId = state.sessionId.get()
     state.isPaused.set(false)
+    state.listener = listener
+    // Session ID was already incremented in pause(); beginOrQueueTransfer reads it
+    beginOrQueueTransfer(state)
 
-    val thread = Thread {
-      downloadWithResume(state, listener, currentSessionId)
-    }
-    state.thread = thread
-    thread.start()
-
-    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download: $id from ${state.bytesDownloaded.get()} bytes (session $currentSessionId)")
+    RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming download: $id from ${state.bytesDownloaded.get()} bytes (session ${state.sessionId.get()})")
     return true
   }
 
@@ -231,6 +336,10 @@ class ResumableDownloader {
     // Set cancelled flag
     state.isCancelled.set(true)
     state.isPaused.set(false) // Unblock if paused
+
+    // Nothing will start it now, but leaving it queued would make the next slot
+    // release walk over a dead entry
+    dropFromWaitingQueue(id)
 
     // Close input stream to force read to fail immediately
     try {

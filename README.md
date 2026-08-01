@@ -475,9 +475,9 @@ Headers given in `createDownloadTask()` are **merged** with the ones given in `s
 
 You can configure global settings for download behavior using `setConfig()`:
 
-#### Max Parallel Downloads (iOS only)
+#### Max Parallel Downloads
 
-Control how many simultaneous downloads can occur per host. This is useful for managing bandwidth and server load.
+Control how many downloads transfer at once. This is useful for managing bandwidth and server load.
 
 ```javascript
 import { setConfig } from '@kesha-antonov/react-native-background-downloader'
@@ -488,7 +488,7 @@ setConfig({
 })
 ```
 
-**Note:** This setting only affects iOS. Android's `DownloadManager` manages parallel downloads automatically and does not expose this configuration.
+**Note:** the two platforms apply it at different layers. On iOS it is the download session's maximum simultaneous connections per host. On Android it caps the library's own downloader - the mechanism used on Android 16+, and whenever `DownloadManager` or a UIDT job can't take the download - while downloads that run through `DownloadManager` or the JobScheduler are queued by those schedulers instead.
 
 #### Cellular/WiFi Restrictions
 

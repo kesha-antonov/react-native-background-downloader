@@ -142,7 +142,7 @@ Sets global configuration for the downloader.
 | `progressMinBytes` | Number | Minimum number of bytes that must be downloaded before a progress event is emitted. When set to 0, only the percentage threshold (1% change) triggers progress updates. Default is 1048576 (1MB) |
 | `isLogsEnabled`   | Boolean | Enables/disables verbose debug logs in native code (iOS and Android). Works in both debug and release builds. Default is false |
 | `logCallback`   | (log: { message: string, taskId?: string }) => void | Optional callback function to receive native debug logs in JavaScript. Only called when `isLogsEnabled` is true |
-| `maxParallelDownloads` | Number | **iOS only**. Sets the maximum number of simultaneous connections per host for the download session. Must be >= 1. Default is 4. Note: Android's DownloadManager does not support this configuration |
+| `maxParallelDownloads` | Number | Maximum number of downloads transferring at once. Must be >= 1. Default is 4. On iOS this is the session's maximum simultaneous connections per host. On Android it caps the library's own downloader (the mechanism used on Android 16+, and whenever `DownloadManager` or a UIDT job can't take the download); downloads running through `DownloadManager` or the JobScheduler are queued by those instead |
 | `allowsCellularAccess` | Boolean | Controls whether downloads are allowed over cellular (metered) connections. When set to `false`, downloads will only occur over WiFi. Default is `true`. This is a cross-platform abstraction - on iOS it sets `allowsCellularAccess`, on Android it sets `isAllowedOverMetered` |
 | `showNotificationsEnabled` | Boolean | **Android only**. Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs on Android 14+ require a notification, but it will be barely visible). Default is `false` |
 | `showCompletionNotification` | Boolean | **Android 14+ only**. Post a "download complete" notification when a download finishes; tapping it opens the saved file. Requires `showNotificationsEnabled`, and is skipped in `summaryOnly` grouping mode. Default is `false` |
@@ -174,9 +174,9 @@ Sets global configuration for the downloader.
 ```javascript
 import { setConfig } from '@kesha-antonov/react-native-background-downloader'
 
-// Configure parallel downloads (iOS only) and cellular access
+// Configure parallel downloads and cellular access
 setConfig({
-  maxParallelDownloads: 8,  // iOS only - max simultaneous connections per host
+  maxParallelDownloads: 8,  // max downloads transferring at once
   allowsCellularAccess: false,  // Only download over WiFi
 })
 
