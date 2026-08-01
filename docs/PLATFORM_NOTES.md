@@ -54,6 +54,10 @@ Pause/resume on Android uses HTTP Range headers. The server must support range r
 
 Downloads are automatically marked as user-initiated data transfers on Android 16+ (API 36) to prevent being killed due to thermal throttling.
 
+### Many concurrent downloads (Android 14+)
+
+Each download on Android 14+ is scheduled as its own `JobScheduler` job, and Android allows an app at most 150 pending jobs across the whole process - a quota shared with WorkManager and any other library that schedules jobs. When a batch of downloads would exhaust it, the library keeps headroom for the rest of the app and routes the remaining downloads through the foreground service instead, which has no such limit. Those downloads still run; they just don't get a user-initiated data transfer job's scheduling privileges. If you regularly start hundreds of downloads at once, queue them in your app rather than starting them all at the same time.
+
 ### Foreground Service
 
 The library uses a Foreground Service for pause/resume functionality. This requires:

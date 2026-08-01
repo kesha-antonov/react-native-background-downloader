@@ -25,6 +25,20 @@ object UIDTJobManager {
         get() = UIDTJobRegistry.notificationConfig
 
     /**
+     * JobScheduler refuses to hold more than this many distinct jobs per app
+     * (AOSP `JobSchedulerService.MAX_JOBS_PER_APP`) and throws
+     * `IllegalStateException` from `schedule()` once the quota is full.
+     */
+    private const val JOB_SCHEDULER_APP_LIMIT = 150
+
+    /**
+     * Slots left to the rest of the app. The quota is app-wide - WorkManager and
+     * any other library scheduling jobs draw from the same pool - so a download
+     * batch must not be allowed to consume all of it.
+     */
+    private const val JOB_SCHEDULER_HEADROOM = 30
+
+    /**
      * Check if UIDT is available on this device.
      */
     fun isUIDTAvailable(): Boolean {
@@ -34,6 +48,32 @@ object UIDTJobManager {
     /** Derive the stable job ID for a download config ID. */
     private fun jobIdFor(configId: String): Int =
         UIDTConstants.JOB_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 10000
+
+    /**
+     * Whether a new UIDT job can be handed to the JobScheduler without eating
+     * into the app's remaining job quota.
+     *
+     * Re-scheduling an ID that is already pending replaces that job rather than
+     * adding one, so it never needs a free slot. When the pending-job list can't
+     * be read we return true and let the guarded `schedule()` call decide.
+     */
+    private fun hasFreeJobSlot(jobScheduler: JobScheduler, jobId: Int): Boolean {
+        val pendingJobs = try {
+            jobScheduler.allPendingJobs
+        } catch (e: Exception) {
+            RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "Could not read pending JobScheduler jobs: ${e.message}")
+            return true
+        }
+
+        if (pendingJobs.size < JOB_SCHEDULER_APP_LIMIT - JOB_SCHEDULER_HEADROOM) return true
+        if (pendingJobs.any { it.id == jobId }) return true
+
+        RNBackgroundDownloaderModuleImpl.logW(
+            UIDTConstants.TAG,
+            "JobScheduler quota nearly exhausted (${pendingJobs.size} pending jobs, app limit $JOB_SCHEDULER_APP_LIMIT)"
+        )
+        return false
+    }
 
     /**
      * Everything needed to persist a scheduled-but-not-yet-running job as a
@@ -107,7 +147,9 @@ object UIDTJobManager {
      * @param isAllowedOverMetered Whether the transfer may use metered networks (cellular).
      *        When false the job requires an unmetered network, matching
      *        DownloadManager.Request.setAllowedOverMetered(false) semantics.
-     * @return true if job was scheduled successfully
+     * @return true if job was scheduled successfully. Returns false - never throws -
+     *         when the app's JobScheduler quota leaves no room for the job, so the
+     *         caller falls back to the foreground service.
      */
     fun scheduleDownload(
         context: Context,
@@ -129,6 +171,13 @@ object UIDTJobManager {
 
         // Create unique job ID from config ID
         val jobId = jobIdFor(configId)
+
+        // Bail out before touching any state when the app is out of job slots -
+        // the caller falls back to the foreground service.
+        if (!hasFreeJobSlot(jobScheduler, jobId)) {
+            RNBackgroundDownloaderModuleImpl.logW(UIDTConstants.TAG, "No JobScheduler slot left for $configId, falling back to foreground service")
+            return false
+        }
 
         // Store headers for later retrieval (PersistableBundle can't store Map<String, String>)
         UIDTJobRegistry.pendingHeaders[configId] = headers
@@ -164,7 +213,15 @@ object UIDTJobManager {
             )
             .build()
 
-        val result = jobScheduler.schedule(jobInfo)
+        // The quota check above races with jobs scheduled elsewhere in the app, and
+        // schedule() throws IllegalStateException once the app is over its limit -
+        // an uncaught crash on what is a recoverable condition for us.
+        val result = try {
+            jobScheduler.schedule(jobInfo)
+        } catch (e: IllegalStateException) {
+            RNBackgroundDownloaderModuleImpl.logE(UIDTConstants.TAG, "JobScheduler rejected the UIDT job for $configId: ${e.message}")
+            JobScheduler.RESULT_FAILURE
+        }
         val success = result == JobScheduler.RESULT_SUCCESS
 
         if (success) {
