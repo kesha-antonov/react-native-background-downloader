@@ -66,6 +66,16 @@ android {
             useLegacyPackaging = false
         }
     }
+
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            // Framework calls the tests don't exercise (e.g. Log from a class
+            // loaded outside a Robolectric environment) return a default instead
+            // of throwing "not mocked"
+            returnDefaultValues = true
+        }
+    }
 }
 
 repositories {
@@ -84,4 +94,11 @@ dependencies {
     compileOnly 'com.tencent:mmkv-shared:1.3.16'
 
     implementation 'com.google.code.gson:gson:2.12.1'
+
+    // Unit tests. Robolectric gives the tests a real JobScheduler, SharedPreferences
+    // and Log without a device; MockWebServer backs the download-transfer tests.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'androidx.test:core:1.6.1'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
 }

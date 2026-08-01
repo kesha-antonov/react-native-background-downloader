@@ -1,0 +1,60 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  js:
+    name: JS (typecheck, lint, jest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: corepack enable && yarn install --immutable
+
+      - run: yarn typecheck
+      - run: yarn lint
+      - run: yarn test
+
+  android:
+    name: Android unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # React Native's Android Gradle Plugin needs JDK 17
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+
+      - name: Install dependencies
+        run: corepack enable && yarn install --immutable
+
+      # The library resolves com.facebook.react:react-native from the example
+      # app's node_modules, so the example has to be installed too
+      - name: Install example dependencies
+        run: yarn install --immutable
+        working-directory: example
+
+      - name: Run unit tests
+        run: ./gradlew :kesha-antonov_react-native-background-downloader:testDebugUnitTest
+        working-directory: example/android
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-report
+          path: android/build/reports/tests/testDebugUnitTest
