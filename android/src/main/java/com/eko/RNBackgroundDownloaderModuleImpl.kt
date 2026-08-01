@@ -63,6 +63,26 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       if (isLogsEnabled) Log.e(tag, message)
     }
 
+    // The live module instance, set once initialize() has run and cleared on
+    // invalidate(). Lets native-only entry points (the notification Cancel
+    // action) reuse the exact same teardown as a call coming from JS.
+    @Volatile
+    private var activeInstance: RNBackgroundDownloaderModuleImpl? = null
+
+    /**
+     * Stop a download from native code, going through the same path as a
+     * task.stop() call from JS (progress tracking, resumable/DownloadManager
+     * cancellation, persisted state cleanup).
+     *
+     * @return `true` when the module was alive and handled the stop, `false`
+     * when there is no instance yet (e.g. a broadcast cold-started the process)
+     * and the caller has to fall back to a narrower cancellation.
+     */
+    fun stopTaskFromNative(configId: String): Boolean {
+      val instance = activeInstance ?: return false
+      instance.stopTask(configId)
+      return true
+    }
   }
 
   // Storage manager for persistent state
@@ -293,6 +313,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun initialize() {
     ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
     isInitialized = true
+    activeInstance = this
     registerDownloadReceiver()
 
     // Set the listener for resumable downloads (used by the background service)
@@ -338,6 +359,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     unregisterDownloadReceiver()
     downloader.unbindService()
+
+    if (activeInstance === this) {
+      activeInstance = null
+    }
   }
 
   private fun registerDownloadReceiver() {
