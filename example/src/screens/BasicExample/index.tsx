@@ -24,6 +24,8 @@ const TASK_IDS_KEY = 'taskIds'
 const SHOW_NOTIFICATIONS_KEY = 'showNotificationsEnabled'
 const NOTIFICATION_GROUPING_KEY = 'notificationGroupingEnabled'
 const SUMMARY_ONLY_MODE_KEY = 'summaryOnlyMode'
+const CANCEL_ACTION_KEY = 'showCancelAction'
+const COMPLETION_NOTIFICATION_KEY = 'showCompletionNotification'
 
 const TaskIdStorage = {
   load: (): Record<string, string> => {
@@ -259,10 +261,14 @@ interface HeaderProps {
   onShowNotificationsEnabledChange: (show: boolean) => void
   summaryOnlyMode: boolean
   onSummaryOnlyModeChange: (enabled: boolean) => void
+  showCancelAction: boolean
+  onShowCancelActionChange: (enabled: boolean) => void
+  showCompletionNotification: boolean
+  onShowCompletionNotificationChange: (enabled: boolean) => void
   onBatchDownload: () => void
 }
 
-const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange, summaryOnlyMode, onSummaryOnlyModeChange, onBatchDownload }: HeaderProps) => {
+const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange, summaryOnlyMode, onSummaryOnlyModeChange, showCancelAction, onShowCancelActionChange, showCompletionNotification, onShowCompletionNotificationChange, onBatchDownload }: HeaderProps) => {
   // Convert tasks to array for display
   const tasksList = Array.from(tasks.values())
 
@@ -311,6 +317,34 @@ const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files
               trackColor={{ false: '#ccc', true: '#81c784' }}
               thumbColor={summaryOnlyMode ? '#4CAF50' : '#f4f3f4'}
               disabled={!showNotificationsEnabled || !notificationGroupingEnabled}
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Cancel Action (Android 14+)</Text>
+              <Text style={styles.settingDescription}>Add a Cancel button to the download notification</Text>
+            </View>
+            <Switch
+              value={showCancelAction}
+              onValueChange={onShowCancelActionChange}
+              trackColor={{ false: '#ccc', true: '#81c784' }}
+              thumbColor={showCancelAction ? '#4CAF50' : '#f4f3f4'}
+              disabled={!showNotificationsEnabled}
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Completion Notification (Android 14+)</Text>
+              <Text style={styles.settingDescription}>Notify when a download finishes; tap it to open the file</Text>
+            </View>
+            <Switch
+              value={showCompletionNotification}
+              onValueChange={onShowCompletionNotificationChange}
+              trackColor={{ false: '#ccc', true: '#81c784' }}
+              thumbColor={showCompletionNotification ? '#4CAF50' : '#f4f3f4'}
+              disabled={!showNotificationsEnabled}
             />
           </View>
 
@@ -440,6 +474,25 @@ const BasicExampleScreen = () => {
   const [summaryOnlyMode, setSummaryOnlyMode] = useState(() => {
     return storage.getBoolean(SUMMARY_ONLY_MODE_KEY) ?? false
   })
+  // Android 14+ notification extras - both opt-in, independent of showNotificationsEnabled
+  const [showCancelAction, setShowCancelAction] = useState(() => {
+    return storage.getBoolean(CANCEL_ACTION_KEY) ?? false
+  })
+  const [showCompletionNotification, setShowCompletionNotification] = useState(() => {
+    return storage.getBoolean(COMPLETION_NOTIFICATION_KEY) ?? false
+  })
+
+  // The effect below re-applies the whole notification config whenever any of
+  // these change, so the toggles only have to persist their own value
+  const handleShowCancelActionChange = useCallback((enabled: boolean) => {
+    setShowCancelAction(enabled)
+    storage.set(CANCEL_ACTION_KEY, enabled)
+  }, [])
+
+  const handleShowCompletionNotificationChange = useCallback((enabled: boolean) => {
+    setShowCompletionNotification(enabled)
+    storage.set(COMPLETION_NOTIFICATION_KEY, enabled)
+  }, [])
 
   // Handle notification grouping toggle with persistence
   const handleNotificationGroupingChange = useCallback((enabled: boolean) => {
@@ -723,6 +776,10 @@ const BasicExampleScreen = () => {
       // Also include groupId/groupName for notification grouping (Android)
       metadata: {
         destination,
+        // Android 14+: per-download notification title and the name shown in
+        // the completion notification
+        notificationTitle: `Example: ${fileName}`,
+        fileName,
         ...(notificationGroupingEnabled && {
           groupId: 'example-downloads',
           groupName: 'Example Downloads',
@@ -866,6 +923,8 @@ const BasicExampleScreen = () => {
         console.log('[RNBD]', log)
       },
       showNotificationsEnabled,
+      showCancelAction,
+      showCompletionNotification,
       notificationsGrouping: {
         enabled: notificationGroupingEnabled,
         mode: summaryOnlyMode ? 'summaryOnly' : 'individual',
@@ -874,12 +933,13 @@ const BasicExampleScreen = () => {
           downloadStarting: 'Starting...',
           downloadProgress: 'Downloading... {progress}%',
           downloadFinished: 'Complete',
+          downloadCancel: 'Cancel',
           groupTitle: 'Batch Download',
           groupText: '{count} files downloading',
         },
       },
     })
-  }, [notificationGroupingEnabled, showNotificationsEnabled, summaryOnlyMode])
+  }, [notificationGroupingEnabled, showNotificationsEnabled, summaryOnlyMode, showCancelAction, showCompletionNotification])
 
   useEffect(() => {
     // Initialize URL list with persisted IDs after mount (when MMKV is ready)
@@ -951,9 +1011,13 @@ const BasicExampleScreen = () => {
       onShowNotificationsEnabledChange={handleShowNotificationsChange}
       summaryOnlyMode={summaryOnlyMode}
       onSummaryOnlyModeChange={handleSummaryOnlyModeChange}
+      showCancelAction={showCancelAction}
+      onShowCancelActionChange={handleShowCancelActionChange}
+      showCompletionNotification={showCompletionNotification}
+      onShowCompletionNotificationChange={handleShowCompletionNotificationChange}
       onBatchDownload={startBatchDownload}
     />
-  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange, summaryOnlyMode, handleSummaryOnlyModeChange, startBatchDownload])
+  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange, summaryOnlyMode, handleSummaryOnlyModeChange, showCancelAction, handleShowCancelActionChange, showCompletionNotification, handleShowCompletionNotificationChange, startBatchDownload])
 
   // Pass an element, not the renderHeader function itself: the function identity
   // changes on every progress update, and a changed ListHeaderComponent function
