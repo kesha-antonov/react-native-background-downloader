@@ -12,6 +12,7 @@ import com.eko.uidt.UIDTConstants
 import com.eko.uidt.UIDTJobInfo
 import com.eko.uidt.UIDTJobManager
 import com.eko.uidt.UIDTJobRegistry
+import com.eko.uidt.UIDTNotificationIds
 import com.eko.uidt.UIDTNotificationManager
 import com.eko.utils.ProgressUtils
 import org.json.JSONObject
@@ -470,6 +471,9 @@ class UIDTDownloadJobService : JobService() {
 
                 // Clear persisted resume state - no longer needed after successful completion
                 UIDTJobRegistry.clearResumeState(this@UIDTDownloadJobService, id)
+                // The progress notification is gone; the completion one above already
+                // took its ID from this offset, so it can go back to the pool
+                UIDTNotificationIds.release(id)
 
                 // Notify external listener
                 UIDTJobRegistry.downloadListener?.onComplete(id, location, bytesDownloaded, bytesTotal)
@@ -511,6 +515,7 @@ class UIDTDownloadJobService : JobService() {
 
                 // Clear persisted resume state - no longer needed after failure
                 UIDTJobRegistry.clearResumeState(this@UIDTDownloadJobService, id)
+                UIDTNotificationIds.release(id)
 
                 // Notify external listener
                 UIDTJobRegistry.downloadListener?.onError(id, error, errorCode)

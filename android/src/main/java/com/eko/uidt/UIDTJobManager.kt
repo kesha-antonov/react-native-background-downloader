@@ -362,6 +362,8 @@ object UIDTJobManager {
 
             // Also cancel via NotificationManager as a fallback
             UIDTNotificationManager.cancelNotification(context, jobState.notificationId)
+            // Its notification is gone, so the ID offset can go back to the pool
+            UIDTNotificationIds.release(configId)
             RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled notification ${jobState.notificationId} for $configId")
         }
 

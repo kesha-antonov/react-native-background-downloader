@@ -30,22 +30,19 @@ object UIDTNotificationManager {
         get() = UIDTJobRegistry.notificationConfig
 
     /**
-     * Generate a stable notification ID for a configId.
-     * This ensures the same download always uses the same notification ID,
-     * even across app restarts.
+     * The notification ID for a download. Stable for as long as the download is
+     * live, and never shared with another live download - see [UIDTNotificationIds].
      */
-    fun getNotificationIdForConfig(configId: String): Int {
-        return UIDTConstants.NOTIFICATION_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 100000
-    }
+    fun getNotificationIdForConfig(configId: String): Int =
+        UIDTNotificationIds.progressIdFor(configId)
 
     /**
-     * Stable notification ID for the one-shot "download complete" notification.
+     * Notification ID for the one-shot "download complete" notification.
      * Lives in a disjoint range from [getNotificationIdForConfig] so it can
      * never collide with another download's in-progress notification.
      */
-    fun getFinishedNotificationIdForConfig(configId: String): Int {
-        return UIDTConstants.FINISHED_NOTIFICATION_ID_BASE + (configId.hashCode() and 0x7FFFFFFF) % 100000
-    }
+    fun getFinishedNotificationIdForConfig(configId: String): Int =
+        UIDTNotificationIds.finishedIdFor(configId)
 
     /**
      * Create notification channels for UIDT jobs.
@@ -521,6 +518,7 @@ object UIDTNotificationManager {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notificationId = getNotificationIdForConfig(configId)
         notificationManager.cancel(notificationId)
+        UIDTNotificationIds.release(configId)
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled notification $notificationId for $configId")
     }
 
