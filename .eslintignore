@@ -2,3 +2,5 @@ node_modules/
 plugin/build/
 example/
 lib/
+# Gradle output, including the JS of generated test reports
+android/build/
