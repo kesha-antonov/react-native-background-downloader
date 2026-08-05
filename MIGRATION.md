@@ -176,10 +176,14 @@ In v4.4.0, the MMKV dependency on iOS was removed from the podspec to prevent sy
 You must explicitly add the MMKV dependency to your `ios/Podfile`:
 
 ```ruby
-pod 'MMKV', '>= 1.0.0'
+pod 'MMKV', '>= 1.0.0', '!= 2.4.1'
 ```
 
 Then run `cd ios && pod install`.
+
+> **Note:** this manual step only applies to v4.4.0-v4.5.4. The podspec declares MMKV again since v4.5.5, so on current releases you can drop this line entirely.
+>
+> The `!= 2.4.1` exclusion matters either way: MMKVCore 2.4.1 does not compile on Apple platforms (`use of undeclared identifier 'memset_s'`, [Tencent/MMKV#1675](https://github.com/Tencent/MMKV/issues/1675)). If you pin MMKV yourself, also pin `pod 'MMKVCore', '!= 2.4.1'` - `MMKV 2.4.0` depends on `MMKVCore (~> 2.4.0)`, which would otherwise still resolve to the broken 2.4.1.
 
 ### Why This Change?
 

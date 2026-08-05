@@ -926,7 +926,45 @@ If you're using `react-native-mmkv`, you don't need to add the MMKV dependency m
 <details>
 <summary><strong>EXC_BAD_ACCESS crash on iOS with react-native-mmkv</strong></summary>
 
-This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
+This was fixed in v4.4.0. Update to the latest version. The podspec declares the MMKV dependency itself, so you don't need to add anything to your Podfile. If you do pin it manually, exclude the broken 2.4.1 release (see the entry below):
+
+```ruby
+pod 'MMKV', '>= 1.0.0', '!= 2.4.1'
+```
+</details>
+
+<details>
+<summary><strong>iOS build fails with "use of undeclared identifier 'memset_s'" (MMKVCore)</strong></summary>
+
+```text
+Pods/MMKVCore/Core/aes/AESCrypt.cpp:83:11
+(void)memset_s(ptr, len, 0, len);
+      ^ use of undeclared identifier 'memset_s'
+```
+
+This is an upstream bug in **MMKVCore 2.4.1** ([Tencent/MMKV#1675](https://github.com/Tencent/MMKV/issues/1675)) - it does not compile on Apple platforms. Update to the latest version of this library: the podspec now excludes exactly that release, so a fresh `pod install` resolves `MMKVCore 2.4.0` instead.
+
+If you are on a version with the fix and still hitting this, your `Podfile.lock` is pinning the broken version. Refresh it:
+
+```bash
+cd ios
+pod update MMKV MMKVCore
+```
+
+If some other pod in your graph forces `MMKVCore 2.4.1` and you cannot move off it, define the missing feature-test macro on the command line (the `#define` inside `AESCrypt.cpp` lands too late because CocoaPods force-includes the generated prefix header first):
+
+```ruby
+# ios/Podfile
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    next unless target.name == 'MMKVCore'
+    target.build_configurations.each do |config|
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << '__STDC_WANT_LIB_EXT1__=1'
+    end
+  end
+end
+```
 </details>
 
 <details>

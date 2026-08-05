@@ -8,6 +8,7 @@ Platform-specific information, requirements, and troubleshooting for `@kesha-ant
 - [Android Notes](#android-notes)
 - [Google Play Console Declaration](#google-play-console-declaration)
 - [Proguard Rules](#proguard-rules)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -181,7 +182,13 @@ If you're using `react-native-mmkv`, you don't need to add the MMKV dependency m
 
 ### EXC_BAD_ACCESS crash on iOS with react-native-mmkv
 
-This was fixed in v4.4.0. Update to the latest version. If you're not using `react-native-mmkv`, add `pod 'MMKV', '>= 1.0.0'` to your Podfile.
+This was fixed in v4.4.0. Update to the latest version. The podspec declares the MMKV dependency itself, so you don't need to add anything to your Podfile. If you do pin it manually, exclude the broken 2.4.1 release (see the entry below): `pod 'MMKV', '>= 1.0.0', '!= 2.4.1'`.
+
+### iOS build fails with "use of undeclared identifier 'memset_s'" (MMKVCore)
+
+**MMKVCore 2.4.1** does not compile on Apple platforms - an upstream bug ([Tencent/MMKV#1675](https://github.com/Tencent/MMKV/issues/1675)). The podspec excludes exactly that release (`MMKV (!= 2.4.1)` **and** `MMKVCore (!= 2.4.1)` - the second one is required because `MMKV 2.4.0` itself depends on `MMKVCore (~> 2.4.0)`), so `pod install` resolves `MMKVCore 2.4.0`.
+
+If your `Podfile.lock` still pins the broken version, run `pod update MMKV MMKVCore`. See the [README troubleshooting entry](../README.md#-troubleshooting) for the `__STDC_WANT_LIB_EXT1__=1` `post_install` workaround if another pod forces `MMKVCore 2.4.1`.
 
 ### Downloads not resuming after app restart
 

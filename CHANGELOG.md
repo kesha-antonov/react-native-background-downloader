@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.6.1
+
+### 🐛 Bug Fixes
+
+- **iOS: build failed with `use of undeclared identifier 'memset_s'` once CocoaPods resolved MMKVCore 2.4.1 (fix [#175](https://github.com/kesha-antonov/react-native-background-downloader/issues/175)):** MMKVCore 2.4.1 does not compile on Apple platforms ([Tencent/MMKV#1675](https://github.com/Tencent/MMKV/issues/1675)) - `Core/aes/AESCrypt.cpp` calls `memset_s()` behind a `#define __STDC_WANT_LIB_EXT1__ 1` at the top of the file, but CocoaPods force-includes the generated prefix header before line 1, so Darwin's `<string.h>` has already been parsed without declaring `memset_s`. The podspec asked for `MMKV (>= 1.2.0)` with no upper bound, so any project without another MMKV constraint - notably every Expo SDK 54 app that doesn't use `react-native-mmkv` - picked up the broken release and failed to build, before any of this library's own code was compiled. Both `MMKV` and `MMKVCore` are now declared with `!= 2.4.1`. Excluding `MMKV` alone is not enough and was the trap here: `MMKV 2.4.0` itself depends on `MMKVCore (~> 2.4.0)`, so CocoaPods still installed the broken `MMKVCore 2.4.1` underneath a good `MMKV 2.4.0`. Using `!=` rather than an upper cap keeps the exclusion surgical - a fixed 2.4.2 will be picked up automatically, with no release needed here - and it still merges with whatever another pod requires, so a project pinned to `MMKVCore (= 2.2.4)` through `react-native-mmkv` resolves exactly as before. If your `Podfile.lock` already pins 2.4.1, run `cd ios && pod update MMKV MMKVCore`; if some other pod forces 2.4.1 on you, the README troubleshooting section has a `post_install` snippet that defines `__STDC_WANT_LIB_EXT1__=1` on the compiler command line, where it lands early enough to work. Thanks to [@raginsky](https://github.com/raginsky) for the report and the root-cause analysis.
+
 ## v4.6.0
 
 ### 🐛 Bug Fixes
