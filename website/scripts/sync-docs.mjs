@@ -61,7 +61,7 @@ const PAGES = [
     sidebarLabel: 'Usage',
     description:
       'Start a background download, track progress, handle completion and errors, and re-attach to downloads that were still running after your app restarted.',
-    keywords: ['react native resume download after app killed', 'checkForExistingDownloads', 'background download progress'],
+    keywords: ['react native resume download after app killed', 'getExistingDownloadTasks', 'background download progress'],
     sections: ['🚀 Usage'],
   },
   {
