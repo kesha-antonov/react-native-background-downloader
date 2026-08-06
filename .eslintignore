@@ -4,3 +4,7 @@ example/
 lib/
 # Gradle output, including the JS of generated test reports
 android/build/
+# Docs site: bundled output, Docusaurus cache, and pages generated from the READMEs
+website/build/
+website/.docusaurus/
+website/docs/
