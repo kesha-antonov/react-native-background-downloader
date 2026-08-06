@@ -20,6 +20,17 @@
   Download and upload large files on iOS & Android — even when your app is in the background or terminated by the OS.
 </p>
 
+<p align="center">
+  <strong><a href="https://kesha-antonov.github.io/react-native-background-downloader/">📖 Documentation</a></strong> &nbsp;·&nbsp;
+  <a href="https://kesha-antonov.github.io/react-native-background-downloader/installation">Installation</a> &nbsp;·&nbsp;
+  <a href="https://kesha-antonov.github.io/react-native-background-downloader/api">API reference</a> &nbsp;·&nbsp;
+  <a href="https://kesha-antonov.github.io/react-native-background-downloader/troubleshooting">Troubleshooting</a>
+</p>
+
+<p align="center">
+  <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
+</p>
+
 ---
 
 ## ✨ Features
@@ -46,10 +57,41 @@
 
 **This Library:** `@kesha-antonov/react-native-background-downloader` wraps these native APIs in a simple, unified JavaScript interface. Start a download, close your app, reopen it hours later, and seamlessly reconnect to your ongoing downloads with a single function call.
 
+## ⚖️ Comparison
+
+How this library compares to other file transfer options in the React Native ecosystem:
+
+| Capability | **This library** | `expo-file-system` | `react-native-blob-util` | `react-native-fs` |
+|---|:--:|:--:|:--:|:--:|
+| Background downloads on iOS | ✅ | ✅ <sup>1</sup> | ❌ | ✅ <sup>4</sup> |
+| Background downloads on Android | ✅ | ❌ <sup>2</sup> | ⚠️ <sup>3</sup> | ❌ |
+| Background uploads | ✅ iOS + Android | ⚠️ iOS only | ❌ | ❌ |
+| **Reconnect to transfers after app restart** | ✅ | ❌ <sup>2</sup> | ❌ | ❌ |
+| Pause / resume | ✅ iOS + Android | ⚠️ iOS only | ❌ | ⚠️ iOS only <sup>5</sup> |
+| Progress events | ✅ | ✅ | ✅ | ✅ |
+| Expo config plugin | ✅ | built in | ❌ | ❌ |
+| New Architecture (TurboModules) | ✅ | ✅ | ✅ | ⚠️ via community fork |
+| General filesystem API | ❌ | ✅ | ✅ | ✅ |
+
+<sup>1</sup> Via `sessionType: 'background'` (iOS only).
+
+<sup>2</sup> From the Expo docs: *"Android accepts this option for API consistency and ignores it"*, and *"the JavaScript `DownloadTask` instance is not restored if the app is terminated or relaunched, so its promise, progress callbacks, and cancellation state are only available while the original JS runtime is still alive."*
+
+<sup>3</sup> Via `useDownloadManager: true`, which is `GET`-only and can only write to external storage.
+
+<sup>4</sup> Via the `background: true` option (iOS only).
+
+<sup>5</sup> Via the `resumable` callback (iOS only).
+
+**The key difference is the highlighted row.** Several libraries can hand a transfer to the OS. This is the one that can find those transfers again after your app has been killed and relaunched - [`checkForExistingDownloads()`](#re-attaching-to-background-tasks) returns live task objects you can re-bind your UI to, on both platforms.
+
+**When you probably don't need this library:** if your files are small, or a failed transfer can simply be restarted from zero next time the user opens the app, `expo-file-system` is simpler and already in your project. Reach for this one when a transfer is long enough that losing it costs the user real time.
+
 ## 📖 Table of Contents
 
 - [✨ Features](#-features)
 - [💡 Why?](#-why)
+- [⚖️ Comparison](#️-comparison)
 - [📖 Table of Contents](#-table-of-contents)
 - [📋 Requirements](#-requirements)
 - [📦 Installation](#-installation)
