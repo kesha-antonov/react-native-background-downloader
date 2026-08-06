@@ -37,7 +37,7 @@
     "type": "git",
     "url": "git+https://github.com/kesha-antonov/react-native-background-downloader.git"
   },
-  "homepage": "https://github.com/kesha-antonov/react-native-background-downloader",
+  "homepage": "https://kesha-antonov.github.io/react-native-background-downloader/",
   "license": "Apache-2.0",
   "author": {
     "name": "Kesha Antonov, Eko labs",
