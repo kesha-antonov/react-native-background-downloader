@@ -83,7 +83,7 @@ How this library compares to other file transfer options in the React Native eco
 
 <sup>5</sup> Via the `resumable` callback (iOS only).
 
-**The key difference is the highlighted row.** Several libraries can hand a transfer to the OS. This is the one that can find those transfers again after your app has been killed and relaunched - [`checkForExistingDownloads()`](#re-attaching-to-background-tasks) returns live task objects you can re-bind your UI to, on both platforms.
+**The key difference is the highlighted row.** Several libraries can hand a transfer to the OS. This is the one that can find those transfers again after your app has been killed and relaunched - [`getExistingDownloadTasks()`](#re-attaching-to-background-tasks) returns live task objects you can re-bind your UI to, on both platforms.
 
 **When you probably don't need this library:** if your files are small, or a failed transfer can simply be restarted from zero next time the user opens the app, `expo-file-system` is simpler and already in your project. Reach for this one when a transfer is long enough that losing it costs the user real time.
 
