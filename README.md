@@ -21,10 +21,10 @@
 </p>
 
 <p align="center">
-  <strong><a href="https://kesha-antonov.github.io/react-native-background-downloader/">📖 Documentation</a></strong> &nbsp;·&nbsp;
-  <a href="https://kesha-antonov.github.io/react-native-background-downloader/installation">Installation</a> &nbsp;·&nbsp;
-  <a href="https://kesha-antonov.github.io/react-native-background-downloader/api">API reference</a> &nbsp;·&nbsp;
-  <a href="https://kesha-antonov.github.io/react-native-background-downloader/troubleshooting">Troubleshooting</a>
+  <strong><a href="https://www.npmjs.com/package/@kesha-antonov/react-native-background-downloader">📦 npm</a></strong> &nbsp;·&nbsp;
+  <a href="#-installation">Installation</a> &nbsp;·&nbsp;
+  <a href="./docs/API.md">API reference</a> &nbsp;·&nbsp;
+  <a href="#-troubleshooting">Troubleshooting</a>
 </p>
 
 <p align="center">
