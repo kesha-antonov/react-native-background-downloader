@@ -4,10 +4,10 @@
 
 <p align="center">
   <a href="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader"><img src="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@kesha-antonov/react-native-background-downloader"><img src="https://img.shields.io/npm/dm/@kesha-antonov/react-native-background-downloader.svg" alt="npm downloads"></a>
+  <a href="https://www.npmjs.com/package/@anorak-games/react-native-background-downloader"><img src="https://img.shields.io/npm/dm/@anorak-games/react-native-background-downloader.svg" alt="npm downloads"></a>
   <a href="https://npm-stat.com/charts.html?package=%40kesha-antonov%2Freact-native-background-downloader&from=2015-01-01"><img src="https://img.shields.io/badge/total%20downloads-1.07M-blue.svg" alt="total npm downloads"></a>
-  <a href="https://www.npmjs.com/package/@kesha-antonov/react-native-background-downloader"><img src="https://img.shields.io/npm/dt/@kesha-antonov/react-native-background-downloader.svg?label=18-months%20downloads" alt="npm downloads (last 18 months)"></a>
-  <a href="https://github.com/kesha-antonov/react-native-background-downloader/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license"></a>
+  <a href="https://www.npmjs.com/package/@anorak-games/react-native-background-downloader"><img src="https://img.shields.io/npm/dt/@anorak-games/react-native-background-downloader.svg?label=18-months%20downloads" alt="npm downloads (last 18 months)"></a>
+  <a href="https://github.com/anorak-games/react-native-background-downloader/blob/anorak-main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license"></a>
   <img src="https://img.shields.io/badge/platforms-iOS%20%7C%20Android-lightgrey.svg" alt="platforms">
   <img src="https://img.shields.io/badge/TypeScript-supported-blue.svg" alt="TypeScript">
   <img src="https://img.shields.io/badge/Expo-compatible-000020.svg" alt="Expo compatible">
@@ -55,7 +55,7 @@
 
 **The Challenge:** These APIs are powerful but complex. Downloads run in a separate process, so your app might restart from scratch while downloads are still in progress. Keeping your UI in sync with background downloads requires careful state management.
 
-**This Library:** `@kesha-antonov/react-native-background-downloader` wraps these native APIs in a simple, unified JavaScript interface. Start a download, close your app, reopen it hours later, and seamlessly reconnect to your ongoing downloads with a single function call.
+**This Library:** `@anorak-games/react-native-background-downloader` wraps these native APIs in a simple, unified JavaScript interface. Start a download, close your app, reopen it hours later, and seamlessly reconnect to your ongoing downloads with a single function call.
 
 ## ⚖️ Comparison
 
@@ -98,6 +98,7 @@ How this library compares to other file transfer options in the React Native eco
   - [Expo Projects](#expo-projects)
   - [Bare React Native Projects](#bare-react-native-projects)
     - [MMKV version comparison](#mmkv-version-comparison)
+- [React runtime reloads and OTA updates](#react-runtime-reloads-and-ota-updates)
 - [🚀 Usage](#-usage)
   - [Downloading a file](#downloading-a-file)
   - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
@@ -134,7 +135,7 @@ How this library compares to other file transfer options in the React Native eco
 **Step 1:** Install the package
 
 ```bash
-npx expo install @kesha-antonov/react-native-background-downloader
+npx expo install @anorak-games/react-native-background-downloader
 ```
 
 **Step 2:** Add the config plugin to your `app.json` or `app.config.js`:
@@ -143,7 +144,7 @@ npx expo install @kesha-antonov/react-native-background-downloader
 {
   "expo": {
     "plugins": [
-      "@kesha-antonov/react-native-background-downloader"
+      "@anorak-games/react-native-background-downloader"
     ]
   }
 }
@@ -157,7 +158,7 @@ npx expo install @kesha-antonov/react-native-background-downloader
 export default {
   expo: {
     plugins: [
-      ["@kesha-antonov/react-native-background-downloader", {
+      ["@anorak-games/react-native-background-downloader", {
         mmkvVersion: "1.3.16",  // Customize MMKV version on Android
         skipMmkvDependency: true  // Skip if you want to add MMKV manually
       }]
@@ -192,12 +193,12 @@ The plugin automatically handles:
 
 **yarn:**
 ```bash
-yarn add @kesha-antonov/react-native-background-downloader
+yarn add @anorak-games/react-native-background-downloader
 ```
 
 **npm:**
 ```bash
-npm install @kesha-antonov/react-native-background-downloader
+npm install @anorak-games/react-native-background-downloader
 ```
 
 **Step 2:** Install iOS pods
@@ -283,13 +284,26 @@ dependencies {
 
 **TL;DR:** Use the default `1.3.16`. If you already have `react-native-mmkv` in your project, skip Step 4.
 
+## React runtime reloads and OTA updates
+
+The native download and upload coordinator is process-wide. Replacing the React runtime with Dev Settings reload or an OTA update detaches only the old JavaScript event sink; it does not invalidate the native transfer engines, unregister their receivers, or cancel their sessions. The next runtime attaches to the same coordinator and can immediately start new transfers.
+
+Events that happen while no React runtime is ready are best-effort and buffered only in memory. Always reconcile native state during application initialization:
+
+```typescript
+const downloads = await getExistingDownloadTasks()
+const uploads = await getExistingUploadTasks()
+```
+
+Attach callbacks to tasks you want to keep, or stop tasks your application no longer owns. A process death may lose buffered callbacks, so persisted application state and the `getExisting*Tasks()` APIs remain the source of truth.
+
 ## 🚀 Usage
 
 ### Downloading a file
 
 ```javascript
 import { Platform } from 'react-native'
-import { createDownloadTask, completeHandler, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 const jobId = 'file123'
 
@@ -306,9 +320,6 @@ let task = createDownloadTask({
   console.log('Download is done!', { bytesDownloaded, bytesTotal })
 
   // PROCESS YOUR STUFF
-
-  // FINISH DOWNLOAD JOB
-  completeHandler(jobId)
 }).error(({ error, errorCode }) => {
   console.log('Download canceled due to error: ', { error, errorCode });
 })
@@ -339,7 +350,7 @@ When the OS terminates your app to free memory, background transfers keep runnin
 **Downloads:**
 
 ```javascript
-import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
+import { getExistingDownloadTasks } from '@anorak-games/react-native-background-downloader'
 
 const lostTasks = await getExistingDownloadTasks()
 
@@ -359,7 +370,7 @@ for (const task of lostTasks) {
 **Uploads:**
 
 ```javascript
-import { getExistingUploadTasks } from '@kesha-antonov/react-native-background-downloader'
+import { getExistingUploadTasks } from '@anorak-games/react-native-background-downloader'
 
 const lostUploads = await getExistingUploadTasks()
 
@@ -381,7 +392,7 @@ for (const task of lostUploads) {
 
 ```javascript
 import { Platform } from 'react-native'
-import { createUploadTask, completeHandler, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createUploadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 const jobId = 'upload123'
 
@@ -405,9 +416,6 @@ let task = createUploadTask({
   console.log('Upload is done!', { responseCode, responseBody })
 
   // PROCESS YOUR STUFF
-
-  // FINISH UPLOAD JOB
-  completeHandler(jobId)
 }).error(({ error, errorCode }) => {
   console.log('Upload canceled due to error: ', { error, errorCode })
 })
@@ -435,7 +443,7 @@ await task.stop()
 If your download uses authentication tokens that expire, you can update the headers of a paused download before resuming it. This is useful when auth tokens refresh while a download is paused:
 
 ```javascript
-import { getExistingDownloadTasks } from '@kesha-antonov/react-native-background-downloader'
+import { getExistingDownloadTasks } from '@anorak-games/react-native-background-downloader'
 
 // Get paused downloads
 const tasks = await getExistingDownloadTasks()
@@ -475,7 +483,7 @@ If you need to send custom headers with your download request, you can do in it 
 
 1) Globally using `setConfig()`:
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@anorak-games/react-native-background-downloader'
 
 setConfig({
   headers: {
@@ -487,7 +495,7 @@ This way, all downloads with have the given headers.
 
 2) Per download by passing a headers object in the options of `createDownloadTask()`:
 ```javascript
-import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 const task = createDownloadTask({
   id: 'file123',
@@ -522,7 +530,7 @@ You can configure global settings for download behavior using `setConfig()`:
 Control how many downloads transfer at once. This is useful for managing bandwidth and server load.
 
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@anorak-games/react-native-background-downloader'
 
 // Set maximum parallel downloads to 8 (default is 4)
 setConfig({
@@ -537,7 +545,7 @@ setConfig({
 Control whether downloads are allowed over cellular (metered) networks:
 
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@anorak-games/react-native-background-downloader'
 
 // Only allow downloads over WiFi (disable cellular data)
 setConfig({
@@ -577,7 +585,7 @@ On iOS, files protected with `NSFileProtectionComplete` cannot be written while 
 You usually don't need to change this. If your app has stricter security requirements you can raise the protection level globally or per task (iOS only - ignored on Android):
 
 ```javascript
-import { setConfig, createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig, createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 // Global default for all downloads
 setConfig({
@@ -608,7 +616,7 @@ const task = createDownloadTask({
 The library includes verbose debug logging that can help diagnose download issues. Logging is disabled by default but can be enabled at runtime using `setConfig()`. **Logging works in both debug and production/release builds.**
 
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@anorak-games/react-native-background-downloader'
 
 // Option 1: Enable native console logging (logs appear in Xcode/Android Studio console)
 setConfig({
@@ -664,7 +672,7 @@ To handle this, you can use the `maxRedirects` option to pre-resolve redirects b
 
 ```javascript
 import { Platform } from 'react-native'
-import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 // Example: Podcast URL with multiple redirects
 const task = createDownloadTask({
@@ -709,7 +717,7 @@ On Android 14+ (API 34), downloads use User-Initiated Data Transfer (UIDT) jobs 
 **Basic configuration:**
 
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@anorak-games/react-native-background-downloader'
 
 // Enable notifications and notification grouping with custom texts
 setConfig({
@@ -771,7 +779,7 @@ When downloading many files (e.g., thousands of photos), you can use the `mode` 
 | `'summaryOnly'` | Shows only ONE notification with real-time aggregate progress (e.g., "45% - 5 files"). Individual UIDT notifications are collapsed into an invisible group. Ideal for bulk downloads |
 
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@anorak-games/react-native-background-downloader'
 
 // For bulk downloads (e.g., syncing thousands of photos)
 // Use 'summaryOnly' mode to show only ONE notification with aggregate progress
@@ -791,7 +799,7 @@ setConfig({
 **Example: Batch downloading multiple files with grouped notifications:**
 
 ```javascript
-import { setConfig, createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig, createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 // Configure for bulk downloads with single summary notification
 setConfig({
@@ -849,7 +857,7 @@ for (const photo of photos) {
 When notification grouping is enabled, you can group related downloads (e.g., by album, playlist, podcast) by passing `groupId` and `groupName` in the task `metadata`:
 
 ```javascript
-import { createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 // Download album songs - they will be grouped under one notification
 const task = createDownloadTask({
@@ -922,9 +930,8 @@ import {
   createUploadTask,
   getExistingDownloadTasks,
   getExistingUploadTasks,
-  completeHandler,
   directories
-} from '@kesha-antonov/react-native-background-downloader'
+} from '@anorak-games/react-native-background-downloader'
 ```
 
 | Function | Description |
@@ -934,7 +941,6 @@ import {
 | `getExistingDownloadTasks()` | Get downloads running in background |
 | `getExistingUploadTasks()` | Get uploads running in background |
 | `setConfig(config)` | Set global configuration |
-| `completeHandler(jobId)` | Signal download completion to OS |
 | `directories.documents` | Path to app's documents directory |
 
 ## 📱 Platform Notes
@@ -1016,7 +1022,7 @@ On iOS the actual transfer is handed to the system `nsurlsessiond` daemon and **
 
 1. **Did you force-quit the app?** If the user swipes the app away in the app switcher, iOS halts *that app's* background transfers until it's relaunched. This is an OS policy and cannot be worked around by any library.
 2. **You won't get live `progress` events while locked.** Your JavaScript isn't running while the app is suspended, so `begin` / `progress` / `complete` callbacks fire when the app resumes or is relaunched - not in real time. Re-attach with `getExistingDownloadTasks()` on launch.
-3. **AppDelegate wiring.** Make sure `handleEventsForBackgroundURLSession` is implemented (see [Installation](#-installation)) and that you call `completeHandler(jobId)` from JS in your `complete`/`error` handlers, or iOS will throttle future background time.
+3. **AppDelegate wiring.** Make sure `handleEventsForBackgroundURLSession` is implemented (see [Installation](#-installation)). The native coordinator invokes the operating-system completion handler after it finishes processing background-session events.
 4. **Data Protection (the one this library handles).** On a passcoded, locked device, files protected with `NSFileProtectionComplete` can't be written, so a download that *finishes* while locked could previously fail to save. The library now writes the file with `NSFileProtectionCompleteUntilFirstUserAuthentication` by default (writable while locked after the first unlock since boot), and if the move still can't happen because the device is locked it stages the bytes and completes the save automatically when the device is next unlocked - emitting `complete` then. You can change the level with `setConfig({ iosDataProtection })` or per task (see Advanced Configuration).
 5. **Test on a real device.** The iOS Simulator's background-transfer behavior is unreliable; verify on hardware.
 </details>

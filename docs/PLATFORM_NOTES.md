@@ -1,6 +1,6 @@
 # Platform Notes
 
-Platform-specific information, requirements, and troubleshooting for `@kesha-antonov/react-native-background-downloader`.
+Platform-specific information, requirements, and troubleshooting for `@anorak-games/react-native-background-downloader`.
 
 ## Table of Contents
 
@@ -13,6 +13,10 @@ Platform-specific information, requirements, and troubleshooting for `@kesha-ant
 ---
 
 ## iOS Notes
+
+### React runtime reloads
+
+The background `URLSession`, its delegate, transfer maps, persistence, and AppDelegate completion handler belong to a process-wide native coordinator. A React reload replaces only the event adapter and does not invalidate the session. The coordinator completes iOS background-session event delivery itself after native processing; JavaScript does not acknowledge operating-system completion.
 
 ### Background Session Handling
 
@@ -46,6 +50,10 @@ See the [Updating headers on paused downloads](../README.md#-usage) section in t
 ---
 
 ## Android Notes
+
+### React runtime reloads
+
+The application-context downloader, uploader, receivers, service binding, job listeners, and task registries belong to a process-wide native coordinator. Invalidating a React module detaches only its event adapter. A newly initialized module attaches to the existing coordinator and can query or start transfers immediately.
 
 ### Pause/Resume Implementation
 

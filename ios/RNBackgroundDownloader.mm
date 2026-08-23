@@ -13,6 +13,8 @@
 #define ID_TO_UPLOAD_CONFIG_MAP_KEY @"com.eko.bguploadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
 #define PROGRESS_MIN_BYTES_KEY @"progressMinBytes"
+#define MAX_PARALLEL_DOWNLOADS_KEY @"maxParallelDownloads"
+#define ALLOWS_CELLULAR_ACCESS_KEY @"allowsCellularAccess"
 // Persisted map of downloads whose finished file could not be moved to its destination
 // yet because the device was locked (Data Protection). The move is retried when protected
 // data becomes available / on next launch. See issue #101.
@@ -26,7 +28,6 @@ static const NSTimeInterval kResourceTimeoutSeconds = 60 * 60 * 24;  // 1 day - 
 // Progress reporting constants
 static const NSTimeInterval kTaskReconciliationDelay = 0.1;  // Delay to allow session tasks to stabilize
 static const float kProgressReportThreshold = 0.01f;         // Report progress every 1% change
-static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for completion handler (30 seconds)
 
 // DLog accepts taskId as first parameter to help debugging
 // Only logs if isLogsEnabled is true (works in both DEBUG and RELEASE builds)
@@ -42,7 +43,28 @@ static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for com
 
 static CompletionHandler storedCompletionHandler;
 
+@interface RNBackgroundDownloader ()
++ (RNBackgroundDownloader *)sharedCoordinator;
+- (instancetype)initCoordinator;
+- (void)attachEventSink:(RNBackgroundDownloader *)sink token:(NSUUID *)token;
+- (void)detachEventSinkWithToken:(NSUUID *)token;
+- (NSArray<NSDictionary *> *)markEventSinkReadyWithToken:(NSUUID *)token;
+- (void)acknowledgeEventsWithKeys:(NSArray<NSString *> *)keys token:(NSUUID *)token;
+- (void)dispatchCoordinatorEvent:(NSString *)eventName value:(id)value;
+- (void)emitEventToRuntime:(NSString *)eventName value:(id)value;
+- (BOOL)isBindingTokenCurrent:(NSUUID *)token;
+- (RCTPromiseResolveBlock)runtimeResolve:(RCTPromiseResolveBlock)resolve;
+- (RCTPromiseRejectBlock)runtimeReject:(RCTPromiseRejectBlock)reject;
+- (void)emitDownloadFailed:(NSString *)identifier error:(NSString *)error errorCode:(NSInteger)errorCode;
+@end
+
 @implementation RNBackgroundDownloader {
+    BOOL isCoordinator;
+    RNBackgroundDownloader *coordinator;
+    __weak RNBackgroundDownloader *eventSink;
+    NSUUID *bindingToken;
+    NSUUID *currentBindingToken;
+    BOOL eventSinkReady;
     MMKV *mmkv;
     NSURLSession *urlSession;
     NSURLSessionConfiguration *sessionConfig;
@@ -61,7 +83,7 @@ static CompletionHandler storedCompletionHandler;
     float progressInterval;
     int64_t progressMinBytes;
     NSDate *lastProgressReportedAt;
-    BOOL isBridgeListenerInited;
+    BOOL areApplicationObserversRegistered;
     BOOL hasListeners;
     // Tracks whether the session has been fully activated (warmed up)
     BOOL isSessionActivated;
@@ -69,18 +91,14 @@ static CompletionHandler storedCompletionHandler;
     NSMutableArray<dispatch_block_t> *pendingDownloads;
     // Controls whether debug logs are sent to JS
     BOOL isLogsEnabled;
+    BOOL configuredAllowsCellularAccess;
 
     // Downloads that finished but whose file couldn't be moved to its destination because
     // the device was locked. Keyed by configId -> staging/destination info. Retried on
     // UIApplicationProtectedDataDidBecomeAvailable, app foreground, and launch. See #101.
     NSMutableDictionary<NSString *, NSDictionary *> *pendingMoves;
 
-#ifdef RCT_NEW_ARCH_ENABLED
-    // Queue of events that arrived before the TurboModule event emitter callback was set.
-    // This prevents crashes (std::bad_function_call / SIGABRT) when NSURLSession delegate
-    // callbacks fire before JS has registered event listeners.
     NSMutableArray<NSDictionary *> *pendingEmitEvents;
-#endif
 
     // Upload-specific instance variables
     NSMutableDictionary<NSNumber *, RNBGDUploadTaskConfig *> *uploadTaskToConfigMap;
@@ -153,6 +171,57 @@ RCT_EXPORT_MODULE();
 #endif
 }
 
+- (void)dispatchCoordinatorEvent:(NSString *)eventName value:(id)value {
+    @synchronized (pendingEmitEvents) {
+        RNBackgroundDownloader *sink = eventSink;
+        if (sink && eventSinkReady) {
+            [sink emitEventToRuntime:eventName value:value];
+            return;
+        }
+
+        BOOL isUpload = [eventName containsString:@"Upload"] || [eventName hasPrefix:@"upload"];
+        NSString *family = isUpload ? @"upload" : @"download";
+        BOOL isProgress = [eventName containsString:@"Progress"];
+        NSArray *values = isProgress && [value isKindOfClass:[NSArray class]] ? value : @[value ?: @{}];
+
+        for (id item in values) {
+            NSString *taskId = [item isKindOfClass:[NSDictionary class]] ? item[@"id"] : nil;
+            NSString *key = taskId
+                ? [NSString stringWithFormat:@"%@%@:%@", family, isProgress ? @"-progress" : @"", taskId]
+                : [NSUUID UUID].UUIDString;
+            NSIndexSet *existingEvents = [pendingEmitEvents indexesOfObjectsPassingTest:^BOOL(NSDictionary *event, NSUInteger idx, BOOL *stop) {
+                return [event[@"key"] isEqualToString:key];
+            }];
+            [pendingEmitEvents removeObjectsAtIndexes:existingEvents];
+
+            if (!isProgress && ([eventName containsString:@"Complete"] || [eventName containsString:@"Failed"])) {
+                NSString *progressKey = [NSString stringWithFormat:@"%@-progress:%@", family, taskId];
+                NSIndexSet *progressEvents = [pendingEmitEvents indexesOfObjectsPassingTest:^BOOL(NSDictionary *event, NSUInteger idx, BOOL *stop) {
+                    return [event[@"key"] isEqualToString:progressKey];
+                }];
+                [pendingEmitEvents removeObjectsAtIndexes:progressEvents];
+            }
+
+            if (pendingEmitEvents.count >= 256) {
+                [pendingEmitEvents removeObjectAtIndex:0];
+            }
+            [pendingEmitEvents addObject:@{ @"name": eventName, @"key": key, @"value": item }];
+        }
+    }
+}
+
+- (void)emitEventToRuntime:(NSString *)eventName value:(id)value {
+    if (isCoordinator) {
+        [self dispatchCoordinatorEvent:eventName value:value];
+        return;
+    }
+#ifdef RCT_NEW_ARCH_ENABLED
+    [self safeEmitEvent:eventName value:value];
+#else
+    [self sendEventWithName:eventName body:value];
+#endif
+}
+
 #ifndef RCT_NEW_ARCH_ENABLED
 // Maximum retry attempts for queued events when bridge isn't ready
 static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max wait
@@ -160,10 +229,15 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 // Old architecture override to ensure events are sent
 // Check if bridge is valid and loaded before sending events
 - (void)sendEventWithName:(NSString *)eventName body:(id)body {
+    if (isCoordinator) {
+        [self dispatchCoordinatorEvent:eventName value:body];
+        return;
+    }
     [self sendEventWithName:eventName body:body retryCount:0];
 }
 
 - (void)sendEventWithName:(NSString *)eventName body:(id)body retryCount:(int)retryCount {
+    if (![coordinator isBindingTokenCurrent:bindingToken]) return;
     // Check if bridge is available and loaded
     // This prevents crashes on first app install when events fire before JS is ready
     if (self.bridge == nil || !self.bridge.isValid) {
@@ -183,6 +257,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 #endif
 
 - (NSDictionary *)constantsToExport {
+    if (!isCoordinator) return [coordinator constantsToExport];
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     return @{
         @"documents": [paths firstObject],
@@ -199,25 +274,53 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 }
 #endif
 
-- (id)init {
-    DLog(nil, @"[RNBackgroundDownloader] - [init]");
+- (instancetype)init {
+    DLog(nil, @"[RNBackgroundDownloader] - [init adapter]");
 #ifdef RCT_NEW_ARCH_ENABLED
-    // New architecture uses generated base class
     self = [super init];
 #else
-    // Use initWithDisabledObservation to bypass listener count check
-    // This ensures events are always sent even when JS uses DeviceEventEmitter
-    // instead of NativeEventEmitter (which would call addListener)
     self = [super initWithDisabledObservation];
 #endif
     if (self) {
+        isCoordinator = NO;
+        coordinator = [RNBackgroundDownloader sharedCoordinator];
+        bindingToken = [NSUUID UUID];
+        pendingEmitEvents = [[NSMutableArray alloc] init];
+        [coordinator attachEventSink:self token:bindingToken];
+    }
+    return self;
+}
+
++ (RNBackgroundDownloader *)sharedCoordinator {
+    static RNBackgroundDownloader *sharedCoordinator;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sharedCoordinator = [[RNBackgroundDownloader alloc] initCoordinator];
+    });
+    return sharedCoordinator;
+}
+
+- (instancetype)initCoordinator {
+    DLog(nil, @"[RNBackgroundDownloader] - [init coordinator]");
+#ifdef RCT_NEW_ARCH_ENABLED
+    self = [super init];
+#else
+    self = [super initWithDisabledObservation];
+#endif
+    if (self) {
+        isCoordinator = YES;
         [MMKV initializeMMKV:nil];
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
 
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
         sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessionIdentifier];
-        sessionConfig.HTTPMaximumConnectionsPerHost = kMaxConnectionsPerHost;
+        NSInteger maxParallelDownloads = [mmkv containsKey:MAX_PARALLEL_DOWNLOADS_KEY]
+            ? [mmkv getInt64ForKey:MAX_PARALLEL_DOWNLOADS_KEY]
+            : kMaxConnectionsPerHost;
+        configuredAllowsCellularAccess = [mmkv getBoolForKey:ALLOWS_CELLULAR_ACCESS_KEY defaultValue:YES];
+        sessionConfig.HTTPMaximumConnectionsPerHost = maxParallelDownloads;
+        sessionConfig.allowsCellularAccess = configuredAllowsCellularAccess;
         sessionConfig.timeoutIntervalForRequest = kRequestTimeoutSeconds;
         sessionConfig.timeoutIntervalForResource = kResourceTimeoutSeconds;
         sessionConfig.discretionary = NO;
@@ -254,9 +357,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         NSMutableDictionary *pendingMovesDecoded = pendingMovesData != nil ? [self deserializePendingMoves:pendingMovesData] : nil;
         pendingMoves = pendingMovesDecoded != nil ? pendingMovesDecoded : [[NSMutableDictionary alloc] init];
 
-#ifdef RCT_NEW_ARCH_ENABLED
         pendingEmitEvents = [[NSMutableArray alloc] init];
-#endif
 
         // Initialize upload-specific data structures
         NSData *uploadTaskToConfigMapData = [mmkv getDataForKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
@@ -270,7 +371,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         idsToUploadPauseSet = [[NSMutableSet alloc] init];
         lastUploadProgressReportedAt = [[NSDate alloc] init];
 
-        [self registerBridgeListener];
+        [self registerApplicationObservers];
 
         // Initialize session early to receive background events on app relaunch
         [self lazyRegisterSession];
@@ -285,15 +386,115 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
 - (void)dealloc {
     DLog(nil, @"[RNBackgroundDownloader] - [dealloc]");
-    [self unregisterSession];
-    [self unregisterBridgeListener];
+    if (!isCoordinator) {
+        [coordinator detachEventSinkWithToken:bindingToken];
+    }
 }
 
-- (void)handleBridgeHotReload:(NSNotification *) note {
-    DLog(nil, @"[RNBackgroundDownloader] - [handleBridgeHotReload]");
-    [self unregisterSession];
-    [self unregisterBridgeListener];
+- (void)invalidate {
+    if (isCoordinator) return;
+    [coordinator detachEventSinkWithToken:bindingToken];
+#ifndef RCT_NEW_ARCH_ENABLED
+    [super invalidate];
+#endif
 }
+
+- (void)attachEventSink:(RNBackgroundDownloader *)sink token:(NSUUID *)token {
+    if (!isCoordinator) return;
+    @synchronized (pendingEmitEvents) {
+        eventSink = sink;
+        currentBindingToken = token;
+        eventSinkReady = NO;
+    }
+}
+
+- (void)detachEventSinkWithToken:(NSUUID *)token {
+    if (!isCoordinator) return;
+    @synchronized (pendingEmitEvents) {
+        if (![currentBindingToken isEqual:token]) return;
+        eventSink = nil;
+        currentBindingToken = nil;
+        eventSinkReady = NO;
+    }
+}
+
+- (NSArray<NSDictionary *> *)markEventSinkReadyWithToken:(NSUUID *)token {
+    if (!isCoordinator) return @[];
+    @synchronized (pendingEmitEvents) {
+        if (![currentBindingToken isEqual:token]) return @[];
+        eventSinkReady = YES;
+        NSMutableArray<NSDictionary *> *events = [[NSMutableArray alloc] initWithCapacity:pendingEmitEvents.count];
+        for (NSDictionary *event in pendingEmitEvents) {
+            [events addObject:@{
+                @"name": event[@"name"],
+                @"key": event[@"key"],
+                @"payload": event[@"value"] ?: @{}
+            }];
+        }
+        return events;
+    }
+}
+
+- (void)acknowledgeEventsWithKeys:(NSArray<NSString *> *)keys token:(NSUUID *)token {
+    if (!isCoordinator) return;
+    @synchronized (pendingEmitEvents) {
+        if (![currentBindingToken isEqual:token]) return;
+        NSSet<NSString *> *acknowledgedKeys = [NSSet setWithArray:keys];
+        NSIndexSet *acknowledgedEvents = [pendingEmitEvents indexesOfObjectsPassingTest:^BOOL(NSDictionary *event, NSUInteger idx, BOOL *stop) {
+            return [acknowledgedKeys containsObject:event[@"key"]];
+        }];
+        [pendingEmitEvents removeObjectsAtIndexes:acknowledgedEvents];
+    }
+}
+
+- (BOOL)isBindingTokenCurrent:(NSUUID *)token {
+    if (!isCoordinator) return NO;
+    @synchronized (pendingEmitEvents) {
+        return [currentBindingToken isEqual:token];
+    }
+}
+
+- (RCTPromiseResolveBlock)runtimeResolve:(RCTPromiseResolveBlock)resolve {
+    __weak RNBackgroundDownloader *weakSelf = self;
+    NSUUID *token = bindingToken;
+    return ^(id result) {
+        RNBackgroundDownloader *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf->coordinator isBindingTokenCurrent:token]) return;
+        resolve(result);
+    };
+}
+
+- (RCTPromiseRejectBlock)runtimeReject:(RCTPromiseRejectBlock)reject {
+    __weak RNBackgroundDownloader *weakSelf = self;
+    NSUUID *token = bindingToken;
+    return ^(NSString *code, NSString *message, NSError *error) {
+        RNBackgroundDownloader *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf->coordinator isBindingTokenCurrent:token]) return;
+        reject(code, message, error);
+    };
+}
+
+#ifdef RCT_NEW_ARCH_ENABLED
+- (void)setRuntimeReady:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+    RCTPromiseResolveBlock guardedResolve = [self runtimeResolve:resolve];
+    guardedResolve([coordinator markEventSinkReadyWithToken:bindingToken]);
+}
+
+- (void)acknowledgeRuntimeEvents:(NSArray<NSString *> *)keys {
+    [coordinator acknowledgeEventsWithKeys:keys token:bindingToken];
+}
+#else
+RCT_EXPORT_METHOD(setRuntimeReady:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+    RCTPromiseResolveBlock guardedResolve = [self runtimeResolve:resolve];
+    guardedResolve([coordinator markEventSinkReadyWithToken:bindingToken]);
+}
+
+RCT_EXPORT_METHOD(acknowledgeRuntimeEvents:(NSArray<NSString *> *)keys) {
+    [coordinator acknowledgeEventsWithKeys:keys token:bindingToken];
+}
+#endif
 
 - (void)lazyRegisterSession {
     DLog(nil, @"[RNBackgroundDownloader] - [lazyRegisterSession]");
@@ -347,29 +548,14 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     }];
 }
 
-- (void)unregisterSession {
-    DLog(nil, @"[RNBackgroundDownloader] - [unregisterSession]");
-    if (urlSession) {
-        [urlSession invalidateAndCancel];
-        urlSession = nil;
-    }
-    isSessionActivated = NO;
-    [pendingDownloads removeAllObjects];
-}
-
-- (void)registerBridgeListener {
-    DLog(nil, @"[RNBackgroundDownloader] - [registerBridgeListener]");
+- (void)registerApplicationObservers {
+    DLog(nil, @"[RNBackgroundDownloader] - [registerApplicationObservers]");
     @synchronized (sharedLock) {
-        if (isBridgeListenerInited != YES) {
-            isBridgeListenerInited = YES;
+        if (!areApplicationObserversRegistered) {
+            areApplicationObserversRegistered = YES;
             [[NSNotificationCenter defaultCenter] addObserver:self
                                                   selector:@selector(handleBridgeAppEnterForeground:)
                                                   name:UIApplicationWillEnterForegroundNotification
-                                                  object:nil];
-
-            [[NSNotificationCenter defaultCenter] addObserver:self
-                                                  selector:@selector(handleBridgeHotReload:)
-                                                  name:RCTJavaScriptWillStartLoadingNotification
                                                   object:nil];
 
             // Finish any moves deferred while the device was locked, as soon as
@@ -386,14 +572,6 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 - (void)handleProtectedDataAvailable:(NSNotification *) note {
     DLog(nil, @"[RNBackgroundDownloader] - [handleProtectedDataAvailable]");
     [self processPendingMoves];
-}
-
-- (void)unregisterBridgeListener {
-    DLog(nil, @"[RNBackgroundDownloader] - [unregisterBridgeListener]");
-    if (isBridgeListenerInited == YES) {
-        [[NSNotificationCenter defaultCenter] removeObserver:self];
-        isBridgeListenerInited = NO;
-    }
 }
 
 - (void)handleBridgeAppEnterForeground:(NSNotification *) note {
@@ -449,10 +627,20 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
 #ifdef RCT_NEW_ARCH_ENABLED
 - (void)setLogsEnabled:(BOOL)enabled {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator setLogsEnabled:enabled];
+        return;
+    }
     [self _setLogsEnabledInternal:enabled];
 }
 #else
 RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator setLogsEnabled:enabled];
+        return;
+    }
     [self _setLogsEnabledInternal:enabled];
 }
 #endif
@@ -468,11 +656,7 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
         @synchronized (sharedLock) {
             if (max >= 1) {
                 sessionConfig.HTTPMaximumConnectionsPerHost = max;
-                // Recreate session with new config if it's already initialized
-                if (urlSession != nil) {
-                    [self unregisterSession];
-                    [self lazyRegisterSession];
-                }
+                [mmkv setInt64:max forKey:MAX_PARALLEL_DOWNLOADS_KEY];
             }
         }
     } @catch (NSException *exception) {
@@ -482,10 +666,20 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
 
 #ifdef RCT_NEW_ARCH_ENABLED
 - (void)setMaxParallelDownloads:(double)max {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator setMaxParallelDownloads:max];
+        return;
+    }
     [self _setMaxParallelDownloadsInternal:(NSInteger)max];
 }
 #else
 RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator setMaxParallelDownloads:max];
+        return;
+    }
     [self _setMaxParallelDownloadsInternal:max];
 }
 #endif
@@ -497,12 +691,9 @@ RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
     // here can throw, and an escaping exception crashes Hermes off the JS thread.
     @try {
         @synchronized (sharedLock) {
+            configuredAllowsCellularAccess = allows;
             sessionConfig.allowsCellularAccess = allows;
-            // Recreate session with new config if it's already initialized
-            if (urlSession != nil) {
-                [self unregisterSession];
-                [self lazyRegisterSession];
-            }
+            [mmkv setBool:allows forKey:ALLOWS_CELLULAR_ACCESS_KEY];
         }
     } @catch (NSException *exception) {
         DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess] error: %@", exception.reason);
@@ -511,16 +702,36 @@ RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
 
 #ifdef RCT_NEW_ARCH_ENABLED
 - (void)setAllowsCellularAccess:(BOOL)allows {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator setAllowsCellularAccess:allows];
+        return;
+    }
     [self _setAllowsCellularAccessInternal:allows];
 }
 #else
 RCT_EXPORT_METHOD(setAllowsCellularAccess:(BOOL)allows) {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator setAllowsCellularAccess:allows];
+        return;
+    }
     [self _setAllowsCellularAccessInternal:allows];
 }
 #endif
 
 #ifdef RCT_NEW_ARCH_ENABLED
+- (void)setNotificationGroupingConfig:(JS::NativeRNBackgroundDownloader::SpecSetNotificationGroupingConfigConfig &)config {
+}
+#endif
+
+#ifdef RCT_NEW_ARCH_ENABLED
 - (void)download:(JS::NativeRNBackgroundDownloader::SpecDownloadOptions &)options {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator download:options];
+        return;
+    }
     NSString *identifier = options.id_();
     DLog(identifier, @"[RNBackgroundDownloader] - [download]");
     NSString *url = options.url();
@@ -542,6 +753,11 @@ RCT_EXPORT_METHOD(setAllowsCellularAccess:(BOOL)allows) {
     NSString *destinationRelative = [self getRelativeFilePathFromPath:destination];
 #else
 RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator download:options];
+        return;
+    }
     NSString *identifier = options[@"id"];
     DLog(identifier, @"[RNBackgroundDownloader] - [download]");
     NSString *url = options[@"url"];
@@ -577,6 +793,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:url]];
+    request.allowsCellularAccess = configuredAllowsCellularAccess;
     // Query in the getExistingDownloadTasks function.
     [request setValue:identifier forHTTPHeaderField:@"configId"];
     if (headers != nil) {
@@ -629,6 +846,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         if (task == nil) {
             DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create download task");
             [self sendDebugLog:@"executeDownloadWithRequest: ERROR - failed to create download task" taskId:identifier];
+            [self emitDownloadFailed:identifier error:@"failed to create download task" errorCode:-1];
             return;
         }
 
@@ -656,61 +874,38 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 }
 
-// Creates a download task on the current session. If the session has been
-// invalidated (e.g. after a hot reload or a prior invalidateAndCancel),
-// -downloadTaskWithRequest: raises:
-//   "attempted to create a NSURLSessionDownloadTask in a session that has
-//    been invalidated"
-// In that case we recreate the background session and retry once.
-// Must be called while holding sharedLock.
-// See https://github.com/kesha-antonov/react-native-background-downloader/issues/157
 - (NSURLSessionDownloadTask *)createDownloadTaskWithRequest:(NSMutableURLRequest *)request identifier:(NSString *)identifier {
     @try {
         return [urlSession downloadTaskWithRequest:request];
     } @catch (NSException *exception) {
-        DLog(identifier, @"[RNBackgroundDownloader] - [createDownloadTask] session invalidated, recreating: %@", exception.reason);
-        [self sendDebugLog:[NSString stringWithFormat:@"createDownloadTask: session invalidated, recreating (%@)", exception.reason] taskId:identifier];
-
-        // Recreate the background session directly (do not call unregisterSession,
-        // which would invalidateAndCancel and drop queued downloads).
-        urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
-        isSessionActivated = YES;
-
-        @try {
-            return [urlSession downloadTaskWithRequest:request];
-        } @catch (NSException *retryException) {
-            DLog(identifier, @"[RNBackgroundDownloader] - [createDownloadTask] retry failed: %@", retryException.reason);
-            [self sendDebugLog:[NSString stringWithFormat:@"createDownloadTask: retry failed (%@)", retryException.reason] taskId:identifier];
-            return nil;
-        }
+        DLog(identifier, @"[RNBackgroundDownloader] - [createDownloadTask] failed: %@", exception.reason);
+        [self sendDebugLog:[NSString stringWithFormat:@"createDownloadTask: failed (%@)", exception.reason] taskId:identifier];
+        return nil;
     }
 }
 
-// Same recovery as -createDownloadTaskWithRequest:identifier:, for uploads:
-// -uploadTaskWithRequest:fromFile: raises NSInvalidArgumentException when the
-// session has been invalidated, so recreate the background session and retry once.
-// Must be called while holding sharedLock.
-// See https://github.com/kesha-antonov/react-native-background-downloader/issues/170
 - (NSURLSessionUploadTask *)createUploadTaskWithRequest:(NSURLRequest *)request fromFile:(NSURL *)fileURL identifier:(NSString *)identifier {
     @try {
         return [urlSession uploadTaskWithRequest:request fromFile:fileURL];
     } @catch (NSException *exception) {
-        DLog(identifier, @"[RNBackgroundDownloader] - [createUploadTask] session invalidated, recreating: %@", exception.reason);
-        [self sendDebugLog:[NSString stringWithFormat:@"createUploadTask: session invalidated, recreating (%@)", exception.reason] taskId:identifier];
-
-        // Recreate the background session directly (do not call unregisterSession,
-        // which would invalidateAndCancel and drop queued downloads).
-        urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
-        isSessionActivated = YES;
-
-        @try {
-            return [urlSession uploadTaskWithRequest:request fromFile:fileURL];
-        } @catch (NSException *retryException) {
-            DLog(identifier, @"[RNBackgroundDownloader] - [createUploadTask] retry failed: %@", retryException.reason);
-            [self sendDebugLog:[NSString stringWithFormat:@"createUploadTask: retry failed (%@)", retryException.reason] taskId:identifier];
-            return nil;
-        }
+        DLog(identifier, @"[RNBackgroundDownloader] - [createUploadTask] failed: %@", exception.reason);
+        [self sendDebugLog:[NSString stringWithFormat:@"createUploadTask: failed (%@)", exception.reason] taskId:identifier];
+        return nil;
     }
+}
+
+- (void)emitDownloadFailed:(NSString *)identifier error:(NSString *)error errorCode:(NSInteger)errorCode {
+    if (identifier == nil) return;
+    NSDictionary *body = @{
+        @"id": identifier,
+        @"error": error ?: @"unknown error",
+        @"errorCode": @(errorCode)
+    };
+#ifdef RCT_NEW_ARCH_ENABLED
+    [self safeEmitEvent:@"onDownloadFailed" value:body];
+#else
+    [self sendEventWithName:@"downloadFailed" body:body];
+#endif
 }
 
 // Emits uploadFailed so the JS task errors out instead of hanging when upload
@@ -775,12 +970,17 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 }
 
 - (void)pauseTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator pauseTask:identifier resolve:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     [self pauseTaskInternal:identifier resolve:resolve reject:reject];
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self pauseTaskInternal:id resolve:resolve reject:reject];
+    [self pauseTask:id resolve:resolve reject:reject];
 }
 #endif
 
@@ -819,6 +1019,7 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                     if (taskConfig != nil && taskConfig.bytesDownloaded > 0) {
                         DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] using updated headers with Range for %@", identifier);
                         NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
+                        request.allowsCellularAccess = configuredAllowsCellularAccess;
                         [request setValue:identifier forHTTPHeaderField:@"configId"];
                         for (NSString *headerKey in updatedHeaders) {
                             [request setValue:[updatedHeaders valueForKey:headerKey] forHTTPHeaderField:headerKey];
@@ -889,12 +1090,17 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
 }
 
 - (void)resumeTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator resumeTask:identifier resolve:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     [self resumeTaskInternal:identifier resolve:resolve reject:reject];
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self resumeTaskInternal:id resolve:resolve reject:reject];
+    [self resumeTask:id resolve:resolve reject:reject];
 }
 #endif
 
@@ -942,12 +1148,17 @@ RCT_EXPORT_METHOD(resumeTask:(NSString *)id resolver:(RCTPromiseResolveBlock)res
 }
 
 - (void)stopTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator stopTask:identifier resolve:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     [self stopTaskInternal:identifier resolve:resolve reject:reject];
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(stopTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self stopTaskInternal:id resolve:resolve reject:reject];
+    [self stopTask:id resolve:resolve reject:reject];
 }
 #endif
 
@@ -972,38 +1183,26 @@ RCT_EXPORT_METHOD(stopTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resol
 }
 
 - (void)updateTaskHeaders:(NSString *)identifier headers:(NSDictionary *)headers resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator updateTaskHeaders:identifier headers:headers resolve:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     [self updateTaskHeadersInternal:identifier headers:headers resolve:resolve reject:reject];
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(updateTaskHeaders:(NSString *)id headers:(NSDictionary *)headers resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self updateTaskHeadersInternal:id headers:headers resolve:resolve reject:reject];
-}
-#endif
-
-- (void)completeHandler:(NSString *)jobId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-    DLog(nil, @"[RNBackgroundDownloader] - [completeHandlerIOS]");
-    @try {
-        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
-            if (storedCompletionHandler) {
-                storedCompletionHandler();
-                storedCompletionHandler = nil;
-            }
-        }];
-
-        resolve(nil);
-    } @catch (NSException *exception) {
-        reject(@"ERR_COMPLETE_HANDLER", exception.reason, nil);
-    }
-}
-
-#ifndef RCT_NEW_ARCH_ENABLED
-RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self completeHandler:jobId resolve:resolve reject:reject];
+    [self updateTaskHeaders:id headers:headers resolve:resolve reject:reject];
 }
 #endif
 
 - (void)getExistingDownloadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator getExistingDownloadTasks:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     DLog(nil, @"[RNBackgroundDownloader] - [getExistingDownloadTasks]");
     [self sendDebugLog:@"getExistingDownloadTasks: starting" taskId:nil];
     [self lazyRegisterSession];
@@ -1317,6 +1516,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 // when NSURLSession delegate callbacks fire before JS has registered listeners
 // (e.g., background session delivering completions from a prior app session).
 - (void)safeEmitEvent:(NSString *)eventName value:(id)value {
+    if (isCoordinator) {
+        [self dispatchCoordinatorEvent:eventName value:value];
+        return;
+    }
+    if (![coordinator isBindingTokenCurrent:bindingToken]) return;
     @synchronized (pendingEmitEvents) {
         if (_eventEmitterCallback) {
             _eventEmitterCallback(std::string([eventName UTF8String]), value);
@@ -1329,6 +1533,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 - (void)setEventEmitterCallback:(EventEmitterCallbackWrapper *)eventEmitterCallbackWrapper {
     @synchronized (pendingEmitEvents) {
         [super setEventEmitterCallback:eventEmitterCallbackWrapper];
+
+        if (![coordinator isBindingTokenCurrent:bindingToken]) {
+            [pendingEmitEvents removeAllObjects];
+            return;
+        }
 
         // Flush any events that arrived before the callback was set
         for (NSDictionary *event in pendingEmitEvents) {
@@ -1563,6 +1772,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
             // Build a fresh request replicating original headers
             NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
+            request.allowsCellularAccess = configuredAllowsCellularAccess;
             // Reapply original request headers if available (including our internal identifier header)
             NSDictionary *originalHeaders = task.originalRequest.allHTTPHeaderFields;
             if (originalHeaders != nil) {
@@ -1615,6 +1825,14 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
 - (void)URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session {
     DLog(nil, @"[RNBackgroundDownloader] - [URLSessionDidFinishEventsForBackgroundURLSession]");
+    CompletionHandler completionHandler;
+    @synchronized ([RNBackgroundDownloader class]) {
+        completionHandler = storedCompletionHandler;
+        storedCompletionHandler = nil;
+    }
+    if (completionHandler) {
+        dispatch_async(dispatch_get_main_queue(), completionHandler);
+    }
 }
 
 #pragma mark - Upload methods
@@ -1638,6 +1856,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
 #ifdef RCT_NEW_ARCH_ENABLED
 - (void)upload:(JS::NativeRNBackgroundDownloader::SpecUploadOptions &)options {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator upload:options];
+        return;
+    }
     NSString *identifier = options.id_();
     DLog(identifier, @"[RNBackgroundDownloader] - [upload]");
     NSString *url = options.url();
@@ -1660,6 +1883,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     }
 #else
 RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator upload:options];
+        return;
+    }
     NSString *identifier = options[@"id"];
     DLog(identifier, @"[RNBackgroundDownloader] - [upload]");
     NSString *url = options[@"url"];
@@ -1728,6 +1956,7 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
 
             // Create request
             NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:requestURL];
+            request.allowsCellularAccess = configuredAllowsCellularAccess;
             request.HTTPMethod = method;
             [request setValue:identifier forHTTPHeaderField:@"uploadConfigId"];
 
@@ -1855,12 +2084,17 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
 }
 
 - (void)pauseUploadTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator pauseUploadTask:identifier resolve:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     [self pauseUploadTaskInternal:identifier resolve:resolve reject:reject];
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(pauseUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self pauseUploadTaskInternal:id resolve:resolve reject:reject];
+    [self pauseUploadTask:id resolve:resolve reject:reject];
 }
 #endif
 
@@ -1886,12 +2120,17 @@ RCT_EXPORT_METHOD(pauseUploadTask:(NSString *)id resolver:(RCTPromiseResolveBloc
 }
 
 - (void)resumeUploadTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator resumeUploadTask:identifier resolve:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     [self resumeUploadTaskInternal:identifier resolve:resolve reject:reject];
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(resumeUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self resumeUploadTaskInternal:id resolve:resolve reject:reject];
+    [self resumeUploadTask:id resolve:resolve reject:reject];
 }
 #endif
 
@@ -1913,16 +2152,26 @@ RCT_EXPORT_METHOD(resumeUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlo
 }
 
 - (void)stopUploadTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator stopUploadTask:identifier resolve:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     [self stopUploadTaskInternal:identifier resolve:resolve reject:reject];
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
 RCT_EXPORT_METHOD(stopUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    [self stopUploadTaskInternal:id resolve:resolve reject:reject];
+    [self stopUploadTask:id resolve:resolve reject:reject];
 }
 #endif
 
 - (void)getExistingUploadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+    if (!isCoordinator) {
+        if (![coordinator isBindingTokenCurrent:bindingToken]) return;
+        [coordinator getExistingUploadTasks:[self runtimeResolve:resolve] reject:[self runtimeReject:reject]];
+        return;
+    }
     DLog(nil, @"[RNBackgroundDownloader] - [getExistingUploadTasks]");
     [self lazyRegisterSession];
 
@@ -2153,21 +2402,10 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
   NSString *sessionIdentifier =
       [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
   if ([sessionIdentifier isEqualToString:identifier]) {
-    storedCompletionHandler = completionHandler;
-
-    // Set a timeout to prevent memory leak if JS never calls completeHandler
-    // iOS requires the completion handler to be called within 30 seconds
-    // Copy the handler to a local variable to avoid retain cycle with static variable
-    __block CompletionHandler handlerToCall = completionHandler;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kCompletionHandlerTimeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-      // Check if this is still the same handler (not already called or replaced)
-      if (storedCompletionHandler && storedCompletionHandler == handlerToCall) {
-        DLogStatic(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier] timeout - calling completion handler automatically");
-        storedCompletionHandler();
-        storedCompletionHandler = nil;
-      }
-      handlerToCall = nil;  // Release the block reference
-    });
+    @synchronized ([RNBackgroundDownloader class]) {
+      storedCompletionHandler = [completionHandler copy];
+    }
+    [self sharedCoordinator];
   }
 }
 

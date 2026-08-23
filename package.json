@@ -1,6 +1,6 @@
 {
-  "name": "@kesha-antonov/react-native-background-downloader",
-  "version": "4.6.1",
+  "name": "@anorak-games/react-native-background-downloader",
+  "version": "4.6.1-anorak.1",
   "description": "Background file downloads and uploads for React Native and Expo. Large files keep transferring on iOS and Android while your app is in the background or terminated. Pause/resume, progress events, TurboModules, TypeScript.",
   "keywords": [
     "react-native",
@@ -35,9 +35,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kesha-antonov/react-native-background-downloader.git"
+    "url": "git+https://github.com/anorak-games/react-native-background-downloader.git"
   },
-  "homepage": "https://kesha-antonov.github.io/react-native-background-downloader/",
+  "homepage": "https://github.com/anorak-games/react-native-background-downloader",
   "license": "Apache-2.0",
   "author": {
     "name": "Kesha Antonov, Eko labs",
@@ -83,9 +83,9 @@
     "prepare": "npm run build && npm run build-plugin",
     "prepublishOnly": "npm run build-plugin && npm run build && npm run typecheck && jest && npm run lint",
     "build-plugin": "tsc plugin/src/index.ts --outDir plugin/build --target ES2018 --module commonjs --declaration --esModuleInterop --strict --skipLibCheck",
-    "release": "npm publish",
+    "release": "npm publish --access public --tag anorak",
     "test": "jest",
-    "test:android": "cd example/android && ./gradlew :kesha-antonov_react-native-background-downloader:testDebugUnitTest"
+    "test:android": "cd example/android && ./gradlew :anorak-games_react-native-background-downloader:testDebugUnitTest"
   },
   "lint-staged": {
     "*.js": "eslint --cache"
@@ -145,7 +145,8 @@
     "react-native": ">=0.57.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "resolutions": {
     "uuid": "^11.1.1"

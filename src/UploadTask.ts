@@ -46,6 +46,8 @@ export class UploadTask {
   progressHandler?: UploadProgressHandler
   doneHandler?: UploadDoneHandler
   errorHandler?: UploadErrorHandler
+  private pendingDone?: UploadDoneHandlerParams
+  private pendingError?: UploadErrorHandlerParams
 
   constructor (taskParams: UploadTaskInfo | UploadTaskInfoNative, originalTask?: UploadTaskType) {
     this.id = taskParams.id
@@ -89,6 +91,11 @@ export class UploadTask {
       throw new Error('done handler must be a function')
 
     this.doneHandler = handler
+    if (this.pendingDone) {
+      const params = this.pendingDone
+      this.pendingDone = undefined
+      handler(params)
+    }
     return this
   }
 
@@ -97,6 +104,11 @@ export class UploadTask {
       throw new Error('error handler must be a function')
 
     this.errorHandler = handler
+    if (this.pendingError) {
+      const params = this.pendingError
+      this.pendingError = undefined
+      handler(params)
+    }
     return this
   }
 
@@ -118,12 +130,18 @@ export class UploadTask {
     this.state = 'DONE'
     this.bytesUploaded = params.bytesUploaded
     this.bytesTotal = params.bytesTotal
-    this.doneHandler?.(params)
+    if (this.doneHandler)
+      this.doneHandler(params)
+    else
+      this.pendingDone = params
   }
 
   onError (params: UploadErrorHandlerParams) {
     this.state = 'FAILED'
-    this.errorHandler?.(params)
+    if (this.errorHandler)
+      this.errorHandler(params)
+    else
+      this.pendingError = params
   }
 
   // methods

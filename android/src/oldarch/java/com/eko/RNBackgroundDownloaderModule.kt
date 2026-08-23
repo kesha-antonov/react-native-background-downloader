@@ -11,7 +11,8 @@ import com.facebook.react.module.annotations.ReactModule
 class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
-    private val impl = RNBackgroundDownloaderModuleImpl(reactContext)
+    private val impl = RNBackgroundDownloaderModuleImpl.getInstance(reactContext)
+    private var bindingToken: Long? = null
 
     override fun getName(): String = RNBackgroundDownloaderModuleImpl.NAME
 
@@ -19,94 +20,105 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
 
     override fun initialize() {
         super.initialize()
-        impl.initialize()
+        bindingToken = impl.initialize(reactApplicationContext)
     }
 
     override fun invalidate() {
-        impl.invalidate()
+        bindingToken?.let(impl::invalidate)
+        bindingToken = null
         super.invalidate()
+    }
+
+    private fun isRuntimeActive(): Boolean =
+        bindingToken?.let(impl::isBindingTokenCurrent) == true
+
+    @ReactMethod
+    fun setRuntimeReady(promise: Promise) =
+        promise.resolveValueCatching("ERR_SET_RUNTIME_READY", ::isRuntimeActive) {
+            bindingToken?.let(impl::setRuntimeReady) ?: com.facebook.react.bridge.Arguments.createArray()
+        }
+
+    @ReactMethod
+    fun acknowledgeRuntimeEvents(keys: com.facebook.react.bridge.ReadableArray) {
+        if (isRuntimeActive()) bindingToken?.let { impl.acknowledgeRuntimeEvents(it, keys) }
     }
 
     @ReactMethod
     fun download(options: ReadableMap) {
-        impl.download(options)
+        if (isRuntimeActive()) impl.download(options)
     }
 
     @ReactMethod
     fun pauseTask(id: String, promise: Promise) =
-        promise.resolveCatching("ERR_PAUSE_TASK") { impl.pauseTask(id) }
+        promise.resolveCatching("ERR_PAUSE_TASK", ::isRuntimeActive) { impl.pauseTask(id) }
 
     @ReactMethod
     fun resumeTask(id: String, promise: Promise) =
-        promise.resolveCatching("ERR_RESUME_TASK") { impl.resumeTask(id) }
+        promise.resolveCatching("ERR_RESUME_TASK", ::isRuntimeActive) { impl.resumeTask(id) }
 
     @ReactMethod
     fun stopTask(id: String, promise: Promise) =
-        promise.resolveCatching("ERR_STOP_TASK") { impl.stopTask(id) }
+        promise.resolveCatching("ERR_STOP_TASK", ::isRuntimeActive) { impl.stopTask(id) }
 
     @ReactMethod
     fun updateTaskHeaders(id: String, headers: ReadableMap, promise: Promise) {
-        impl.updateTaskHeaders(id, headers, promise)
+        promise.resolveValueCatching("ERR_UPDATE_HEADERS", ::isRuntimeActive) { impl.updateTaskHeaders(id, headers) }
     }
 
     @ReactMethod
-    fun completeHandler(jobId: String, promise: Promise) =
-        promise.resolveCatching("ERR_COMPLETE_HANDLER") { impl.completeHandler(jobId) }
-
-    @ReactMethod
     fun getExistingDownloadTasks(promise: Promise) =
-        promise.rejectOnThrow("ERR_GET_EXISTING_TASKS") { impl.getExistingDownloadTasks(promise) }
+        promise.resolveValueCatching("ERR_GET_EXISTING_TASKS", ::isRuntimeActive) { impl.getExistingDownloadTasks() }
 
     @ReactMethod
     fun setLogsEnabled(enabled: Boolean) {
-        impl.setLogsEnabled(enabled)
+        if (isRuntimeActive()) impl.setLogsEnabled(enabled)
     }
 
     @ReactMethod
     fun setMaxParallelDownloads(max: Int) {
-        impl.setMaxParallelDownloads(max)
+        if (isRuntimeActive()) impl.setMaxParallelDownloads(max)
     }
 
     @ReactMethod
     fun setAllowsCellularAccess(allows: Boolean) {
-        impl.setAllowsCellularAccess(allows)
+        if (isRuntimeActive()) impl.setAllowsCellularAccess(allows)
     }
 
     @ReactMethod
     fun setNotificationGroupingConfig(config: ReadableMap) {
-        impl.setNotificationGroupingConfig(config)
+        if (isRuntimeActive()) impl.setNotificationGroupingConfig(config)
     }
 
     @ReactMethod
     fun addListener(eventName: String) {
-        impl.addListener(eventName)
+        if (isRuntimeActive()) impl.addListener(eventName)
     }
 
     @ReactMethod
     fun removeListeners(count: Int) {
-        impl.removeListeners(count)
+        if (isRuntimeActive()) impl.removeListeners(count)
     }
 
     // ============= Upload methods =============
 
     @ReactMethod
     fun upload(options: ReadableMap) {
-        impl.upload(options)
+        if (isRuntimeActive()) impl.upload(options)
     }
 
     @ReactMethod
     fun pauseUploadTask(id: String, promise: Promise) =
-        promise.resolveCatching("ERR_PAUSE_UPLOAD_TASK") { impl.pauseUploadTask(id) }
+        promise.resolveCatching("ERR_PAUSE_UPLOAD_TASK", ::isRuntimeActive) { impl.pauseUploadTask(id) }
 
     @ReactMethod
     fun resumeUploadTask(id: String, promise: Promise) =
-        promise.resolveCatching("ERR_RESUME_UPLOAD_TASK") { impl.resumeUploadTask(id) }
+        promise.resolveCatching("ERR_RESUME_UPLOAD_TASK", ::isRuntimeActive) { impl.resumeUploadTask(id) }
 
     @ReactMethod
     fun stopUploadTask(id: String, promise: Promise) =
-        promise.resolveCatching("ERR_STOP_UPLOAD_TASK") { impl.stopUploadTask(id) }
+        promise.resolveCatching("ERR_STOP_UPLOAD_TASK", ::isRuntimeActive) { impl.stopUploadTask(id) }
 
     @ReactMethod
     fun getExistingUploadTasks(promise: Promise) =
-        promise.rejectOnThrow("ERR_GET_EXISTING_UPLOAD_TASKS") { impl.getExistingUploadTasks(promise) }
+        promise.resolveValueCatching("ERR_GET_EXISTING_UPLOAD_TASKS", ::isRuntimeActive) { impl.getExistingUploadTasks() }
 }

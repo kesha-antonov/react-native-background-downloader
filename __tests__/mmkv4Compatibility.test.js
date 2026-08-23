@@ -5,7 +5,6 @@ import {
   createDownloadTask,
   getExistingDownloadTasks,
   setConfig,
-  completeHandler,
   directories,
 } from '../src/index'
 
@@ -63,7 +62,6 @@ describe('MMKV 4+ Compatibility', () => {
     // Ensure all core API functions are still available
     expect(typeof createDownloadTask).toBe('function')
     expect(typeof getExistingDownloadTasks).toBe('function')
-    expect(typeof completeHandler).toBe('function')
     expect(typeof setConfig).toBe('function')
 
     // Test that constants are still available

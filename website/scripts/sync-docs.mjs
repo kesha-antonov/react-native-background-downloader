@@ -12,7 +12,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
 const OUT = join(HERE, '..', 'docs')
 
-const REPO = 'https://github.com/kesha-antonov/react-native-background-downloader'
+const REPO = 'https://github.com/anorak-games/react-native-background-downloader'
 
 /**
  * Canonical key for a heading or a link anchor.

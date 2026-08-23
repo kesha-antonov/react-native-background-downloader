@@ -54,7 +54,7 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
 
   if (!RNBackgroundDownloader)
     throw new Error(
-      'The package \'@kesha-antonov/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
+      'The package \'@anorak-games/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
       Platform.select({ ios: '- You have run \'pod install\'\n', default: '' }) +
       '- You rebuilt the app after installing the package\n' +
       '- You are not using Expo Go\n'
@@ -123,6 +123,266 @@ interface UploadFailedEvent {
   errorCode: number
 }
 
+type PendingDownloadTerminal =
+  | { type: 'complete', data: DownloadCompleteEvent }
+  | { type: 'failed', data: DownloadFailedEvent }
+
+type PendingUploadTerminal =
+  | { type: 'complete', data: UploadCompleteEvent }
+  | { type: 'failed', data: UploadFailedEvent }
+
+interface PendingDownloadEvents {
+  begin?: DownloadBeginEvent
+  progress?: DownloadProgressEvent
+  terminal?: PendingDownloadTerminal
+}
+
+interface PendingUploadEvents {
+  begin?: UploadBeginEvent
+  progress?: UploadProgressEvent
+  terminal?: PendingUploadTerminal
+}
+
+interface BufferedRuntimeEvent {
+  name: string
+  key: string
+  payload: object
+}
+
+const pendingDownloadEvents = new Map<string, PendingDownloadEvents>()
+const pendingUploadEvents = new Map<string, PendingUploadEvents>()
+let runtimeEventsActivation: Promise<void> | null = null
+
+function pendingDownload (id: string): PendingDownloadEvents {
+  const pending = pendingDownloadEvents.get(id) ?? {}
+  pendingDownloadEvents.set(id, pending)
+  return pending
+}
+
+function pendingUpload (id: string): PendingUploadEvents {
+  const pending = pendingUploadEvents.get(id) ?? {}
+  pendingUploadEvents.set(id, pending)
+  return pending
+}
+
+function handleDownloadBegin (data: DownloadBeginEvent) {
+  const task = tasksMap.get(data.id)
+  if (task) {
+    const { id, ...params } = data
+    log('downloadBegin', id, params)
+    task.onBegin(params)
+    return
+  }
+  if (!pendingDownload(data.id).terminal)
+    pendingDownload(data.id).begin = data
+}
+
+function handleDownloadProgress (events: DownloadProgressEvent[]) {
+  log('downloadProgress', events)
+  for (const data of events) {
+    const task = tasksMap.get(data.id)
+    if (task)
+      task.onProgress({ bytesDownloaded: data.bytesDownloaded, bytesTotal: data.bytesTotal })
+    else if (!pendingDownload(data.id).terminal)
+      pendingDownload(data.id).progress = data
+  }
+}
+
+function handleDownloadComplete (data: DownloadCompleteEvent) {
+  const task = tasksMap.get(data.id)
+  if (!task) {
+    pendingDownloadEvents.set(data.id, { terminal: { type: 'complete', data } })
+    return
+  }
+  const { id, ...params } = data
+  log('downloadComplete', id, params)
+  task.onDone(params)
+  tasksMap.delete(id)
+}
+
+function handleDownloadFailed (data: DownloadFailedEvent) {
+  const task = tasksMap.get(data.id)
+  if (!task) {
+    pendingDownloadEvents.set(data.id, { terminal: { type: 'failed', data } })
+    return
+  }
+  const { id, ...params } = data
+  log('downloadFailed', id, params)
+  task.onError(params)
+  tasksMap.delete(id)
+}
+
+function handleUploadBegin (data: UploadBeginEvent) {
+  const task = uploadTasksMap.get(data.id)
+  if (task) {
+    const { id, ...params } = data
+    log('uploadBegin', id, params)
+    task.onBegin(params)
+    return
+  }
+  if (!pendingUpload(data.id).terminal)
+    pendingUpload(data.id).begin = data
+}
+
+function handleUploadProgress (events: UploadProgressEvent[]) {
+  log('uploadProgress', events)
+  for (const data of events) {
+    const task = uploadTasksMap.get(data.id)
+    if (task)
+      task.onProgress({ bytesUploaded: data.bytesUploaded, bytesTotal: data.bytesTotal })
+    else if (!pendingUpload(data.id).terminal)
+      pendingUpload(data.id).progress = data
+  }
+}
+
+function handleUploadComplete (data: UploadCompleteEvent) {
+  const task = uploadTasksMap.get(data.id)
+  if (!task) {
+    pendingUploadEvents.set(data.id, { terminal: { type: 'complete', data } })
+    return
+  }
+  const { id, ...params } = data
+  log('uploadComplete', id, params)
+  task.onDone(params)
+  uploadTasksMap.delete(id)
+}
+
+function handleUploadFailed (data: UploadFailedEvent) {
+  const task = uploadTasksMap.get(data.id)
+  if (!task) {
+    pendingUploadEvents.set(data.id, { terminal: { type: 'failed', data } })
+    return
+  }
+  const { id, ...params } = data
+  log('uploadFailed', id, params)
+  task.onError(params)
+  uploadTasksMap.delete(id)
+}
+
+function handleBufferedRuntimeEvent ({ name, payload }: BufferedRuntimeEvent) {
+  const eventName = name.startsWith('on')
+    ? name.charAt(2).toLowerCase() + name.slice(3)
+    : name
+
+  switch (eventName) {
+    case 'downloadBegin':
+      handleDownloadBegin(payload as unknown as DownloadBeginEvent)
+      break
+    case 'downloadProgress':
+      handleDownloadProgress([payload as unknown as DownloadProgressEvent])
+      break
+    case 'downloadComplete':
+      handleDownloadComplete(payload as unknown as DownloadCompleteEvent)
+      break
+    case 'downloadFailed':
+      handleDownloadFailed(payload as unknown as DownloadFailedEvent)
+      break
+    case 'uploadBegin':
+      handleUploadBegin(payload as unknown as UploadBeginEvent)
+      break
+    case 'uploadProgress':
+      handleUploadProgress([payload as unknown as UploadProgressEvent])
+      break
+    case 'uploadComplete':
+      handleUploadComplete(payload as unknown as UploadCompleteEvent)
+      break
+    case 'uploadFailed':
+      handleUploadFailed(payload as unknown as UploadFailedEvent)
+      break
+  }
+}
+
+function activateRuntimeEvents (): Promise<void> {
+  if (runtimeEventsActivation)
+    return runtimeEventsActivation
+
+  const nativeModule = RNBackgroundDownloader!
+  runtimeEventsActivation = nativeModule.setRuntimeReady()
+    .then(events => {
+      for (const event of events)
+        handleBufferedRuntimeEvent(event)
+      nativeModule.acknowledgeRuntimeEvents(events.map(event => event.key))
+    })
+    .catch(error => {
+      runtimeEventsActivation = null
+      throw error
+    })
+  return runtimeEventsActivation
+}
+
+function applyPendingDownloadEvents (task: DownloadTask) {
+  const pending = pendingDownloadEvents.get(task.id)
+  if (!pending) return
+  pendingDownloadEvents.delete(task.id)
+
+  if (pending.begin)
+    task.onBegin({ expectedBytes: pending.begin.expectedBytes, headers: pending.begin.headers })
+  if (pending.progress)
+    task.onProgress({ bytesDownloaded: pending.progress.bytesDownloaded, bytesTotal: pending.progress.bytesTotal })
+  if (pending.terminal?.type === 'complete') {
+    const data = pending.terminal.data
+    task.onDone({ location: data.location, bytesDownloaded: data.bytesDownloaded, bytesTotal: data.bytesTotal })
+    tasksMap.delete(task.id)
+  } else if (pending.terminal?.type === 'failed') {
+    const data = pending.terminal.data
+    task.onError({ error: data.error, errorCode: data.errorCode })
+    tasksMap.delete(task.id)
+  }
+}
+
+function applyPendingUploadEvents (task: UploadTask) {
+  const pending = pendingUploadEvents.get(task.id)
+  if (!pending) return
+  pendingUploadEvents.delete(task.id)
+
+  if (pending.begin)
+    task.onBegin({ expectedBytes: pending.begin.expectedBytes })
+  if (pending.progress)
+    task.onProgress({ bytesUploaded: pending.progress.bytesUploaded, bytesTotal: pending.progress.bytesTotal })
+  if (pending.terminal?.type === 'complete') {
+    const data = pending.terminal.data
+    task.onDone({
+      responseCode: data.responseCode,
+      responseBody: data.responseBody,
+      bytesUploaded: data.bytesUploaded,
+      bytesTotal: data.bytesTotal,
+    })
+    uploadTasksMap.delete(task.id)
+  } else if (pending.terminal?.type === 'failed') {
+    const data = pending.terminal.data
+    task.onError({ error: data.error, errorCode: data.errorCode })
+    uploadTasksMap.delete(task.id)
+  }
+}
+
+function reconcilePendingDownloadEvents (tasks: DownloadTask[]) {
+  for (const task of tasks)
+    applyPendingDownloadEvents(task)
+
+  for (const [id, pending] of Array.from(pendingDownloadEvents.entries())) {
+    if (!pending.terminal) continue
+    const destination = pending.terminal.type === 'complete' ? pending.terminal.data.location : undefined
+    const task = new DownloadTask({ id, metadata: {} })
+    task.destination = destination
+    tasks.push(task)
+    tasksMap.set(id, task)
+    applyPendingDownloadEvents(task)
+  }
+}
+
+function reconcilePendingUploadEvents (tasks: UploadTask[]) {
+  for (const task of tasks)
+    applyPendingUploadEvents(task)
+
+  for (const [id, pending] of Array.from(pendingUploadEvents.entries())) {
+    if (!pending.terminal) continue
+    const task = new UploadTask({ id, metadata: {} })
+    tasks.push(task)
+    uploadTasksMap.set(id, task)
+    applyPendingUploadEvents(task)
+  }
+}
+
 // Set up event listeners based on architecture
 // For old architecture, we need to defer NativeEventEmitter creation
 // to avoid issues during module initialization
@@ -146,6 +406,9 @@ export function cleanup () {
   isIOSNewArchitecture = false
   tasksMap.clear()
   uploadTasksMap.clear()
+  pendingDownloadEvents.clear()
+  pendingUploadEvents.clear()
+  runtimeEventsActivation = null
 }
 
 function initializeEventListeners () {
@@ -154,93 +417,17 @@ function initializeEventListeners () {
 
   if (isIOSNewArchitecture && turboModule) {
     // iOS new architecture: use EventEmitter from TurboModule spec
-    turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
-      const { id, ...rest } = data
-      log('downloadBegin', id, rest)
-      const task = tasksMap.get(id)
-      if (!task) {
-        log('downloadBegin: task not found in tasksMap', id)
-        return
-      }
-      task.onBegin(rest)
-    })
-
-    turboModule.onDownloadProgress((events: DownloadProgressEvent[]) => {
-      log('downloadProgress', events)
-      for (const event of events) {
-        const { id, ...rest } = event
-        const task = tasksMap.get(id)
-        if (task)
-          task.onProgress(rest)
-      }
-    })
-
-    turboModule.onDownloadComplete((data: DownloadCompleteEvent) => {
-      const { id, ...rest } = data
-      log('downloadComplete', id, rest)
-      const task = tasksMap.get(id)
-      if (!task)
-        log('downloadComplete: task not found in tasksMap', id)
-      else
-        task.onDone(rest)
-      tasksMap.delete(id)
-    })
-
-    turboModule.onDownloadFailed((data: DownloadFailedEvent) => {
-      const { id, ...rest } = data
-      log('downloadFailed', id, rest)
-      const task = tasksMap.get(id)
-      if (!task)
-        log('downloadFailed: task not found in tasksMap', id)
-      else
-        task.onError(rest)
-      tasksMap.delete(id)
-    })
+    turboModule.onDownloadBegin(handleDownloadBegin)
+    turboModule.onDownloadProgress(handleDownloadProgress)
+    turboModule.onDownloadComplete(handleDownloadComplete)
+    turboModule.onDownloadFailed(handleDownloadFailed)
 
     // Upload events for new architecture (optional - may not exist in all versions)
     if (typeof turboModule.onUploadBegin === 'function') {
-      turboModule.onUploadBegin?.((data: UploadBeginEvent) => {
-        const { id, ...rest } = data
-        log('uploadBegin', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task) {
-          log('uploadBegin: task not found in uploadTasksMap', id)
-          return
-        }
-        task.onBegin(rest)
-      })
-
-      turboModule.onUploadProgress?.((events: UploadProgressEvent[]) => {
-        log('uploadProgress', events)
-        for (const event of events) {
-          const { id, ...rest } = event
-          const task = uploadTasksMap.get(id)
-          if (task)
-            task.onProgress(rest)
-        }
-      })
-
-      turboModule.onUploadComplete?.((data: UploadCompleteEvent) => {
-        const { id, ...rest } = data
-        log('uploadComplete', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task)
-          log('uploadComplete: task not found in uploadTasksMap', id)
-        else
-          task.onDone(rest)
-        uploadTasksMap.delete(id)
-      })
-
-      turboModule.onUploadFailed?.((data: UploadFailedEvent) => {
-        const { id, ...rest } = data
-        log('uploadFailed', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task)
-          log('uploadFailed: task not found in uploadTasksMap', id)
-        else
-          task.onError(rest)
-        uploadTasksMap.delete(id)
-      })
+      turboModule.onUploadBegin?.(handleUploadBegin)
+      turboModule.onUploadProgress?.(handleUploadProgress)
+      turboModule.onUploadComplete?.(handleUploadComplete)
+      turboModule.onUploadFailed?.(handleUploadFailed)
     }
   } else {
     // Old architecture: use NativeEventEmitter with the native module
@@ -250,106 +437,36 @@ function initializeEventListeners () {
     const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader!)
 
     eventSubscriptions.push(
-      eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
-        const { id, ...rest } = data
-        log('downloadBegin', id, rest)
-        const task = tasksMap.get(id)
-        if (!task) {
-          log('downloadBegin: task not found in tasksMap', id)
-          return
-        }
-        task.onBegin(rest)
-      })
+      eventEmitter.addListener('downloadBegin', handleDownloadBegin)
     )
 
     eventSubscriptions.push(
-      eventEmitter.addListener('downloadProgress', (events: DownloadProgressEvent[]) => {
-        log('downloadProgress', events)
-        for (const event of events) {
-          const { id, ...rest } = event
-          const task = tasksMap.get(id)
-          if (task)
-            task.onProgress(rest)
-        }
-      })
+      eventEmitter.addListener('downloadProgress', handleDownloadProgress)
     )
 
     eventSubscriptions.push(
-      eventEmitter.addListener('downloadComplete', (data: DownloadCompleteEvent) => {
-        const { id, ...rest } = data
-        log('downloadComplete', id, rest)
-        const task = tasksMap.get(id)
-        if (!task)
-          log('downloadComplete: task not found in tasksMap', id)
-        else
-          task.onDone(rest)
-        tasksMap.delete(id)
-      })
+      eventEmitter.addListener('downloadComplete', handleDownloadComplete)
     )
 
     eventSubscriptions.push(
-      eventEmitter.addListener('downloadFailed', (data: DownloadFailedEvent) => {
-        const { id, ...rest } = data
-        log('downloadFailed', id, rest)
-        const task = tasksMap.get(id)
-        if (!task)
-          log('downloadFailed: task not found in tasksMap', id)
-        else
-          task.onError(rest)
-        tasksMap.delete(id)
-      })
+      eventEmitter.addListener('downloadFailed', handleDownloadFailed)
     )
 
     // Upload events for old architecture
     eventSubscriptions.push(
-      eventEmitter.addListener('uploadBegin', (data: UploadBeginEvent) => {
-        const { id, ...rest } = data
-        log('uploadBegin', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task) {
-          log('uploadBegin: task not found in uploadTasksMap', id)
-          return
-        }
-        task.onBegin(rest)
-      })
+      eventEmitter.addListener('uploadBegin', handleUploadBegin)
     )
 
     eventSubscriptions.push(
-      eventEmitter.addListener('uploadProgress', (events: UploadProgressEvent[]) => {
-        log('uploadProgress', events)
-        for (const event of events) {
-          const { id, ...rest } = event
-          const task = uploadTasksMap.get(id)
-          if (task)
-            task.onProgress(rest)
-        }
-      })
+      eventEmitter.addListener('uploadProgress', handleUploadProgress)
     )
 
     eventSubscriptions.push(
-      eventEmitter.addListener('uploadComplete', (data: UploadCompleteEvent) => {
-        const { id, ...rest } = data
-        log('uploadComplete', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task)
-          log('uploadComplete: task not found in uploadTasksMap', id)
-        else
-          task.onDone(rest)
-        uploadTasksMap.delete(id)
-      })
+      eventEmitter.addListener('uploadComplete', handleUploadComplete)
     )
 
     eventSubscriptions.push(
-      eventEmitter.addListener('uploadFailed', (data: UploadFailedEvent) => {
-        const { id, ...rest } = data
-        log('uploadFailed', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task)
-          log('uploadFailed: task not found in uploadTasksMap', id)
-        else
-          task.onError(rest)
-        uploadTasksMap.delete(id)
-      })
+      eventEmitter.addListener('uploadFailed', handleUploadFailed)
     )
 
     // Native debug log events - forward native iOS logs to JS logCallback
@@ -519,17 +636,10 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
   for (const task of downloadTasks)
     tasksMap.set(task.id, task)
 
+  await activateRuntimeEvents()
+  reconcilePendingDownloadEvents(downloadTasks)
+
   return downloadTasks
-}
-
-export const completeHandler = (jobId: string) => {
-  if (jobId == null) {
-    log('completeHandler: jobId is empty')
-    return
-  }
-
-  const nativeModule = ensureNativeModuleInitialized()
-  return nativeModule.completeHandler(jobId)
 }
 
 export function createDownloadTask ({
@@ -560,6 +670,7 @@ export function createDownloadTask ({
   })
 
   tasksMap.set(rest.id, task)
+  activateRuntimeEvents().catch(error => log('setRuntimeReady', error))
 
   return task
 }
@@ -624,6 +735,9 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
   for (const task of uploadTasks)
     uploadTasksMap.set(task.id, task)
 
+  await activateRuntimeEvents()
+  reconcilePendingUploadEvents(uploadTasks)
+
   return uploadTasks
 }
 
@@ -655,6 +769,7 @@ export function createUploadTask ({
   })
 
   uploadTasksMap.set(rest.id, task)
+  activateRuntimeEvents().catch(error => log('setRuntimeReady', error))
 
   return task
 }

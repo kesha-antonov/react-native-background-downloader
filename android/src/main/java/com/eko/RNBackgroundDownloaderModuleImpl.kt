@@ -18,11 +18,11 @@ import com.eko.utils.ReadableConverters
 import com.eko.utils.RedirectResolver
 import com.eko.utils.StorageManager
 import com.facebook.react.bridge.Arguments
-import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
+import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import org.json.JSONObject
@@ -31,7 +31,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
-class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicationContext) {
+class RNBackgroundDownloaderModuleImpl private constructor(initialReactContext: ReactApplicationContext) {
 
   companion object {
     const val NAME = "RNBackgroundDownloader"
@@ -63,11 +63,21 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       if (isLogsEnabled) Log.e(tag, message)
     }
 
-    // The live module instance, set once initialize() has run and cleared on
-    // invalidate(). Lets native-only entry points (the notification Cancel
-    // action) reuse the exact same teardown as a call coming from JS.
+    // Lets native-only entry points such as notification actions reach the
+    // process coordinator without depending on a React runtime.
     @Volatile
     private var activeInstance: RNBackgroundDownloaderModuleImpl? = null
+
+    @Volatile
+    private var sharedInstance: RNBackgroundDownloaderModuleImpl? = null
+
+    fun getInstance(reactContext: ReactApplicationContext): RNBackgroundDownloaderModuleImpl =
+      sharedInstance ?: synchronized(sharedLock) {
+        sharedInstance ?: RNBackgroundDownloaderModuleImpl(reactContext).also {
+          sharedInstance = it
+          activeInstance = it
+        }
+      }
 
     /**
      * Stop a download from native code, going through the same path as a
@@ -85,8 +95,15 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
   }
 
+  private val applicationContext = initialReactContext.applicationContext
+
+  private val runtimeBinding = RuntimeBinding<ReactApplicationContext>()
+
+  @Volatile
+  private var coordinatorInitialized = false
+
   // Storage manager for persistent state
-  private val storageManager = StorageManager(reactContext, NAME)
+  private val storageManager = StorageManager(applicationContext, NAME)
 
   private val cachedExecutorPool: ExecutorService = Executors.newCachedThreadPool()
   private val fixedExecutorPool: ExecutorService = Executors.newFixedThreadPool(1)
@@ -96,32 +113,37 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   private val configIdToDownloadId = mutableMapOf<String, Long>()
   private val configIdToProgressFuture = mutableMapOf<String, Future<OnProgressState?>>()
   private val configIdToHeaders = mutableMapOf<String, Map<String, String>>()
-  private lateinit var ee: DeviceEventManagerModule.RCTDeviceEventEmitter
+  private val eventLock = Any()
+  private val pendingEvents = RuntimeEventBuffer<Any?>()
+  @Volatile
+  private var ee: DeviceEventManagerModule.RCTDeviceEventEmitter? = null
+  @Volatile
+  private var readyBindingToken: Long? = null
 
   // Centralized progress reporting with threshold filtering and batching
   private val progressReporter = ProgressReporter(
     onEmitProgress = { reportsArray ->
-      getEventEmitter()?.emit("downloadProgress", reportsArray)
+      dispatchProgressEvent("downloadProgress", reportsArray)
     }
   )
 
   // Centralized event emitter for download events
   private val eventEmitter by lazy {
-    DownloadEventEmitter { getEventEmitter()!! }
+    DownloadEventEmitter(::dispatchTaskEvent)
   }
 
   // Uploader for handling file uploads
-  private val uploader: Uploader by lazy { Uploader(reactContext) }
+  private val uploader: Uploader by lazy { Uploader(applicationContext) }
 
   // Centralized event emitter for upload events
   private val uploadEventEmitter by lazy {
-    UploadEventEmitter { getEventEmitter()!! }
+    UploadEventEmitter(::dispatchTaskEvent)
   }
 
   // Centralized progress reporting for uploads
   private val uploadProgressReporter = ProgressReporter(
     onEmitProgress = { reportsArray ->
-      getEventEmitter()?.emit("uploadProgress", reportsArray)
+      dispatchProgressEvent("uploadProgress", reportsArray)
     },
     bytesFieldName = "bytesUploaded"
   )
@@ -158,38 +180,57 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   // used to throttle snapshot writes from the frequent progress callbacks.
   private val configIdToLastSnapshotMs = mutableMapOf<String, Long>()
 
-  /**
-   * Get the event emitter, ensuring it's initialized.
-   * Returns null if the module hasn't been initialized yet.
-   */
-  private fun getEventEmitter(): DeviceEventManagerModule.RCTDeviceEventEmitter? {
-    if (!isInitialized) {
-      // Attempt lazy initialization if not yet initialized
-      // This handles the case where download() is called before initialize()
-      try {
-        if (!::ee.isInitialized) {
-          ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        }
-      } catch (e: Exception) {
-        logW(NAME, "Event emitter not ready yet: ${e.message}")
-        return null
-      }
-    }
-    return if (::ee.isInitialized) ee else null
-  }
-
-  /**
-   * Ensure event emitter is initialized before starting downloads.
-   * This is called before download() to fix issues on first app install
-   * where download() might be called before initialize() completes.
-   */
   private fun ensureEventEmitterInitialized() {
-    if (!::ee.isInitialized) {
-      try {
-        ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        logD(NAME, "Event emitter initialized eagerly before download")
+    synchronized(eventLock) {
+      if (ee != null) return
+      val context = runtimeBinding.current()?.value ?: return
+      ee = try {
+        context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
       } catch (e: Exception) {
         logW(NAME, "Could not initialize event emitter: ${e.message}")
+        null
+      }
+    }
+  }
+
+  private fun dispatchTaskEvent(eventName: String, payload: WritableMap) {
+    synchronized(eventLock) {
+      val emitter = ee
+      if (runtimeBinding.current()?.token == readyBindingToken && emitter != null) {
+        try {
+          emitter.emit(eventName, payload)
+          return
+        } catch (e: Exception) {
+          logW(NAME, "Failed to emit $eventName event: ${e.message}")
+        }
+      }
+
+      val id = payload.getString("id") ?: return
+      val family = if (eventName.startsWith("upload")) "upload" else "download"
+      if (eventName.endsWith("Complete") || eventName.endsWith("Failed")) {
+        pendingEvents.remove("$family-progress:$id")
+      }
+      pendingEvents.put(eventName, "$family:$id", payload.copy())
+    }
+  }
+
+  private fun dispatchProgressEvent(eventName: String, reports: WritableArray) {
+    synchronized(eventLock) {
+      val emitter = ee
+      if (runtimeBinding.current()?.token == readyBindingToken && emitter != null) {
+        try {
+          emitter.emit(eventName, reports)
+          return
+        } catch (e: Exception) {
+          logW(NAME, "Failed to emit $eventName event: ${e.message}")
+        }
+      }
+
+      val family = if (eventName.startsWith("upload")) "upload" else "download"
+      for (index in 0 until reports.size()) {
+        val report = reports.getMap(index) ?: continue
+        val id = report.getString("id") ?: continue
+        pendingEvents.put(eventName, "$family-progress:$id", report.copy())
       }
     }
   }
@@ -252,7 +293,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     loadDownloadIdToConfigMap()
     loadConfigMap()
 
-    downloader = Downloader(reactContext, storageManager)
+    downloader = Downloader(applicationContext, storageManager)
   }
 
   fun getConstants(): Map<String, Any>? {
@@ -260,7 +301,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Use internal storage (filesDir) for consistency with iOS and to avoid
     // issues with external storage paths on some devices
-    constants["documents"] = reactContext.filesDir.absolutePath
+    constants["documents"] = applicationContext.filesDir.absolutePath
 
     constants["TaskRunning"] = DownloadConstants.TASK_RUNNING
     constants["TaskSuspended"] = DownloadConstants.TASK_SUSPENDED
@@ -321,11 +362,26 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, showCompletionNotification=$showCompletionNotification, showCancelAction=$showCancelAction, mode=$mode, texts=$textsMap")
   }
 
-  fun initialize() {
-    ee = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-    isInitialized = true
-    activeInstance = this
-    registerDownloadReceiver()
+  fun initialize(context: ReactApplicationContext): Long {
+    val token = synchronized(eventLock) {
+      val attachedToken = runtimeBinding.attach(context)
+      ee = context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      readyBindingToken = null
+      isInitialized = true
+      attachedToken
+    }
+
+    val shouldInitializeCoordinator = synchronized(sharedLock) {
+      if (coordinatorInitialized) false else {
+        coordinatorInitialized = true
+        true
+      }
+    }
+    if (!shouldInitializeCoordinator) return token
+
+    synchronized(sharedLock) {
+      registerDownloadReceiver()
+    }
 
     // Set the listener for resumable downloads (used by the background service)
     downloader.setResumableDownloadListener(resumableDownloadListener)
@@ -349,30 +405,42 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     for ((downloadId, config) in downloadIdToConfig) {
       resumeTasks(downloadId, config)
     }
+
+    return token
   }
 
-  fun invalidate() {
-    // Cancel all download notifications when app is closed
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      // Cancel notifications for all known downloads
-      synchronized(sharedLock) {
-        for ((_, config) in downloadIdToConfig) {
-          UIDTDownloadJobService.cancelNotification(reactContext, config.id)
-        }
-      }
-      // Also cancel notifications for paused downloads
-      val pausedDownloads = downloader.getAllPausedDownloads()
-      for ((configId, _) in pausedDownloads) {
-        UIDTDownloadJobService.cancelNotification(reactContext, configId)
-      }
-      logD(NAME, "Cancelled all download notifications on invalidate")
+  fun invalidate(bindingToken: Long) {
+    synchronized(eventLock) {
+      if (!runtimeBinding.detach(bindingToken)) return
+      readyBindingToken = null
+      isInitialized = false
+      ee = null
     }
+  }
 
-    unregisterDownloadReceiver()
-    downloader.unbindService()
+  fun isBindingTokenCurrent(bindingToken: Long): Boolean = runtimeBinding.isCurrent(bindingToken)
 
-    if (activeInstance === this) {
-      activeInstance = null
+  fun setRuntimeReady(bindingToken: Long): WritableArray = synchronized(eventLock) {
+    val events = Arguments.createArray()
+    if (!runtimeBinding.isCurrent(bindingToken)) return@synchronized events
+
+    readyBindingToken = bindingToken
+    for (event in pendingEvents.snapshot()) {
+      val record = Arguments.createMap()
+      record.putString("name", event.name)
+      record.putString("key", event.key)
+      record.putMap("payload", (event.payload as ReadableMap).copy())
+      events.pushMap(record)
+    }
+    events
+  }
+
+  fun acknowledgeRuntimeEvents(bindingToken: Long, keys: ReadableArray) {
+    synchronized(eventLock) {
+      if (!runtimeBinding.isCurrent(bindingToken)) return
+      for (index in 0 until keys.size()) {
+        keys.getString(index)?.let(pendingEvents::remove)
+      }
     }
   }
 
@@ -434,7 +502,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
     }
 
-    compatRegisterReceiver(reactContext, downloadReceiver!!, filter, true)
+    compatRegisterReceiver(applicationContext, downloadReceiver!!, filter, true)
     isReceiverRegistered = true
   }
 
@@ -454,18 +522,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       )
     } else {
       context.registerReceiver(receiver, filter)
-    }
-  }
-
-  private fun unregisterDownloadReceiver() {
-    downloadReceiver?.let {
-      try {
-        reactContext.unregisterReceiver(it)
-      } catch (e: Exception) {
-        logW(NAME, "Could not unregister receiver: ${e.message}")
-      }
-      downloadReceiver = null
-      isReceiverRegistered = false
     }
   }
 
@@ -703,7 +759,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     val filename = "$uuid.$extension"
 
     // Get external files directory and validate it's a proper external storage path
-    val externalFilesDir = reactContext.getExternalFilesDir(null)
+    val externalFilesDir = applicationContext.getExternalFilesDir(null)
     val isValidExternalPath = externalFilesDir != null &&
         (externalFilesDir.absolutePath.startsWith("/storage/") ||
          externalFilesDir.absolutePath.startsWith("/sdcard/") ||
@@ -824,7 +880,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
       try {
         // Try standard setDestinationInExternalFilesDir - may work on some devices
-        request.setDestinationInExternalFilesDir(reactContext, null, filename)
+        request.setDestinationInExternalFilesDir(applicationContext, null, filename)
         startDownloadManagerDownload(downloader.download(request))
         logD(NAME, "Using setDestinationInExternalFilesDir for download: $id")
       } catch (e: Exception) {
@@ -925,7 +981,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       // and without this it would start downloading despite the user's pause
       // once its network constraint is satisfied.
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        val pending = UIDTDownloadJobService.cancelPendingJob(reactContext, configId)
+        val pending = UIDTDownloadJobService.cancelPendingJob(applicationContext, configId)
         if (pending != null) {
           downloader.savePausedDownloadState(
             Downloader.PausedDownloadInfo(
@@ -982,7 +1038,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
       // Cancel any detached paused notification (Android 14+)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        UIDTDownloadJobService.cancelNotification(reactContext, configId)
+        UIDTDownloadJobService.cancelNotification(applicationContext, configId)
       }
 
       // Cancel resumable download if active
@@ -999,37 +1055,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
   }
 
-  fun completeHandler(configId: String) {
-    // Firebase Performance compatibility: Add defensive programming to prevent crashes
-    // when Firebase Performance SDK is installed and uses bytecode instrumentation
-
-    logD(NAME, "completeHandler called with configId: $configId")
-
-    // Defensive programming: Validate parameters
-    if (configId.isEmpty()) {
-      logW(NAME, "completeHandler: Invalid configId provided")
-      return
-    }
-
-    try {
-      // Currently this method doesn't have any implementation on Android
-      // as completion handlers are handled differently than iOS.
-      // This defensive structure ensures Firebase Performance compatibility.
-      logD(NAME, "completeHandler executed successfully for configId: $configId")
-
-    } catch (e: Exception) {
-      // Catch any potential exceptions that might be thrown due to Firebase Performance
-      // bytecode instrumentation interfering with method dispatch
-      logE(NAME, "completeHandler: Exception occurred: ${Log.getStackTraceString(e)}")
-    }
-  }
-
   /**
    * Update headers for a paused download task.
    * This allows changing auth tokens before resuming a download.
    */
-  fun updateTaskHeaders(configId: String, headers: ReadableMap, promise: Promise) {
-    try {
+  fun updateTaskHeaders(configId: String, headers: ReadableMap): Boolean {
+    return try {
       synchronized(sharedLock) {
         val headersMap = HeaderUtils.toMap(headers)
 
@@ -1040,15 +1071,15 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         downloader.updatePausedDownloadHeaders(configId, headersMap)
 
         logD(NAME, "Updated headers for task: $configId")
-        promise.resolve(true)
+        true
       }
     } catch (e: Exception) {
       logE(NAME, "Failed to update task headers: ${Log.getStackTraceString(e)}")
-      promise.resolve(false)
+      false
     }
   }
 
-  fun getExistingDownloadTasks(promise: Promise) {
+  fun getExistingDownloadTasks(): com.facebook.react.bridge.WritableArray {
     val foundTasks = Arguments.createArray()
     val processedIds = mutableSetOf<String>()
 
@@ -1116,7 +1147,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
         try {
           val uidtJobs = UIDTDownloadJobService.getAllActiveJobs() +
-            UIDTDownloadJobService.getScheduledJobs(reactContext)
+            UIDTDownloadJobService.getScheduledJobs(applicationContext)
 
           for (job in uidtJobs) {
             // Skip if already processed from DownloadManager
@@ -1198,7 +1229,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       logD(NAME, "getExistingDownloadTasks: found ${foundTasks.size()} tasks")
     }
 
-    promise.resolve(foundTasks)
+    return foundTasks
   }
 
   @Suppress("UNUSED_PARAMETER")
@@ -1487,7 +1518,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     logD(NAME, "Stopped upload: $configId")
   }
 
-  fun getExistingUploadTasks(promise: Promise) {
+  fun getExistingUploadTasks(): com.facebook.react.bridge.WritableArray {
     val foundTasks = Arguments.createArray()
 
     synchronized(sharedLock) {
@@ -1514,6 +1545,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       }
     }
 
-    promise.resolve(foundTasks)
+    return foundTasks
   }
 }

@@ -8,7 +8,8 @@ import com.facebook.react.module.annotations.ReactModule
 class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
     NativeRNBackgroundDownloaderSpec(reactContext) {
 
-    private val impl = RNBackgroundDownloaderModuleImpl(reactContext)
+    private val impl = RNBackgroundDownloaderModuleImpl.getInstance(reactContext)
+    private var bindingToken: Long? = null
 
     override fun getName(): String = RNBackgroundDownloaderModuleImpl.NAME
 
@@ -18,80 +19,90 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
 
     override fun initialize() {
         super.initialize()
-        impl.initialize()
+        bindingToken = impl.initialize(reactApplicationContext)
     }
 
     override fun invalidate() {
-        impl.invalidate()
+        bindingToken?.let(impl::invalidate)
+        bindingToken = null
         super.invalidate()
     }
 
+    private fun isRuntimeActive(): Boolean =
+        bindingToken?.let(impl::isBindingTokenCurrent) == true
+
+    override fun setRuntimeReady(promise: com.facebook.react.bridge.Promise) =
+        promise.resolveValueCatching("ERR_SET_RUNTIME_READY", ::isRuntimeActive) {
+            bindingToken?.let(impl::setRuntimeReady) ?: com.facebook.react.bridge.Arguments.createArray()
+        }
+
+    override fun acknowledgeRuntimeEvents(keys: com.facebook.react.bridge.ReadableArray) {
+        if (isRuntimeActive()) bindingToken?.let { impl.acknowledgeRuntimeEvents(it, keys) }
+    }
+
     override fun download(options: com.facebook.react.bridge.ReadableMap) {
-        impl.download(options)
+        if (isRuntimeActive()) impl.download(options)
     }
 
     override fun pauseTask(id: String, promise: com.facebook.react.bridge.Promise) =
-        promise.resolveCatching("ERR_PAUSE_TASK") { impl.pauseTask(id) }
+        promise.resolveCatching("ERR_PAUSE_TASK", ::isRuntimeActive) { impl.pauseTask(id) }
 
     override fun resumeTask(id: String, promise: com.facebook.react.bridge.Promise) =
-        promise.resolveCatching("ERR_RESUME_TASK") { impl.resumeTask(id) }
+        promise.resolveCatching("ERR_RESUME_TASK", ::isRuntimeActive) { impl.resumeTask(id) }
 
     override fun stopTask(id: String, promise: com.facebook.react.bridge.Promise) =
-        promise.resolveCatching("ERR_STOP_TASK") { impl.stopTask(id) }
+        promise.resolveCatching("ERR_STOP_TASK", ::isRuntimeActive) { impl.stopTask(id) }
 
     override fun updateTaskHeaders(id: String, headers: com.facebook.react.bridge.ReadableMap, promise: com.facebook.react.bridge.Promise) {
-        impl.updateTaskHeaders(id, headers, promise)
+        promise.resolveValueCatching("ERR_UPDATE_HEADERS", ::isRuntimeActive) { impl.updateTaskHeaders(id, headers) }
     }
 
-    override fun completeHandler(jobId: String, promise: com.facebook.react.bridge.Promise) =
-        promise.resolveCatching("ERR_COMPLETE_HANDLER") { impl.completeHandler(jobId) }
-
     override fun getExistingDownloadTasks(promise: com.facebook.react.bridge.Promise) =
-        promise.rejectOnThrow("ERR_GET_EXISTING_TASKS") { impl.getExistingDownloadTasks(promise) }
+        promise.resolveValueCatching("ERR_GET_EXISTING_TASKS", ::isRuntimeActive) { impl.getExistingDownloadTasks() }
 
     override fun setLogsEnabled(enabled: Boolean) {
-        impl.setLogsEnabled(enabled)
+        if (isRuntimeActive()) impl.setLogsEnabled(enabled)
     }
 
     override fun setMaxParallelDownloads(max: Double) {
-        impl.setMaxParallelDownloads(max.toInt())
+        if (isRuntimeActive()) impl.setMaxParallelDownloads(max.toInt())
     }
 
     override fun setAllowsCellularAccess(allows: Boolean) {
-        impl.setAllowsCellularAccess(allows)
+        if (isRuntimeActive()) impl.setAllowsCellularAccess(allows)
     }
 
     override fun setNotificationGroupingConfig(config: com.facebook.react.bridge.ReadableMap?) {
-        if (config != null) {
+        if (config != null && isRuntimeActive()) {
             impl.setNotificationGroupingConfig(config)
         }
     }
 
     @ReactMethod
     fun addListener(eventName: String) {
-        impl.addListener(eventName)
+        if (isRuntimeActive()) impl.addListener(eventName)
     }
 
     @ReactMethod
     fun removeListeners(count: Double) {
-        impl.removeListeners(count.toInt())
+        if (isRuntimeActive()) impl.removeListeners(count.toInt())
     }
 
     // ============= Upload methods =============
 
     override fun upload(options: com.facebook.react.bridge.ReadableMap) {
-        impl.upload(options)
+        if (isRuntimeActive()) impl.upload(options)
     }
 
     override fun pauseUploadTask(id: String, promise: com.facebook.react.bridge.Promise) =
-        promise.resolveCatching("ERR_PAUSE_UPLOAD_TASK") { impl.pauseUploadTask(id) }
+        promise.resolveCatching("ERR_PAUSE_UPLOAD_TASK", ::isRuntimeActive) { impl.pauseUploadTask(id) }
 
     override fun resumeUploadTask(id: String, promise: com.facebook.react.bridge.Promise) =
-        promise.resolveCatching("ERR_RESUME_UPLOAD_TASK") { impl.resumeUploadTask(id) }
+        promise.resolveCatching("ERR_RESUME_UPLOAD_TASK", ::isRuntimeActive) { impl.resumeUploadTask(id) }
 
     override fun stopUploadTask(id: String, promise: com.facebook.react.bridge.Promise) =
-        promise.resolveCatching("ERR_STOP_UPLOAD_TASK") { impl.stopUploadTask(id) }
+        promise.resolveCatching("ERR_STOP_UPLOAD_TASK", ::isRuntimeActive) { impl.stopUploadTask(id) }
 
     override fun getExistingUploadTasks(promise: com.facebook.react.bridge.Promise) =
-        promise.rejectOnThrow("ERR_GET_EXISTING_UPLOAD_TASKS") { impl.getExistingUploadTasks(promise) }
+        promise.resolveValueCatching("ERR_GET_EXISTING_UPLOAD_TASKS", ::isRuntimeActive) { impl.getExistingUploadTasks() }
 }

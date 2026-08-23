@@ -1,8 +1,8 @@
 // @ts-check
 import { themes as prismThemes } from 'prism-react-renderer'
 
-const REPO = 'https://github.com/kesha-antonov/react-native-background-downloader'
-const NPM = 'https://www.npmjs.com/package/@kesha-antonov/react-native-background-downloader'
+const REPO = 'https://github.com/anorak-games/react-native-background-downloader'
+const NPM = 'https://www.npmjs.com/package/@anorak-games/react-native-background-downloader'
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -10,9 +10,9 @@ const config = {
   tagline: 'Download and upload large files on iOS and Android, even when your app is in the background or terminated',
   favicon: 'img/favicon.ico',
 
-  url: 'https://kesha-antonov.github.io',
+  url: 'https://anorak-games.github.io',
   baseUrl: '/react-native-background-downloader/',
-  organizationName: 'kesha-antonov',
+  organizationName: 'anorak-games',
   projectName: 'react-native-background-downloader',
   trailingSlash: false,
 
@@ -35,7 +35,7 @@ const config = {
         docs: {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
-          editUrl: `${REPO}/edit/main/`,
+          editUrl: `${REPO}/edit/anorak-main/`,
         },
         blog: false,
         theme: { customCss: './src/css/custom.css' },

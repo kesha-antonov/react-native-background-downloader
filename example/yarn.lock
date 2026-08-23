@@ -17,6 +17,12 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@anorak-games/react-native-background-downloader@link:..::locator=example%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@anorak-games/react-native-background-downloader@link:..::locator=example%40workspace%3A."
+  languageName: node
+  linkType: soft
+
 "@babel/code-frame@npm:7.10.4, @babel/code-frame@npm:~7.10.4":
   version: 7.10.4
   resolution: "@babel/code-frame@npm:7.10.4"
@@ -2048,12 +2054,6 @@ __metadata:
   checksum: 10/da0283270e691bdb5543806077548532791608e52386cfbbf3b9e8fb00457859d1bd01d512851161c886eb3a2f3ce6fd9bcf25db8edf3bddedd275bd4a88d606
   languageName: node
   linkType: hard
-
-"@kesha-antonov/react-native-background-downloader@link:..::locator=example%40workspace%3A.":
-  version: 0.0.0-use.local
-  resolution: "@kesha-antonov/react-native-background-downloader@link:..::locator=example%40workspace%3A."
-  languageName: node
-  linkType: soft
 
 "@nodable/entities@npm:^3.0.0":
   version: 3.0.0
@@ -4144,9 +4144,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "example@workspace:."
   dependencies:
+    "@anorak-games/react-native-background-downloader": "link:.."
     "@babel/core": "npm:^7.28.5"
     "@expo/vector-icons": "npm:^15.0.3"
-    "@kesha-antonov/react-native-background-downloader": "link:.."
     "@react-native-community/cli": "npm:^20.1.2"
     "@react-navigation/native": "npm:^7.1.22"
     "@react-navigation/stack": "npm:^7.6.8"

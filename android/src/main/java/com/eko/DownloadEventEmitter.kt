@@ -2,7 +2,6 @@ package com.eko
 
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
-import com.facebook.react.modules.core.DeviceEventManagerModule
 
 /**
  * Centralized event emitter for download events to JavaScript.
@@ -10,7 +9,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
  * event structure and reduce code duplication.
  */
 class DownloadEventEmitter(
-    private val getEmitter: () -> DeviceEventManagerModule.RCTDeviceEventEmitter
+    private val emit: (String, WritableMap) -> Unit
 ) {
 
     companion object {
@@ -27,7 +26,7 @@ class DownloadEventEmitter(
      */
     private fun safeEmit(eventName: String, params: WritableMap) {
         try {
-            getEmitter().emit(eventName, params)
+            emit(eventName, params)
         } catch (e: Exception) {
             RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to emit $eventName event: ${e.message}")
         }

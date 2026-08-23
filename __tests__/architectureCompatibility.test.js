@@ -4,7 +4,6 @@
 import {
   createDownloadTask,
   getExistingDownloadTasks,
-  completeHandler,
   setConfig,
   directories,
 } from '../src/index'
@@ -54,7 +53,6 @@ describe('Architecture Compatibility (x86/ARMv7 MMKV fallback)', () => {
     // Test that all main API functions are available and functional
     expect(typeof createDownloadTask).toBe('function')
     expect(typeof getExistingDownloadTasks).toBe('function')
-    expect(typeof completeHandler).toBe('function')
     expect(typeof setConfig).toBe('function')
 
     // Test that constants are still available

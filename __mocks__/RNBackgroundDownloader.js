@@ -27,6 +27,8 @@ const mockModule = {
     pauseTask: jest.fn(),
     resumeTask: jest.fn(),
     stopTask: jest.fn(),
+    setRuntimeReady: jest.fn().mockResolvedValue([]),
+    acknowledgeRuntimeEvents: jest.fn(),
     setLogsEnabled: jest.fn(),
     setMaxParallelDownloads: jest.fn(),
     setAllowsCellularAccess: jest.fn(),
@@ -89,7 +91,6 @@ const mockModule = {
         ]
         return Promise.resolve(foundDownloads);
     }),
-    completeHandler: jest.fn(),
     documents: '/tmp/documents',
     // Event emitter methods for new architecture - store callbacks
     onDownloadBegin: jest.fn().mockImplementation((callback) => {

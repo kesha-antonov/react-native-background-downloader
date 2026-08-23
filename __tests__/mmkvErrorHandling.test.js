@@ -5,7 +5,6 @@ import {
   createDownloadTask,
   getExistingDownloadTasks,
   setConfig,
-  completeHandler,
   directories,
 } from '../src/index'
 
@@ -58,7 +57,6 @@ describe('MMKV Error Handling for Android 12', () => {
     // Test that all main API functions are available and don't throw
     expect(typeof createDownloadTask).toBe('function')
     expect(typeof getExistingDownloadTasks).toBe('function')
-    expect(typeof completeHandler).toBe('function')
     expect(typeof setConfig).toBe('function')
 
     // Test that constants are still available

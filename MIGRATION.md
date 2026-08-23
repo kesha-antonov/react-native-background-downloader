@@ -1,6 +1,6 @@
 # Migration Guide
 
-This guide helps you upgrade between major versions of `@kesha-antonov/react-native-background-downloader`.
+This guide helps you upgrade between major versions of `@anorak-games/react-native-background-downloader`.
 
 ## Table of Contents
 
@@ -251,7 +251,7 @@ The internal source structure changed from `lib/` to `src/`, but the public API 
 
 ```javascript
 // No changes needed - imports work the same way
-import RNBackgroundDownloader from '@kesha-antonov/react-native-background-downloader'
+import RNBackgroundDownloader from '@anorak-games/react-native-background-downloader'
 
 // Or named imports
 import {
@@ -259,7 +259,7 @@ import {
   createDownloadTask,
   getExistingDownloadTasks,
   directories
-} from '@kesha-antonov/react-native-background-downloader'
+} from '@anorak-games/react-native-background-downloader'
 ```
 
 ### 2. Rename API Methods
@@ -433,7 +433,7 @@ import RNBackgroundDownloader, {
   ProgressHandlerParams,
   DoneHandlerParams,
   ErrorHandlerParams,
-} from '@kesha-antonov/react-native-background-downloader'
+} from '@anorak-games/react-native-background-downloader'
 
 const task: DownloadTask = createDownloadTask({
   id: 'typed-download',
@@ -469,7 +469,7 @@ v4.0.0 includes an Expo config plugin for automatic iOS setup.
 {
   "expo": {
     "plugins": [
-      "@kesha-antonov/react-native-background-downloader"
+      "@anorak-games/react-native-background-downloader"
     ]
   }
 }

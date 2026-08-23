@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, anorak-main]
   pull_request:
 
 jobs:
@@ -65,7 +65,7 @@ jobs:
         working-directory: example
 
       - name: Run unit tests
-        run: ./gradlew :kesha-antonov_react-native-background-downloader:testDebugUnitTest
+        run: ./gradlew :anorak-games_react-native-background-downloader:testDebugUnitTest
         working-directory: example/android
 
       - name: Upload test report
@@ -74,3 +74,47 @@ jobs:
         with:
           name: android-test-report
           path: android/build/reports/tests/testDebugUnitTest
+
+  ios:
+    name: iOS (${{ matrix.architecture }})
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        architecture: [new, old]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: corepack enable && yarn install --immutable
+
+      - name: Build the library and Expo config plugin
+        run: yarn build && yarn build-plugin
+
+      - name: Install example dependencies
+        run: yarn install --immutable
+        working-directory: example
+
+      - name: Generate the example's iOS project
+        run: npx expo prebuild --platform ios --no-install
+        working-directory: example
+
+      - name: Install pods
+        run: pod install
+        working-directory: example/ios
+        env:
+          RCT_NEW_ARCH_ENABLED: ${{ matrix.architecture == 'new' && '1' || '0' }}
+          RNBD_IOS_OLD_ARCH: ${{ matrix.architecture == 'old' && '1' || '0' }}
+
+      - name: Build the example
+        if: matrix.architecture == 'new'
+        run: xcodebuild -workspace RNBDExample.xcworkspace -scheme RNBDExample -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        working-directory: example/ios
+
+      - name: Build the library pod
+        if: matrix.architecture == 'old'
+        run: xcodebuild -workspace RNBDExample.xcworkspace -scheme react-native-background-downloader -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        working-directory: example/ios

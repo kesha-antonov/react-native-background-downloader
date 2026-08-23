@@ -1,6 +1,6 @@
 import type { TurboModule } from 'react-native'
 import { TurboModuleRegistry } from 'react-native'
-import type { EventEmitter } from 'react-native/Libraries/Types/CodegenTypes'
+import type { EventEmitter, UnsafeObject as CodegenUnsafeObject } from 'react-native/Libraries/Types/CodegenTypes'
 
 import type { UnsafeObject } from './types'
 
@@ -86,8 +86,8 @@ export interface Spec extends TurboModule {
   resumeTask(id: string): Promise<void>
   stopTask(id: string): Promise<void>
   updateTaskHeaders(id: string, headers: UnsafeObject): Promise<boolean>
-
-  completeHandler(jobId: string): Promise<void>
+  setRuntimeReady(): Promise<Array<{ name: string, key: string, payload: CodegenUnsafeObject }>>
+  acknowledgeRuntimeEvents(keys: string[]): void
 
   setLogsEnabled(enabled: boolean): void
   setMaxParallelDownloads(max: number): void

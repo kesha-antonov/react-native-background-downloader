@@ -10,9 +10,9 @@ interface PluginOptions {
    * @default '1.3.16'
    * @example
    * // Use default version
-   * ["@kesha-antonov/react-native-background-downloader"]
+   * ["@anorak-games/react-native-background-downloader"]
    * // Specify version
-   * ["@kesha-antonov/react-native-background-downloader", { mmkvVersion: "1.3.16" }]
+   * ["@anorak-games/react-native-background-downloader", { mmkvVersion: "1.3.16" }]
    */
   mmkvVersion?: string
   /**
@@ -21,7 +21,7 @@ interface PluginOptions {
    * This prevents duplicate class errors.
    * @default false
    * @example
-   * ["@kesha-antonov/react-native-background-downloader", { skipMmkvDependency: true }]
+   * ["@anorak-games/react-native-background-downloader", { skipMmkvDependency: true }]
    */
   skipMmkvDependency?: boolean
 }
@@ -105,7 +105,7 @@ function addMmkvDependencyAndroid (buildGradleContents: string, mmkvVersion: str
 
   if (match) {
     const insertPosition = buildGradleContents.indexOf(match[0]) + match[0].length
-    const mmkvDependency = `\n    // MMKV is required by @kesha-antonov/react-native-background-downloader\n    // If you're using react-native-mmkv, remove this line to avoid duplicate class errors\n    implementation 'com.tencent:mmkv-shared:${mmkvVersion}'`
+    const mmkvDependency = `\n    // MMKV is required by @anorak-games/react-native-background-downloader\n    // If you're using react-native-mmkv, remove this line to avoid duplicate class errors\n    implementation 'com.tencent:mmkv-shared:${mmkvVersion}'`
 
     buildGradleContents = buildGradleContents.slice(0, insertPosition) +
       mmkvDependency +

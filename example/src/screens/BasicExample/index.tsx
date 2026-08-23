@@ -1,16 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, Switch, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, Switch, Platform, PermissionsAndroid, Alert, Linking, DevSettings } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
-  completeHandler,
   getExistingDownloadTasks,
   createDownloadTask,
   setConfig,
   directories,
-} from '@kesha-antonov/react-native-background-downloader'
-import type { DownloadTask } from '@kesha-antonov/react-native-background-downloader'
+} from '@anorak-games/react-native-background-downloader'
+import type { DownloadTask } from '@anorak-games/react-native-background-downloader'
 import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -266,14 +265,26 @@ interface HeaderProps {
   showCompletionNotification: boolean
   onShowCompletionNotificationChange: (enabled: boolean) => void
   onBatchDownload: () => void
+  onReload: () => void
 }
 
-const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange, summaryOnlyMode, onSummaryOnlyModeChange, showCancelAction, onShowCancelActionChange, showCompletionNotification, onShowCompletionNotificationChange, onBatchDownload }: HeaderProps) => {
+const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange, summaryOnlyMode, onSummaryOnlyModeChange, showCancelAction, onShowCancelActionChange, showCompletionNotification, onShowCompletionNotificationChange, onBatchDownload, onReload }: HeaderProps) => {
   // Convert tasks to array for display
   const tasksList = Array.from(tasks.values())
 
   return (
     <View>
+      {__DEV__ && (
+        <View style={styles.reloadSection}>
+          <Text style={styles.settingLabel}>Runtime reload harness</Text>
+          <Text style={styles.settingDescription}>Start downloads, reload JavaScript, then verify restored and fresh tasks.</Text>
+          <TouchableOpacity style={styles.reloadButton} onPress={onReload}>
+            <Ionicons name="refresh" size={20} color="#fff" />
+            <Text style={styles.batchDownloadButtonText}>Reload JavaScript</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Notification Settings Section (Android only) */}
       {Platform.OS === 'android' && (
         <View style={styles.settingsSection}>
@@ -630,13 +641,11 @@ const BasicExampleScreen = () => {
       })
       .done(() => {
         updateTask(task)
-        completeHandler(task.id)
         readStorage()
       })
       .error(({ error, errorCode }) => {
         console.error('task: error', { id: task.id, error, errorCode })
         updateTask(task)
-        completeHandler(task.id)
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateTask])
@@ -1016,6 +1025,7 @@ const BasicExampleScreen = () => {
       showCompletionNotification={showCompletionNotification}
       onShowCompletionNotificationChange={handleShowCompletionNotificationChange}
       onBatchDownload={startBatchDownload}
+      onReload={() => DevSettings.reload()}
     />
   ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange, summaryOnlyMode, handleSummaryOnlyModeChange, showCancelAction, handleShowCancelActionChange, showCompletionNotification, handleShowCompletionNotificationChange, startBatchDownload])
 
@@ -1040,6 +1050,25 @@ const BasicExampleScreen = () => {
 export default BasicExampleScreen
 
 const styles = StyleSheet.create({
+  reloadSection: {
+    margin: 12,
+    padding: 12,
+    backgroundColor: '#e8eaf6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#9fa8da',
+  },
+  reloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3f51b5',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    gap: 8,
+    marginTop: 12,
+  },
   settingsSection: {
     margin: 12,
     padding: 12,

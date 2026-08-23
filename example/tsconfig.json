@@ -7,7 +7,7 @@
     "jsx": "react-native",
     "baseUrl": ".",
     "paths": {
-      "@kesha-antonov/react-native-background-downloader": ["../src/index"]
+      "@anorak-games/react-native-background-downloader": ["../src/index"]
     }
   },
   "include": [

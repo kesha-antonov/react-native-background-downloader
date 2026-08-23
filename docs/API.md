@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API documentation for `@kesha-antonov/react-native-background-downloader`.
+Complete API documentation for `@anorak-games/react-native-background-downloader`.
 
 ## Table of Contents
 
@@ -20,8 +20,6 @@ Complete API documentation for `@kesha-antonov/react-native-background-downloade
   - [`setConfig(config)`](#setconfigconfig)
     - [Config Options](#config-options)
     - [Example](#example)
-  - [`completeHandler(jobId: string)`](#completehandlerjobid-string)
-    - [Parameters](#parameters)
   - [DownloadTask](#downloadtask)
     - [Members](#members)
     - [Callback Methods](#callback-methods)
@@ -49,9 +47,8 @@ import {
   createUploadTask,
   getExistingDownloadTasks,
   getExistingUploadTasks,
-  completeHandler,
   directories
-} from '@kesha-antonov/react-native-background-downloader'
+} from '@anorak-games/react-native-background-downloader'
 ```
 
 ---
@@ -172,7 +169,7 @@ Sets global configuration for the downloader.
 ### Example
 
 ```javascript
-import { setConfig } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig } from '@anorak-games/react-native-background-downloader'
 
 // Configure parallel downloads and cellular access
 setConfig({
@@ -214,19 +211,6 @@ setConfig({
   },
 })
 ```
-
----
-
-## `completeHandler(jobId: string)`
-
-Finishes download job and informs OS that app can be closed in background if needed.
-After finishing download in background you have some time to process your JS logic and finish the job.
-
-### Parameters
-
-- `jobId` (String) - The ID of the download task to complete
-
-> **Note:** This should be called after processing your download in the `done` callback to properly signal completion to the OS.
 
 ---
 
@@ -355,7 +339,7 @@ A class representing an upload task created by `createUploadTask()`.
 An absolute path to the app's documents directory. It is recommended that you use this path as the target of downloaded files.
 
 ```javascript
-import { directories } from '@kesha-antonov/react-native-background-downloader'
+import { directories } from '@anorak-games/react-native-background-downloader'
 
 const destination = `${directories.documents}/my-file.zip`
 ```

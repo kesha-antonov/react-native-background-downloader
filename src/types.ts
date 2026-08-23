@@ -218,8 +218,6 @@ export interface DownloadOption {
 }
 
 export type Download = (options: DownloadOption) => DownloadTask
-export type CompleteHandler = (id: string) => void
-
 export interface Directories {
   documents: string
 }

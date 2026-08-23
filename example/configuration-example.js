@@ -5,7 +5,7 @@
  * to control parallel downloads and cellular data usage.
  */
 
-import { setConfig, createDownloadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+import { setConfig, createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
 
 // Example 1: Configure parallel downloads (iOS only)
 // Set the maximum number of simultaneous downloads per host

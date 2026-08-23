@@ -47,6 +47,8 @@ export class DownloadTask {
   progressHandler?: ProgressHandler
   doneHandler?: DoneHandler
   errorHandler?: ErrorHandler
+  private pendingDone?: DoneHandlerParams
+  private pendingError?: ErrorHandlerParams
 
   constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
     this.id = taskParams.id
@@ -93,6 +95,11 @@ export class DownloadTask {
       throw new Error('done handler must be a function')
 
     this.doneHandler = handler
+    if (this.pendingDone) {
+      const params = this.pendingDone
+      this.pendingDone = undefined
+      handler(params)
+    }
     return this
   }
 
@@ -101,6 +108,11 @@ export class DownloadTask {
       throw new Error('error handler must be a function')
 
     this.errorHandler = handler
+    if (this.pendingError) {
+      const params = this.pendingError
+      this.pendingError = undefined
+      handler(params)
+    }
     return this
   }
 
@@ -122,12 +134,18 @@ export class DownloadTask {
     this.state = 'DONE'
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
-    this.doneHandler?.(params)
+    if (this.doneHandler)
+      this.doneHandler(params)
+    else
+      this.pendingDone = params
   }
 
   onError (params: ErrorHandlerParams) {
     this.state = 'FAILED'
-    this.errorHandler?.(params)
+    if (this.errorHandler)
+      this.errorHandler(params)
+    else
+      this.pendingError = params
   }
 
   // methods

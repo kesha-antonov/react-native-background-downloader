@@ -171,7 +171,7 @@ class ProgressReporter(
  * Extension function to copy a WritableMap.
  * React Native's WritableMap can only be consumed once, so we need to copy it.
  */
-fun WritableMap.copy(): WritableMap {
+fun com.facebook.react.bridge.ReadableMap.copy(): WritableMap {
     val copy = Arguments.createMap()
     val iterator = this.keySetIterator()
     while (iterator.hasNextKey()) {

@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.6.1-anorak.1
+
+### Architecture Changes
+
+- Native transfer engines and lifecycle state are process-owned on iOS and Android. React runtimes attach through generation-scoped adapters, so Dev Settings and OTA reloads cannot invalidate the downloader or route callbacks through a stale runtime.
+- Runtime-gap events use a bounded in-memory buffer with progress coalesced by task. Consumers reconcile transfers with `getExistingDownloadTasks()` and `getExistingUploadTasks()` after initialization.
+- iOS background-session completion is handled natively after delegate processing. The JavaScript `completeHandler` API has been removed.
+
 ## v4.6.1
 
 ### 🐛 Bug Fixes
@@ -79,7 +87,7 @@
 
 ### 📚 Documentation
 
-- **iOS background downloads & device lock ([#101](https://github.com/kesha-antonov/react-native-background-downloader/issues/101)):** Added a Troubleshooting section explaining what actually happens when the screen is locked (transfers continue via `nsurlsessiond`; force-quit halts them; JS doesn't run while suspended so events are deferred; `handleEventsForBackgroundURLSession` + `completeHandler` are required; Simulator behavior is unreliable), plus documentation for the new `iosDataProtection` option.
+- **iOS background downloads & device lock ([#101](https://github.com/kesha-antonov/react-native-background-downloader/issues/101)):** Added a Troubleshooting section explaining what actually happens when the screen is locked (transfers continue via `nsurlsessiond`; force-quit halts them; JS doesn't run while suspended so events are deferred; AppDelegate integration is required; Simulator behavior is unreliable), plus documentation for the new `iosDataProtection` option.
 
 ---
 
@@ -377,7 +385,6 @@
 - **Progress Callback Unknown Total:** Fixed progress callback not firing when total bytes unknown
 - **Android 12 MMKV Crash:** Added robust error handling
 - **`checkForExistingDownloads` TypeError:** Fixed TypeError on Android with architecture fallback
-- **Firebase Performance Compatibility:** Fixed `completeHandler` method compatibility on Android
 - **Slow Connection Handling:** Better handling of slow-responding URLs with timeouts
 - **Android OldArch Export:** Fixed module method export issue ([#79](https://github.com/kesha-antonov/react-native-background-downloader/issues/79))
 - **MMKV Compatibility:** Support for react-native-mmkv 4+ with mmkv-shared dependency

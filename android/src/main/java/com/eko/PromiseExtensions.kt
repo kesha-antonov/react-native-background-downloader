@@ -13,24 +13,22 @@ import com.facebook.react.bridge.Promise
  * [errorCode] (plus the exception message and cause) if it throws. Use for
  * fire-and-forget bridge methods that only need to acknowledge completion.
  */
-inline fun Promise.resolveCatching(errorCode: String, block: () -> Unit) {
+inline fun Promise.resolveCatching(errorCode: String, isRuntimeActive: () -> Boolean, block: () -> Unit) {
+    if (!isRuntimeActive()) return
     try {
         block()
-        resolve(null)
+        if (isRuntimeActive()) resolve(null)
     } catch (e: Exception) {
-        reject(errorCode, e.message, e)
+        if (isRuntimeActive()) reject(errorCode, e.message, e)
     }
 }
 
-/**
- * Runs [block], which is responsible for resolving the promise itself (typically by
- * handing it to the impl). Rejects with [errorCode] only if [block] throws before it
- * gets a chance to resolve. Use for methods that return data through the promise.
- */
-inline fun Promise.rejectOnThrow(errorCode: String, block: () -> Unit) {
+inline fun Promise.resolveValueCatching(errorCode: String, isRuntimeActive: () -> Boolean, block: () -> Any?) {
+    if (!isRuntimeActive()) return
     try {
-        block()
+        val value = block()
+        if (isRuntimeActive()) resolve(value)
     } catch (e: Exception) {
-        reject(errorCode, e.message, e)
+        if (isRuntimeActive()) reject(errorCode, e.message, e)
     }
 }
