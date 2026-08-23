@@ -1,132 +1,11 @@
-<p align="center">
-  <img width="300" src="https://github.com/user-attachments/assets/25e89808-9eb7-42b2-8031-b48d8c24796c" />
-</p>
+# React Native Background Downloader
 
-<p align="center">
-  <a href="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader"><img src="https://badge.fury.io/js/@kesha-antonov%2Freact-native-background-downloader.svg" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@anorak-games/react-native-background-downloader"><img src="https://img.shields.io/npm/dm/@anorak-games/react-native-background-downloader.svg" alt="npm downloads"></a>
-  <a href="https://npm-stat.com/charts.html?package=%40kesha-antonov%2Freact-native-background-downloader&from=2015-01-01"><img src="https://img.shields.io/badge/total%20downloads-1.07M-blue.svg" alt="total npm downloads"></a>
-  <a href="https://www.npmjs.com/package/@anorak-games/react-native-background-downloader"><img src="https://img.shields.io/npm/dt/@anorak-games/react-native-background-downloader.svg?label=18-months%20downloads" alt="npm downloads (last 18 months)"></a>
-  <a href="https://github.com/anorak-games/react-native-background-downloader/blob/anorak-main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license"></a>
-  <img src="https://img.shields.io/badge/platforms-iOS%20%7C%20Android-lightgrey.svg" alt="platforms">
-  <img src="https://img.shields.io/badge/TypeScript-supported-blue.svg" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Expo-compatible-000020.svg" alt="Expo compatible">
-  <img src="https://img.shields.io/badge/New%20Architecture-supported-green.svg" alt="New Architecture">
-</p>
+## Overview
 
-<h1 align="center">React Native Background Downloader</h1>
+Download and upload large files on iOS & Android — even when your app is in the background or terminated by the OS.
 
-<p align="center">
-  Download and upload large files on iOS & Android — even when your app is in the background or terminated by the OS.
-</p>
-
-<p align="center">
-  <strong><a href="https://kesha-antonov.github.io/react-native-background-downloader/">📖 Documentation</a></strong> &nbsp;·&nbsp;
-  <a href="https://kesha-antonov.github.io/react-native-background-downloader/installation">Installation</a> &nbsp;·&nbsp;
-  <a href="https://kesha-antonov.github.io/react-native-background-downloader/api">API reference</a> &nbsp;·&nbsp;
-  <a href="https://kesha-antonov.github.io/react-native-background-downloader/troubleshooting">Troubleshooting</a>
-</p>
-
-<p align="center">
-  <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
-</p>
-
----
-
-## ✨ Features
-
-- 📥 **Background Downloads** - Downloads continue even when app is in background or terminated by the OS
-- 📤 **Background Uploads** - Upload files reliably in the background
-- ⏸️ **Pause/Resume** - Full pause and resume support on both iOS and Android
-- 🔄 **Re-attach to Downloads** - Reconnect to ongoing downloads after app restart
-- 📊 **Progress Tracking** - Real-time progress updates with customizable intervals
-- 🔒 **Custom Headers** - Support for authentication and custom request headers
-- 📱 **Expo Support** - Config plugin for easy Expo integration
-- ⚡ **New Architecture** - Full TurboModules support for React Native
-- 📝 **TypeScript** - Complete TypeScript definitions included
-
-## 💡 Why?
-
-**The Problem:** Standard network requests in React Native are tied to your app's lifecycle. When the user switches to another app or the OS terminates your app to free memory, your downloads stop. For small files this is fine, but for large files (videos, podcasts, documents) this creates a frustrating user experience.
-
-**The Solution:** Both iOS and Android provide system-level APIs for background file transfers:
-- **iOS:** [`NSURLSession`](https://developer.apple.com/documentation/foundation/url_loading_system/downloading_files_in_the_background) - handles downloads in a separate process, continuing even after your app is terminated by the OS. Note: if the user explicitly force-kills the app via the App Switcher, iOS cancels all background tasks — this is an iOS system limitation that cannot be overridden
-- **Android:** A combination of [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) for system-managed downloads, [Foreground Services](https://developer.android.com/develop/background-work/services/foreground-services) for pause/resume support, and [MMKV](https://github.com/Tencent/MMKV) for persistent state storage
-
-**The Challenge:** These APIs are powerful but complex. Downloads run in a separate process, so your app might restart from scratch while downloads are still in progress. Keeping your UI in sync with background downloads requires careful state management.
-
-**This Library:** `@anorak-games/react-native-background-downloader` wraps these native APIs in a simple, unified JavaScript interface. Start a download, close your app, reopen it hours later, and seamlessly reconnect to your ongoing downloads with a single function call.
-
-## ⚖️ Comparison
-
-How this library compares to other file transfer options in the React Native ecosystem:
-
-| Capability | **This library** | `expo-file-system` | `react-native-blob-util` | `react-native-fs` |
-|---|:--:|:--:|:--:|:--:|
-| Background downloads on iOS | ✅ | ✅ <sup>1</sup> | ❌ | ✅ <sup>4</sup> |
-| Background downloads on Android | ✅ | ❌ <sup>2</sup> | ⚠️ <sup>3</sup> | ❌ |
-| Background uploads | ✅ iOS + Android | ⚠️ iOS only | ❌ | ❌ |
-| **Reconnect to transfers after app restart** | ✅ | ❌ <sup>2</sup> | ❌ | ❌ |
-| Pause / resume | ✅ iOS + Android | ⚠️ iOS only | ❌ | ⚠️ iOS only <sup>5</sup> |
-| Progress events | ✅ | ✅ | ✅ | ✅ |
-| Expo config plugin | ✅ | built in | ❌ | ❌ |
-| New Architecture (TurboModules) | ✅ | ✅ | ✅ | ⚠️ via community fork |
-| General filesystem API | ❌ | ✅ | ✅ | ✅ |
-
-<sup>1</sup> Via `sessionType: 'background'` (iOS only).
-
-<sup>2</sup> From the Expo docs: *"Android accepts this option for API consistency and ignores it"*, and *"the JavaScript `DownloadTask` instance is not restored if the app is terminated or relaunched, so its promise, progress callbacks, and cancellation state are only available while the original JS runtime is still alive."*
-
-<sup>3</sup> Via `useDownloadManager: true`, which is `GET`-only and can only write to external storage.
-
-<sup>4</sup> Via the `background: true` option (iOS only).
-
-<sup>5</sup> Via the `resumable` callback (iOS only).
-
-**The key difference is the highlighted row.** Several libraries can hand a transfer to the OS. This is the one that can find those transfers again after your app has been killed and relaunched - [`getExistingDownloadTasks()`](#re-attaching-to-background-tasks) returns live task objects you can re-bind your UI to, on both platforms.
-
-**When you probably don't need this library:** if your files are small, or a failed transfer can simply be restarted from zero next time the user opens the app, `expo-file-system` is simpler and already in your project. Reach for this one when a transfer is long enough that losing it costs the user real time.
-
-## 📖 Table of Contents
-
-- [✨ Features](#-features)
-- [💡 Why?](#-why)
-- [⚖️ Comparison](#️-comparison)
-- [📖 Table of Contents](#-table-of-contents)
-- [📋 Requirements](#-requirements)
-- [📦 Installation](#-installation)
-  - [Expo Projects](#expo-projects)
-  - [Bare React Native Projects](#bare-react-native-projects)
-    - [MMKV version comparison](#mmkv-version-comparison)
-- [React runtime reloads and OTA updates](#react-runtime-reloads-and-ota-updates)
-- [🚀 Usage](#-usage)
-  - [Downloading a file](#downloading-a-file)
-  - [Re-Attaching to background tasks](#re-attaching-to-background-tasks)
-- [⚙️ Advanced Configuration](#️-advanced-configuration)
-    - [Max Parallel Downloads (iOS only)](#max-parallel-downloads-ios-only)
-    - [Cellular/WiFi Restrictions](#cellularwifi-restrictions)
-- [📚 API](#-api)
-  - [Quick Reference](#quick-reference)
-- [📱 Platform Notes](#-platform-notes)
-- [❓ Troubleshooting](#-troubleshooting)
-- [🧪 Example App](#-example-app)
-- [💡 Use Cases](#-use-cases)
-- [🔄 Migration Guide](#-migration-guide)
-- [🤝 Contributing](#-contributing)
-  - [Development Setup](#development-setup)
-- [👥 Authors](#-authors)
-- [📄 License](#-license)
-
-## 📋 Requirements
-
-| Requirement | Version |
-|-------------|--------|
-| React Native | >= 0.70.0 |
-| iOS | >= 15.1 |
-| Android | API 24+ (Android 7.0) |
-| Expo | SDK 50+ (with config plugin) |
-
-> **Note:** For older React Native versions (0.57.0 - 0.69.x), use version 2.x of this library.
+This is an experimental fork of [kesha-antonov/react-native-background-downloader](https://github.com/kesha-antonov/react-native-background-downloader)
+that attempts to allow download tasks to persist (or at least remain recoverable) through an [Expo over-the-air update](https://docs.expo.dev/versions/latest/sdk/updates/)
 
 ## 📦 Installation
 
@@ -1126,11 +1005,11 @@ yarn ios  # or yarn android
 
 ## 👥 Authors
 
-Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
+Upstream Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 
 Based on [react-native-background-downloader](https://github.com/ekolabs/react-native-background-downloader) by [Elad Gil](https://github.com/ptelad) (unmaintained since 2019)
 
-> Please note that this project is maintained in free time. If you find it helpful, please consider [becoming a sponsor](https://github.com/sponsors/kesha-antonov).
+> Please note that this project is maintained in free time. If you find it helpful, please consider [becoming a sponsor](https://github.com/sponsors/kesha-antonov) of the upstream repo.
 
 ## 📄 License
 
