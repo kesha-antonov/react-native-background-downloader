@@ -1,7 +1,6 @@
 package com.eko
 
 import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.module.annotations.ReactModule
 
 @ReactModule(name = RNBackgroundDownloaderModuleImpl.NAME)
@@ -78,13 +77,11 @@ class RNBackgroundDownloaderModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    @ReactMethod
-    fun addListener(eventName: String) {
+    override fun addListener(eventName: String) {
         if (isRuntimeActive()) impl.addListener(eventName)
     }
 
-    @ReactMethod
-    fun removeListeners(count: Double) {
+    override fun removeListeners(count: Double) {
         if (isRuntimeActive()) impl.removeListeners(count.toInt())
     }
 

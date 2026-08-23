@@ -92,6 +92,8 @@ export interface Spec extends TurboModule {
   setLogsEnabled(enabled: boolean): void
   setMaxParallelDownloads(max: number): void
   setAllowsCellularAccess(allows: boolean): void
+  addListener(eventName: string): void
+  removeListeners(count: number): void
   setNotificationGroupingConfig?(config: {
     enabled: boolean
     showNotificationsEnabled: boolean
