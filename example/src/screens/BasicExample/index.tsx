@@ -1,44 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, Switch, Platform, PermissionsAndroid, Alert, Linking, DevSettings } from 'react-native'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, DevSettings } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
   getExistingDownloadTasks,
   createDownloadTask,
-  setConfig,
   directories,
 } from '@anorak-games/react-native-background-downloader'
 import type { DownloadTask } from '@anorak-games/react-native-background-downloader'
 import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { createMMKV } from 'react-native-mmkv'
 
 const DOWNLOADS_SUBDIR = 'downloads'
 
-// Storage helper for persisting task IDs between app restarts
-const storage = createMMKV({ id: 'download-example-storage' })
-const TASK_IDS_KEY = 'taskIds'
-const SHOW_NOTIFICATIONS_KEY = 'showNotificationsEnabled'
-const NOTIFICATION_GROUPING_KEY = 'notificationGroupingEnabled'
-const SUMMARY_ONLY_MODE_KEY = 'summaryOnlyMode'
-const CANCEL_ACTION_KEY = 'showCancelAction'
-const COMPLETION_NOTIFICATION_KEY = 'showCompletionNotification'
+const taskIds = new Map<string, string>()
 
 const TaskIdStorage = {
   load: (): Record<string, string> => {
-    try {
-      const json = storage.getString(TASK_IDS_KEY)
-      return json ? JSON.parse(json) : {}
-    } catch (e) {
-      console.warn('Failed to load persisted task IDs:', e)
-      return {}
-    }
+    return Object.fromEntries(taskIds)
   },
 
   save: (mapping: Record<string, string>) => {
-    storage.set(TASK_IDS_KEY, JSON.stringify(mapping))
+    taskIds.clear()
+    Object.entries(mapping).forEach(([url, id]) => taskIds.set(url, id))
   },
 
   getOrCreate: (url: string): string => {
@@ -58,14 +44,13 @@ const TaskIdStorage = {
   },
 
   clearAll: () => {
-    storage.remove(TASK_IDS_KEY)
+    taskIds.clear()
   },
 }
 
 interface UrlItem {
   id: string
   url: string
-  maxRedirects?: number
   title?: string
 }
 
@@ -254,21 +239,11 @@ interface HeaderProps {
   files: string[]
   tasks: Map<string, DownloadTask>
   downloadsPath: string
-  notificationGroupingEnabled: boolean
-  onNotificationGroupingChange: (enabled: boolean) => void
-  showNotificationsEnabled: boolean
-  onShowNotificationsEnabledChange: (show: boolean) => void
-  summaryOnlyMode: boolean
-  onSummaryOnlyModeChange: (enabled: boolean) => void
-  showCancelAction: boolean
-  onShowCancelActionChange: (enabled: boolean) => void
-  showCompletionNotification: boolean
-  onShowCompletionNotificationChange: (enabled: boolean) => void
   onBatchDownload: () => void
   onReload: () => void
 }
 
-const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange, summaryOnlyMode, onSummaryOnlyModeChange, showCancelAction, onShowCancelActionChange, showCompletionNotification, onShowCompletionNotificationChange, onBatchDownload, onReload }: HeaderProps) => {
+const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, onBatchDownload, onReload }: HeaderProps) => {
   // Convert tasks to array for display
   const tasksList = Array.from(tasks.values())
 
@@ -285,100 +260,14 @@ const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files
         </View>
       )}
 
-      {/* Notification Settings Section (Android only) */}
-      {Platform.OS === 'android' && (
-        <View style={styles.settingsSection}>
-          <Text style={styles.settingsSectionTitle}>Notification Settings (Android)</Text>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Show Notifications</Text>
-              <Text style={styles.settingDescription}>Display download progress notifications</Text>
-            </View>
-            <Switch
-              value={showNotificationsEnabled}
-              onValueChange={onShowNotificationsEnabledChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={showNotificationsEnabled ? '#4CAF50' : '#f4f3f4'}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Group Notifications</Text>
-              <Text style={styles.settingDescription}>Group multiple downloads under one notification</Text>
-            </View>
-            <Switch
-              value={notificationGroupingEnabled}
-              onValueChange={onNotificationGroupingChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={notificationGroupingEnabled ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Summary Only Mode</Text>
-              <Text style={styles.settingDescription}>Show only 1 summary notification with aggregate progress</Text>
-            </View>
-            <Switch
-              value={summaryOnlyMode}
-              onValueChange={onSummaryOnlyModeChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={summaryOnlyMode ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled || !notificationGroupingEnabled}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Cancel Action (Android 14+)</Text>
-              <Text style={styles.settingDescription}>Add a Cancel button to the download notification</Text>
-            </View>
-            <Switch
-              value={showCancelAction}
-              onValueChange={onShowCancelActionChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={showCancelAction ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Completion Notification (Android 14+)</Text>
-              <Text style={styles.settingDescription}>Notify when a download finishes; tap it to open the file</Text>
-            </View>
-            <Switch
-              value={showCompletionNotification}
-              onValueChange={onShowCompletionNotificationChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={showCompletionNotification ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled}
-            />
-          </View>
-
-          <View style={styles.batchDownloadSection}>
-            <Text style={styles.batchDownloadTitle}>Test Batch Downloads</Text>
-            <Text style={styles.batchDownloadDescription}>
-              Start 5 downloads simultaneously to test notification grouping.
-              {summaryOnlyMode
-                ? ' With summaryOnly mode, you will see only ONE notification.'
-                : notificationGroupingEnabled
-                  ? ' You will see grouped notifications.'
-                  : ' You will see individual notifications.'}
-            </Text>
-            <TouchableOpacity
-              style={[styles.batchDownloadButton, !showNotificationsEnabled && styles.batchDownloadButtonDisabled]}
-              onPress={onBatchDownload}
-            >
-              <Ionicons name="cloud-download" size={20} color="#fff" />
-              <Text style={styles.batchDownloadButtonText}>Start 5 Downloads</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      <View style={styles.batchDownloadSection}>
+        <Text style={styles.batchDownloadTitle}>Test Batch Downloads</Text>
+        <Text style={styles.batchDownloadDescription}>Start five downloads to exercise the native concurrency queue.</Text>
+        <TouchableOpacity style={styles.batchDownloadButton} onPress={onBatchDownload}>
+          <Ionicons name="cloud-download" size={20} color="#fff" />
+          <Text style={styles.batchDownloadButtonText}>Start 5 Downloads</Text>
+        </TouchableOpacity>
+      </View>
 
       {tasksList.length > 0 && (
         <Animated.View
@@ -453,7 +342,6 @@ const BasicExampleScreen = () => {
     },
     {
       url: 'https://pdst.fm/e/chrt.fm/track/479722/arttrk.com/p/CRMDA/claritaspod.com/measure/pscrb.fm/rss/p/stitcher.simplecastaudio.com/9aa1e238-cbed-4305-9808-c9228fc6dd4f/episodes/b0c9a72a-1cb7-4ac9-80a0-36996fc6470f/audio/128/default.mp3?aid=rss_feed&awCollectionId=9aa1e238-cbed-4305-9808-c9228fc6dd4f&awEpisodeId=b0c9a72a-1cb7-4ac9-80a0-36996fc6470f&feed=dxZsm5kX',
-      maxRedirects: 10,
       title: 'Podcast with redirects',
     },
     {
@@ -476,156 +364,6 @@ const BasicExampleScreen = () => {
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
   const [destinations, setDestinations] = useState<Map<string, string>>(new Map())
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([])
-  const [notificationGroupingEnabled, setNotificationGroupingEnabled] = useState(() => {
-    return storage.getBoolean(NOTIFICATION_GROUPING_KEY) ?? false
-  })
-  const [showNotificationsEnabled, setShowNotificationsEnabled] = useState(() => {
-    return storage.getBoolean(SHOW_NOTIFICATIONS_KEY) ?? false
-  })
-  const [summaryOnlyMode, setSummaryOnlyMode] = useState(() => {
-    return storage.getBoolean(SUMMARY_ONLY_MODE_KEY) ?? false
-  })
-  // Android 14+ notification extras - both opt-in, independent of showNotificationsEnabled
-  const [showCancelAction, setShowCancelAction] = useState(() => {
-    return storage.getBoolean(CANCEL_ACTION_KEY) ?? false
-  })
-  const [showCompletionNotification, setShowCompletionNotification] = useState(() => {
-    return storage.getBoolean(COMPLETION_NOTIFICATION_KEY) ?? false
-  })
-
-  // The effect below re-applies the whole notification config whenever any of
-  // these change, so the toggles only have to persist their own value
-  const handleShowCancelActionChange = useCallback((enabled: boolean) => {
-    setShowCancelAction(enabled)
-    storage.set(CANCEL_ACTION_KEY, enabled)
-  }, [])
-
-  const handleShowCompletionNotificationChange = useCallback((enabled: boolean) => {
-    setShowCompletionNotification(enabled)
-    storage.set(COMPLETION_NOTIFICATION_KEY, enabled)
-  }, [])
-
-  // Handle notification grouping toggle with persistence
-  const handleNotificationGroupingChange = useCallback((enabled: boolean) => {
-    setNotificationGroupingEnabled(enabled)
-    storage.set(NOTIFICATION_GROUPING_KEY, enabled)
-    // Apply to native immediately via setConfig
-    setConfig({
-      notificationsGrouping: {
-        enabled,
-        mode: summaryOnlyMode ? 'summaryOnly' : 'individual',
-        texts: {
-          downloadTitle: 'Download',
-          downloadStarting: 'Starting...',
-          downloadProgress: 'Downloading... {progress}%',
-          downloadFinished: 'Complete',
-          groupTitle: 'Downloads',
-          groupText: '{count} downloads in progress',
-        },
-      },
-      showNotificationsEnabled,
-    })
-  }, [showNotificationsEnabled, summaryOnlyMode])
-
-  // Handle summaryOnly mode toggle with persistence
-  const handleSummaryOnlyModeChange = useCallback((enabled: boolean) => {
-    setSummaryOnlyMode(enabled)
-    storage.set(SUMMARY_ONLY_MODE_KEY, enabled)
-    // Apply to native immediately via setConfig
-    setConfig({
-      notificationsGrouping: {
-        enabled: notificationGroupingEnabled,
-        mode: enabled ? 'summaryOnly' : 'individual',
-        texts: {
-          downloadTitle: 'Download',
-          downloadStarting: 'Starting...',
-          downloadProgress: 'Downloading... {progress}%',
-          downloadFinished: 'Complete',
-          groupTitle: 'Batch Download',
-          groupText: '{count} files downloading',
-        },
-      },
-      showNotificationsEnabled,
-    })
-  }, [showNotificationsEnabled, notificationGroupingEnabled])
-
-  // Request POST_NOTIFICATIONS permission on Android 13+
-  const requestNotificationPermission = useCallback(async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return true
-    if (Platform.Version < 33) return true // Not needed below Android 13
-
-    try {
-      // First check if already granted
-      const hasPermission = await PermissionsAndroid.check(
-        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
-      )
-      if (hasPermission) return true
-
-      // Request permission
-      const result = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-        {
-          title: 'Notification Permission',
-          message: 'This app needs notification permission to show download progress.',
-          buttonPositive: 'Allow',
-          buttonNegative: 'Deny',
-        }
-      )
-
-      if (result === PermissionsAndroid.RESULTS.GRANTED) {
-        return true
-      }
-
-      // If denied or never_ask_again, offer to open settings
-      if (result === PermissionsAndroid.RESULTS.DENIED || result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-        Alert.alert(
-          'Permission Required',
-          'Notification permission is required. Please enable it in app settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Open Settings',
-              onPress: () => Linking.openSettings(),
-            },
-          ]
-        )
-      }
-      return false
-    } catch (e) {
-      console.warn('Failed to request notification permission:', e)
-      return false
-    }
-  }, [])
-
-  // Handle show notifications toggle with persistence and permission request
-  const handleShowNotificationsChange = useCallback(async (show: boolean) => {
-    if (show) {
-      const granted = await requestNotificationPermission()
-      if (!granted) {
-        // Alert is already shown by requestNotificationPermission
-        return
-      }
-    }
-    setShowNotificationsEnabled(show)
-    storage.set(SHOW_NOTIFICATIONS_KEY, show)
-    // Apply to native immediately via setConfig
-    setConfig({
-      notificationsGrouping: {
-        enabled: notificationGroupingEnabled,
-        mode: summaryOnlyMode ? 'summaryOnly' : 'individual',
-        texts: {
-          downloadTitle: 'Download',
-          downloadStarting: 'Starting...',
-          downloadProgress: 'Downloading... {progress}%',
-          downloadFinished: 'Complete',
-          groupTitle: 'Downloads',
-          groupText: '{count} downloads in progress',
-        },
-      },
-      showNotificationsEnabled: show,
-    })
-  }, [requestNotificationPermission, notificationGroupingEnabled, summaryOnlyMode])
-
   const updateTask = useCallback((task: DownloadTask) => {
     // Store the actual task instance, not a copy, to preserve methods
     setDownloadTasks(prev => new Map(prev).set(task.id, task))
@@ -780,26 +518,16 @@ const BasicExampleScreen = () => {
       id: urlItem.id,
       url: urlItem.url,
       destination,
-      maxRedirects: urlItem.maxRedirects,
-      // Store destination in metadata so we can restore it after app restart
-      // Also include groupId/groupName for notification grouping (Android)
       metadata: {
         destination,
-        // Android 14+: per-download notification title and the name shown in
-        // the completion notification
-        notificationTitle: `Example: ${fileName}`,
         fileName,
-        ...(notificationGroupingEnabled && {
-          groupId: 'example-downloads',
-          groupName: 'Example Downloads',
-        }),
       },
     })
     process(task)
     task.start()
     setDownloadTasks(prev => new Map(prev).set(task.id, task))
     setDestinations(prev => new Map(prev).set(urlItem.id, destination))
-  }, [process, ensureDownloadsDirExists, getDownloadsDirPath, getFileNameFromUrl, notificationGroupingEnabled])
+  }, [process, ensureDownloadsDirExists, getDownloadsDirPath, getFileNameFromUrl])
 
   // Batch download - start multiple downloads to test summaryOnly mode
   const startBatchDownload = useCallback(() => {
@@ -827,8 +555,6 @@ const BasicExampleScreen = () => {
         destination,
         metadata: {
           destination,
-          groupId: batchGroupId,
-          groupName: 'Batch Download',
         },
       })
       process(task)
@@ -923,46 +649,16 @@ const BasicExampleScreen = () => {
     }
   }, [getDownloadsDir, readStorage])
 
-  // Update notification grouping config when settings change
   useEffect(() => {
-    setConfig({
-      isLogsEnabled: true,
-      progressMinBytes: 1024 * 100, // 100 KB
-      logCallback: (log: string) => {
-        console.log('[RNBD]', log)
-      },
-      showNotificationsEnabled,
-      showCancelAction,
-      showCompletionNotification,
-      notificationsGrouping: {
-        enabled: notificationGroupingEnabled,
-        mode: summaryOnlyMode ? 'summaryOnly' : 'individual',
-        texts: {
-          downloadTitle: 'Download',
-          downloadStarting: 'Starting...',
-          downloadProgress: 'Downloading... {progress}%',
-          downloadFinished: 'Complete',
-          downloadCancel: 'Cancel',
-          groupTitle: 'Batch Download',
-          groupText: '{count} files downloading',
-        },
-      },
-    })
-  }, [notificationGroupingEnabled, showNotificationsEnabled, summaryOnlyMode, showCancelAction, showCompletionNotification])
-
-  useEffect(() => {
-    // Initialize URL list with persisted IDs after mount (when MMKV is ready)
+    // Initialize URL list with stable IDs for this process.
     const initializedUrlList = urlDefinitions.map(def => ({
       id: TaskIdStorage.getOrCreate(def.url),
       ...def,
     }))
     setUrlList(initializedUrlList)
 
-    // Small delay to ensure setConfig has been applied before resuming tasks
-    setTimeout(() => {
-      resumeExistingTasks()
-      readStorage()
-    }, 100)
+    resumeExistingTasks()
+    readStorage()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1014,20 +710,10 @@ const BasicExampleScreen = () => {
       files={completedFiles}
       tasks={downloadTasks}
       downloadsPath={downloadsPath}
-      notificationGroupingEnabled={notificationGroupingEnabled}
-      onNotificationGroupingChange={handleNotificationGroupingChange}
-      showNotificationsEnabled={showNotificationsEnabled}
-      onShowNotificationsEnabledChange={handleShowNotificationsChange}
-      summaryOnlyMode={summaryOnlyMode}
-      onSummaryOnlyModeChange={handleSummaryOnlyModeChange}
-      showCancelAction={showCancelAction}
-      onShowCancelActionChange={handleShowCancelActionChange}
-      showCompletionNotification={showCompletionNotification}
-      onShowCompletionNotificationChange={handleShowCompletionNotificationChange}
       onBatchDownload={startBatchDownload}
       onReload={() => DevSettings.reload()}
     />
-  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange, summaryOnlyMode, handleSummaryOnlyModeChange, showCancelAction, handleShowCancelActionChange, showCompletionNotification, handleShowCompletionNotificationChange, startBatchDownload])
+  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, startBatchDownload])
 
   // Pass an element, not the renderHeader function itself: the function identity
   // changes on every progress update, and a changed ListHeaderComponent function

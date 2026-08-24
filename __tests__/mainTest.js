@@ -1,12 +1,11 @@
 import {
   createDownloadTask,
   getExistingDownloadTasks,
-  setConfig,
 } from '../src/index'
 import { DownloadTask } from '../src/DownloadTask'
-import { NativeModules } from 'react-native'
+import { TurboModuleRegistry } from 'react-native'
 
-const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
+const RNBackgroundDownloaderNative = TurboModuleRegistry.getEnforcing('RNBackgroundDownloader')
 const emitEvent = global.__RNBackgroundDownloaderEmitEvent
 
 let downloadTask
@@ -357,32 +356,6 @@ test('getExistingDownloadTasks', () => {
         expect(foundDownload.state).not.toBe('STOPPED')
       })
     })
-})
-
-test('setConfig with progressMinBytes', () => {
-  setConfig({
-    progressMinBytes: 500000,
-    progressInterval: 2000,
-    isLogsEnabled: true,
-  })
-
-  // Test that download passes progressMinBytes to native
-  const configDownloadTask = createDownloadTask({
-    id: 'testConfig',
-    url: 'https://example.com/file.zip',
-    destination: '/tmp/file.zip',
-  })
-  configDownloadTask.start()
-
-  expect(RNBackgroundDownloaderNative.download).toHaveBeenCalledWith(
-    expect.objectContaining({
-      id: 'testConfig',
-      url: 'https://example.com/file.zip',
-      destination: '/tmp/file.zip',
-      progressInterval: 2000,
-    })
-  )
-  expect(configDownloadTask).toBeInstanceOf(DownloadTask)
 })
 
 test('wrong handler type', () => {

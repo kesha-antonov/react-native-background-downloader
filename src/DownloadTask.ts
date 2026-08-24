@@ -16,7 +16,6 @@ import {
   UnsafeObject,
   Headers,
 } from './types'
-import { config } from './config'
 import { log } from './logger'
 
 // Import shared native module getter to avoid duplicating TurboModule lookup
@@ -41,7 +40,7 @@ export class DownloadTask {
   bytesDownloaded: number = 0
   bytesTotal: number = 0
 
-  downloadParams?: DownloadParams
+  private readonly downloadParams?: DownloadParams
 
   beginHandler?: BeginHandler
   progressHandler?: ProgressHandler
@@ -50,7 +49,10 @@ export class DownloadTask {
   private pendingDone?: DoneHandlerParams
   private pendingError?: ErrorHandlerParams
 
-  constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
+  constructor (
+    taskParams: TaskInfo | TaskInfoNative,
+    { originalTask, downloadParams }: { originalTask?: DownloadTaskType, downloadParams?: DownloadParams } = {}
+  ) {
     this.id = taskParams.id
 
     if ((taskParams as TaskInfoNative).bytesDownloaded)
@@ -63,6 +65,9 @@ export class DownloadTask {
       this.destination = (taskParams as TaskInfoNative).destination ?? undefined
 
     this.metadata = this.tryParseJson(taskParams.metadata) ?? {}
+    this.downloadParams = downloadParams
+      ? { ...downloadParams, headers: downloadParams.headers ? { ...downloadParams.headers } : undefined }
+      : undefined
 
     if (originalTask) {
       this.beginHandler = originalTask.beginHandler
@@ -150,29 +155,6 @@ export class DownloadTask {
 
   // methods
 
-  /**
-   * Update download parameters.
-   * If the task is paused, this will also update headers in the native layer.
-   * If the task is in-progress or completed, only the local JS object is updated.
-   *
-   * @param downloadParams - The new download parameters
-   * @returns Promise<boolean> - true if native headers were updated, false otherwise
-   */
-  async setDownloadParams (downloadParams: DownloadParams): Promise<boolean> {
-    this.downloadParams = downloadParams
-
-    // If task is paused, update headers in native layer
-    if (this.state === 'PAUSED' && downloadParams.headers) {
-      const headers = this.headersToUnsafeObject(downloadParams.headers)
-      if (headers) {
-        log('DownloadTask: setDownloadParams updating native headers', this.id)
-        return getNativeModule().updateTaskHeaders(this.id, headers)
-      }
-    }
-
-    return false
-  }
-
   async pause (): Promise<void> {
     log('DownloadTask: pause', this.id)
     this.state = 'PAUSED'
@@ -194,8 +176,8 @@ export class DownloadTask {
     }
 
     if (!this.downloadParams) {
-      log('DownloadTask: start. downloadParams is missing. "setDownloadParams" wasn\'t called before "start"', this.id)
-      this.errorHandler?.({ error: 'downloadParams is missing. setDownloadParams must be called before start', errorCode: -2 })
+      log('DownloadTask: start. downloadParams is missing', this.id)
+      this.errorHandler?.({ error: 'downloadParams is missing', errorCode: -2 })
       return
     }
 
@@ -205,14 +187,8 @@ export class DownloadTask {
     getNativeModule().download({
       id: this.id,
       metadata: JSON.stringify(this.metadata),
-      progressInterval: config.progressInterval,
-      progressMinBytes: config.progressMinBytes,
       ...this.downloadParams,
       headers: this.headersToUnsafeObject(this.downloadParams.headers),
-      isAllowedOverRoaming: this.downloadParams.isAllowedOverRoaming ?? false,
-      isAllowedOverMetered: this.downloadParams.isAllowedOverMetered ?? false,
-      // iOS-only; ignored on Android. Falls back to the global setConfig default.
-      iosDataProtection: this.downloadParams.iosDataProtection ?? config.iosDataProtection,
     })
   }
 

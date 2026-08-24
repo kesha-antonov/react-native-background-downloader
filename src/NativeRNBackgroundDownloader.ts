@@ -22,12 +22,14 @@ export type DownloadCompleteEvent = {
   location: string
   bytesDownloaded: number
   bytesTotal: number
+  metadata?: string
 }
 
 export type DownloadFailedEvent = {
   id: string
   error: string
   errorCode: number
+  metadata?: string
 }
 
 // Upload event payload types for codegen
@@ -48,12 +50,14 @@ export type UploadCompleteEvent = {
   responseBody: string
   bytesUploaded: number
   bytesTotal: number
+  metadata?: string
 }
 
 export type UploadFailedEvent = {
   id: string
   error: string
   errorCode: number
+  metadata?: string
 }
 
 export interface Spec extends TurboModule {
@@ -64,6 +68,7 @@ export interface Spec extends TurboModule {
     TaskSuspended: number
     TaskCanceling: number
     TaskCompleted: number
+    isLoggingEnabled: boolean
   }
 
   // Methods
@@ -73,35 +78,13 @@ export interface Spec extends TurboModule {
     destination: string
     headers?: UnsafeObject
     metadata?: string
-    progressInterval?: number
-    progressMinBytes?: number
-    isAllowedOverRoaming: boolean
-    isAllowedOverMetered: boolean
-    maxRedirects?: number
-    /** iOS only: NSFileProtection level for the saved file. Ignored on Android. */
-    iosDataProtection?: string
   }): void
 
   pauseTask(id: string): Promise<void>
   resumeTask(id: string): Promise<void>
   stopTask(id: string): Promise<void>
-  updateTaskHeaders(id: string, headers: UnsafeObject): Promise<boolean>
-  setRuntimeReady(): Promise<Array<{ name: string, key: string, payload: CodegenUnsafeObject }>>
+  setRuntimeReady(family: string): Promise<Array<{ name: string, key: string, payload: CodegenUnsafeObject }>>
   acknowledgeRuntimeEvents(keys: string[]): void
-
-  setLogsEnabled(enabled: boolean): void
-  setMaxParallelDownloads(max: number): void
-  setAllowsCellularAccess(allows: boolean): void
-  addListener(eventName: string): void
-  removeListeners(count: number): void
-  setNotificationGroupingConfig?(config: {
-    enabled: boolean
-    showNotificationsEnabled: boolean
-    showCompletionNotification: boolean
-    showCancelAction: boolean
-    mode: string
-    texts: UnsafeObject
-  }): void
 
   getExistingDownloadTasks(): Promise<Array<{
     id: string
@@ -113,28 +96,23 @@ export interface Spec extends TurboModule {
     destination?: string | null
   }>>
 
-  // Upload methods (optional for backward compatibility until native implementation is complete)
-  upload?(options: {
+  upload(options: {
     id: string
     url: string
     source: string
     method: string
     headers?: UnsafeObject
     metadata?: string
-    progressInterval?: number
-    progressMinBytes?: number
     fieldName?: string
     mimeType?: string
     parameters?: UnsafeObject
-    isAllowedOverRoaming: boolean
-    isAllowedOverMetered: boolean
   }): void
 
-  pauseUploadTask?(id: string): Promise<void>
-  resumeUploadTask?(id: string): Promise<void>
-  stopUploadTask?(id: string): Promise<void>
+  pauseUploadTask(id: string): Promise<void>
+  resumeUploadTask(id: string): Promise<void>
+  stopUploadTask(id: string): Promise<void>
 
-  getExistingUploadTasks?(): Promise<Array<{
+  getExistingUploadTasks(): Promise<Array<{
     id: string
     metadata: string
     state: number
@@ -149,11 +127,10 @@ export interface Spec extends TurboModule {
   readonly onDownloadComplete: EventEmitter<DownloadCompleteEvent>
   readonly onDownloadFailed: EventEmitter<DownloadFailedEvent>
 
-  // Upload event emitters (new architecture) - optional for backward compatibility
-  readonly onUploadBegin?: EventEmitter<UploadBeginEvent>
-  readonly onUploadProgress?: EventEmitter<UploadProgressEvent[]>
-  readonly onUploadComplete?: EventEmitter<UploadCompleteEvent>
-  readonly onUploadFailed?: EventEmitter<UploadFailedEvent>
+  readonly onUploadBegin: EventEmitter<UploadBeginEvent>
+  readonly onUploadProgress: EventEmitter<UploadProgressEvent[]>
+  readonly onUploadComplete: EventEmitter<UploadCompleteEvent>
+  readonly onUploadFailed: EventEmitter<UploadFailedEvent>
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('RNBackgroundDownloader')

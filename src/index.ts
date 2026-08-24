@@ -1,10 +1,8 @@
-import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
+import { TurboModuleRegistry } from 'react-native'
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
-import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
-import { config, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, DEFAULT_NOTIFICATION_TEXTS } from './config'
-import { log } from './logger'
-import { getNotificationTextsForNative } from './notifications'
+import { DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
+import { configureLogging, log } from './logger'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 type RNBackgroundDownloaderModule = Spec & {
@@ -13,12 +11,10 @@ type RNBackgroundDownloaderModule = Spec & {
   TaskCanceling: number
   TaskCompleted: number
   documents: string
+  isLoggingEnabled: boolean
 }
 
-// Lazy initialization state
-let RNBackgroundDownloader: (RNBackgroundDownloaderModule & NativeModule) | null = null
-let turboModule: Spec | null = null
-let isIOSNewArchitecture = false
+let RNBackgroundDownloader: RNBackgroundDownloaderModule | null = null
 let isInitialized = false
 
 /**
@@ -26,40 +22,14 @@ let isInitialized = false
  * This is called on first actual use of the module, not at import time.
  * This prevents issues with module loading before React Native's bridge is ready.
  */
-function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & NativeModule {
+function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule {
   if (isInitialized && RNBackgroundDownloader != null)
     return RNBackgroundDownloader
 
-  // Try TurboModules first
-  turboModule = TurboModuleRegistry.get<Spec>('RNBackgroundDownloader')
-  // Check if iOS new architecture event emitters are available
-  // On Android, we always use NativeEventEmitter because Android uses RCTDeviceEventEmitter
-  isIOSNewArchitecture = Platform.OS === 'ios' && turboModule != null && typeof turboModule.onDownloadBegin === 'function'
+  const turboModule = TurboModuleRegistry.getEnforcing<Spec>('RNBackgroundDownloader')
+  RNBackgroundDownloader = Object.assign(turboModule, turboModule.getConstants()) as RNBackgroundDownloaderModule
 
-  if (isIOSNewArchitecture && turboModule) {
-    // New architecture: TurboModules use getConstants() method
-    const constants = turboModule.getConstants()
-    RNBackgroundDownloader = Object.assign(turboModule, constants) as RNBackgroundDownloaderModule & NativeModule
-  } else {
-    // Fall back to old architecture - must use NativeModules for proper event emission
-    RNBackgroundDownloader = NativeModules.RNBackgroundDownloader
-
-    // For old architecture, constants may need to be fetched via getConstants() as well
-    if (RNBackgroundDownloader && !RNBackgroundDownloader.documents && typeof RNBackgroundDownloader.getConstants === 'function') {
-      const constants = RNBackgroundDownloader.getConstants()
-      if (constants)
-        Object.assign(RNBackgroundDownloader, constants)
-    }
-  }
-
-  if (!RNBackgroundDownloader)
-    throw new Error(
-      'The package \'@anorak-games/react-native-background-downloader\' doesn\'t seem to be linked. Make sure: \n\n' +
-      Platform.select({ ios: '- You have run \'pod install\'\n', default: '' }) +
-      '- You rebuilt the app after installing the package\n' +
-      '- You are not using Expo Go\n'
-    )
-
+  configureLogging(RNBackgroundDownloader.isLoggingEnabled === true)
   isInitialized = true
 
   // Initialize event listeners after native module is ready
@@ -68,7 +38,6 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
   return RNBackgroundDownloader
 }
 
-const MIN_PROGRESS_INTERVAL = 250
 const tasksMap = new Map<string, DownloadTask>()
 const uploadTasksMap = new Map<string, UploadTask>()
 
@@ -89,12 +58,14 @@ interface DownloadCompleteEvent {
   location: string
   bytesDownloaded: number
   bytesTotal: number
+  metadata?: string
 }
 
 interface DownloadFailedEvent {
   id: string
   error: string
   errorCode: number
+  metadata?: string
 }
 
 // Upload event types
@@ -115,12 +86,14 @@ interface UploadCompleteEvent {
   responseBody: string
   bytesUploaded: number
   bytesTotal: number
+  metadata?: string
 }
 
 interface UploadFailedEvent {
   id: string
   error: string
   errorCode: number
+  metadata?: string
 }
 
 type PendingDownloadTerminal =
@@ -151,7 +124,39 @@ interface BufferedRuntimeEvent {
 
 const pendingDownloadEvents = new Map<string, PendingDownloadEvents>()
 const pendingUploadEvents = new Map<string, PendingUploadEvents>()
-let runtimeEventsActivation: Promise<void> | null = null
+type TaskFamily = 'download' | 'upload'
+let runtimeEventsActivations: Partial<Record<TaskFamily, Promise<BufferedRuntimeEvent[]>>> = {}
+let downloadReconciliation: Promise<DownloadTask[]> | null = null
+let uploadReconciliation: Promise<UploadTask[]> | null = null
+
+function acknowledgeTerminalEvent (family: TaskFamily, id: string) {
+  RNBackgroundDownloader?.acknowledgeRuntimeEvents([`${family}:${id}`])
+}
+
+function retireDownloadTask (task: DownloadTask) {
+  if (tasksMap.get(task.id) === task)
+    tasksMap.delete(task.id)
+  acknowledgeTerminalEvent('download', task.id)
+}
+
+function retireUploadTask (task: UploadTask) {
+  if (uploadTasksMap.get(task.id) === task)
+    uploadTasksMap.delete(task.id)
+  acknowledgeTerminalEvent('upload', task.id)
+}
+
+function parseEventMetadata (metadata?: string): Metadata {
+  if (!metadata) return {}
+
+  try {
+    const parsed = JSON.parse(metadata) as unknown
+    return parsed != null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Metadata
+      : {}
+  } catch {
+    return {}
+  }
+}
 
 function pendingDownload (id: string): PendingDownloadEvents {
   const pending = pendingDownloadEvents.get(id) ?? {}
@@ -194,10 +199,10 @@ function handleDownloadComplete (data: DownloadCompleteEvent) {
     pendingDownloadEvents.set(data.id, { terminal: { type: 'complete', data } })
     return
   }
-  const { id, ...params } = data
-  log('downloadComplete', id, params)
+  const params = { location: data.location, bytesDownloaded: data.bytesDownloaded, bytesTotal: data.bytesTotal }
+  log('downloadComplete', data.id, params)
+  retireDownloadTask(task)
   task.onDone(params)
-  tasksMap.delete(id)
 }
 
 function handleDownloadFailed (data: DownloadFailedEvent) {
@@ -206,10 +211,10 @@ function handleDownloadFailed (data: DownloadFailedEvent) {
     pendingDownloadEvents.set(data.id, { terminal: { type: 'failed', data } })
     return
   }
-  const { id, ...params } = data
-  log('downloadFailed', id, params)
+  const params = { error: data.error, errorCode: data.errorCode }
+  log('downloadFailed', data.id, params)
+  retireDownloadTask(task)
   task.onError(params)
-  tasksMap.delete(id)
 }
 
 function handleUploadBegin (data: UploadBeginEvent) {
@@ -241,10 +246,15 @@ function handleUploadComplete (data: UploadCompleteEvent) {
     pendingUploadEvents.set(data.id, { terminal: { type: 'complete', data } })
     return
   }
-  const { id, ...params } = data
-  log('uploadComplete', id, params)
+  const params = {
+    responseCode: data.responseCode,
+    responseBody: data.responseBody,
+    bytesUploaded: data.bytesUploaded,
+    bytesTotal: data.bytesTotal,
+  }
+  log('uploadComplete', data.id, params)
+  retireUploadTask(task)
   task.onDone(params)
-  uploadTasksMap.delete(id)
 }
 
 function handleUploadFailed (data: UploadFailedEvent) {
@@ -253,10 +263,10 @@ function handleUploadFailed (data: UploadFailedEvent) {
     pendingUploadEvents.set(data.id, { terminal: { type: 'failed', data } })
     return
   }
-  const { id, ...params } = data
-  log('uploadFailed', id, params)
+  const params = { error: data.error, errorCode: data.errorCode }
+  log('uploadFailed', data.id, params)
+  retireUploadTask(task)
   task.onError(params)
-  uploadTasksMap.delete(id)
 }
 
 function handleBufferedRuntimeEvent ({ name, payload }: BufferedRuntimeEvent) {
@@ -292,22 +302,32 @@ function handleBufferedRuntimeEvent ({ name, payload }: BufferedRuntimeEvent) {
   }
 }
 
-function activateRuntimeEvents (): Promise<void> {
-  if (runtimeEventsActivation)
-    return runtimeEventsActivation
+function isTerminalRuntimeEvent (name: string): boolean {
+  return name.endsWith('Complete') || name.endsWith('Failed') ||
+    name.endsWith('complete') || name.endsWith('failed')
+}
+
+function activateRuntimeEvents (family: TaskFamily): Promise<BufferedRuntimeEvent[]> {
+  const currentActivation = runtimeEventsActivations[family]
+  if (currentActivation)
+    return currentActivation
 
   const nativeModule = RNBackgroundDownloader!
-  runtimeEventsActivation = nativeModule.setRuntimeReady()
+  const activation = nativeModule.setRuntimeReady(family)
     .then(events => {
-      for (const event of events)
+      for (const event of events) {
+        if (!isTerminalRuntimeEvent(event.name))
+          nativeModule.acknowledgeRuntimeEvents([event.key])
         handleBufferedRuntimeEvent(event)
-      nativeModule.acknowledgeRuntimeEvents(events.map(event => event.key))
+      }
+      return events
     })
     .catch(error => {
-      runtimeEventsActivation = null
+      delete runtimeEventsActivations[family]
       throw error
     })
-  return runtimeEventsActivation
+  runtimeEventsActivations[family] = activation
+  return activation
 }
 
 function applyPendingDownloadEvents (task: DownloadTask) {
@@ -321,12 +341,12 @@ function applyPendingDownloadEvents (task: DownloadTask) {
     task.onProgress({ bytesDownloaded: pending.progress.bytesDownloaded, bytesTotal: pending.progress.bytesTotal })
   if (pending.terminal?.type === 'complete') {
     const data = pending.terminal.data
+    retireDownloadTask(task)
     task.onDone({ location: data.location, bytesDownloaded: data.bytesDownloaded, bytesTotal: data.bytesTotal })
-    tasksMap.delete(task.id)
   } else if (pending.terminal?.type === 'failed') {
     const data = pending.terminal.data
+    retireDownloadTask(task)
     task.onError({ error: data.error, errorCode: data.errorCode })
-    tasksMap.delete(task.id)
   }
 }
 
@@ -341,17 +361,17 @@ function applyPendingUploadEvents (task: UploadTask) {
     task.onProgress({ bytesUploaded: pending.progress.bytesUploaded, bytesTotal: pending.progress.bytesTotal })
   if (pending.terminal?.type === 'complete') {
     const data = pending.terminal.data
+    retireUploadTask(task)
     task.onDone({
       responseCode: data.responseCode,
       responseBody: data.responseBody,
       bytesUploaded: data.bytesUploaded,
       bytesTotal: data.bytesTotal,
     })
-    uploadTasksMap.delete(task.id)
   } else if (pending.terminal?.type === 'failed') {
     const data = pending.terminal.data
+    retireUploadTask(task)
     task.onError({ error: data.error, errorCode: data.errorCode })
-    uploadTasksMap.delete(task.id)
   }
 }
 
@@ -362,7 +382,7 @@ function reconcilePendingDownloadEvents (tasks: DownloadTask[]) {
   for (const [id, pending] of Array.from(pendingDownloadEvents.entries())) {
     if (!pending.terminal) continue
     const destination = pending.terminal.type === 'complete' ? pending.terminal.data.location : undefined
-    const task = new DownloadTask({ id, metadata: {} })
+    const task = new DownloadTask({ id, metadata: parseEventMetadata(pending.terminal.data.metadata) })
     task.destination = destination
     tasks.push(task)
     tasksMap.set(id, task)
@@ -376,16 +396,13 @@ function reconcilePendingUploadEvents (tasks: UploadTask[]) {
 
   for (const [id, pending] of Array.from(pendingUploadEvents.entries())) {
     if (!pending.terminal) continue
-    const task = new UploadTask({ id, metadata: {} })
+    const task = new UploadTask({ id, metadata: parseEventMetadata(pending.terminal.data.metadata) })
     tasks.push(task)
     uploadTasksMap.set(id, task)
     applyPendingUploadEvents(task)
   }
 }
 
-// Set up event listeners based on architecture
-// For old architecture, we need to defer NativeEventEmitter creation
-// to avoid issues during module initialization
 let eventListenersInitialized = false
 let eventSubscriptions: { remove: () => void }[] = []
 
@@ -400,190 +417,42 @@ export function cleanup () {
   eventSubscriptions = []
   eventListenersInitialized = false
   isInitialized = false
-  // Clear module references to allow proper re-initialization
   RNBackgroundDownloader = null
-  turboModule = null
-  isIOSNewArchitecture = false
   tasksMap.clear()
   uploadTasksMap.clear()
   pendingDownloadEvents.clear()
   pendingUploadEvents.clear()
-  runtimeEventsActivation = null
+  runtimeEventsActivations = {}
+  downloadReconciliation = null
+  uploadReconciliation = null
 }
 
 function initializeEventListeners () {
   if (eventListenersInitialized) return
   eventListenersInitialized = true
 
-  if (isIOSNewArchitecture && turboModule) {
-    // iOS new architecture: use EventEmitter from TurboModule spec
-    turboModule.onDownloadBegin(handleDownloadBegin)
-    turboModule.onDownloadProgress(handleDownloadProgress)
-    turboModule.onDownloadComplete(handleDownloadComplete)
-    turboModule.onDownloadFailed(handleDownloadFailed)
-
-    // Upload events for new architecture (optional - may not exist in all versions)
-    if (typeof turboModule.onUploadBegin === 'function') {
-      turboModule.onUploadBegin?.(handleUploadBegin)
-      turboModule.onUploadProgress?.(handleUploadProgress)
-      turboModule.onUploadComplete?.(handleUploadComplete)
-      turboModule.onUploadFailed?.(handleUploadFailed)
-    }
-  } else {
-    // Old architecture: use NativeEventEmitter with the native module
-    // RCTEventEmitter on native side requires NativeEventEmitter on JS side
-    // RNBackgroundDownloader is guaranteed to be non-null here since initializeEventListeners
-    // is only called after ensureNativeModuleInitialized() succeeds
-    const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader!)
-
-    eventSubscriptions.push(
-      eventEmitter.addListener('downloadBegin', handleDownloadBegin)
-    )
-
-    eventSubscriptions.push(
-      eventEmitter.addListener('downloadProgress', handleDownloadProgress)
-    )
-
-    eventSubscriptions.push(
-      eventEmitter.addListener('downloadComplete', handleDownloadComplete)
-    )
-
-    eventSubscriptions.push(
-      eventEmitter.addListener('downloadFailed', handleDownloadFailed)
-    )
-
-    // Upload events for old architecture
-    eventSubscriptions.push(
-      eventEmitter.addListener('uploadBegin', handleUploadBegin)
-    )
-
-    eventSubscriptions.push(
-      eventEmitter.addListener('uploadProgress', handleUploadProgress)
-    )
-
-    eventSubscriptions.push(
-      eventEmitter.addListener('uploadComplete', handleUploadComplete)
-    )
-
-    eventSubscriptions.push(
-      eventEmitter.addListener('uploadFailed', handleUploadFailed)
-    )
-
-    // Native debug log events - forward native iOS logs to JS logCallback
-    eventSubscriptions.push(
-      eventEmitter.addListener('nativeDebugLog', (data: { message: string, taskId?: string }) => {
-        log('[Native]', data.taskId || '', data.message)
-      })
-    )
-  }
+  eventSubscriptions.push(
+    RNBackgroundDownloader!.onDownloadBegin(handleDownloadBegin),
+    RNBackgroundDownloader!.onDownloadProgress(handleDownloadProgress),
+    RNBackgroundDownloader!.onDownloadComplete(handleDownloadComplete),
+    RNBackgroundDownloader!.onDownloadFailed(handleDownloadFailed),
+    RNBackgroundDownloader!.onUploadBegin(handleUploadBegin),
+    RNBackgroundDownloader!.onUploadProgress(handleUploadProgress),
+    RNBackgroundDownloader!.onUploadComplete(handleUploadComplete),
+    RNBackgroundDownloader!.onUploadFailed(handleUploadFailed)
+  )
 }
 
-// Event listeners are now initialized lazily when ensureNativeModuleInitialized() is called
-// This ensures the bridge is ready before any native module access
-
-export function setConfig ({
-  headers = {},
-  progressInterval = DEFAULT_PROGRESS_INTERVAL,
-  progressMinBytes = DEFAULT_PROGRESS_MIN_BYTES,
-  isLogsEnabled = false,
-  logCallback,
-  maxParallelDownloads,
-  allowsCellularAccess,
-  showNotificationsEnabled,
-  showCompletionNotification,
-  showCancelAction,
-  notificationsGrouping,
-  iosDataProtection,
-}: Config) {
-  config.headers = headers
-
-  if (iosDataProtection !== undefined)
-    config.iosDataProtection = iosDataProtection
-
-  if (progressInterval >= MIN_PROGRESS_INTERVAL)
-    config.progressInterval = progressInterval
-  else
-    console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= ${MIN_PROGRESS_INTERVAL}. You passed ${progressInterval}`)
-
-  if (progressMinBytes >= 0)
-    config.progressMinBytes = progressMinBytes
-  else
-    console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
-
-  if (maxParallelDownloads !== undefined)
-    if (maxParallelDownloads >= 1)
-      config.maxParallelDownloads = maxParallelDownloads
-    else
-      console.warn(`[RNBackgroundDownloader] maxParallelDownloads must be a number >= 1. You passed ${maxParallelDownloads}`)
-
-  if (allowsCellularAccess !== undefined)
-    config.allowsCellularAccess = allowsCellularAccess
-
-  // Update showNotificationsEnabled
-  if (showNotificationsEnabled !== undefined)
-    config.showNotificationsEnabled = showNotificationsEnabled
-
-  // Android 14+ notification extras - both opt-in
-  if (showCompletionNotification !== undefined)
-    config.showCompletionNotification = showCompletionNotification
-
-  if (showCancelAction !== undefined)
-    config.showCancelAction = showCancelAction
-
-  // Update notification grouping config
-  if (notificationsGrouping !== undefined)
-    config.notificationsGrouping = {
-      enabled: notificationsGrouping.enabled ?? false,
-      mode: notificationsGrouping.mode ?? 'individual',
-      texts: {
-        ...DEFAULT_NOTIFICATION_TEXTS,
-        ...notificationsGrouping.texts,
-      },
-    }
-
-  config.isLogsEnabled = isLogsEnabled
-  config.logCallback = logCallback
-
-  // Notify native side about configuration changes
-  try {
-    const nativeModule = ensureNativeModuleInitialized() as RNBackgroundDownloaderModule & NativeModule & {
-      setLogsEnabled?: (enabled: boolean) => void
-      setMaxParallelDownloads?: (max: number) => void
-      setAllowsCellularAccess?: (allows: boolean) => void
-      setNotificationGroupingConfig?: (config: {
-        enabled: boolean
-        showNotificationsEnabled: boolean
-        showCompletionNotification: boolean
-        showCancelAction: boolean
-        mode: string
-        texts: Record<string, string>
-      }) => void
-    }
-    if (nativeModule.setLogsEnabled)
-      nativeModule.setLogsEnabled(isLogsEnabled)
-    // Only call native methods if config was successfully updated
-    if (nativeModule.setMaxParallelDownloads && maxParallelDownloads !== undefined && maxParallelDownloads >= 1)
-      nativeModule.setMaxParallelDownloads(config.maxParallelDownloads)
-    if (nativeModule.setAllowsCellularAccess && allowsCellularAccess !== undefined)
-      nativeModule.setAllowsCellularAccess(config.allowsCellularAccess)
-    // Update notification config on native side (Android)
-    if (Platform.OS === 'android' && nativeModule.setNotificationGroupingConfig)
-      nativeModule.setNotificationGroupingConfig({
-        enabled: config.notificationsGrouping.enabled,
-        showNotificationsEnabled: config.showNotificationsEnabled ?? false,
-        showCompletionNotification: config.showCompletionNotification ?? false,
-        showCancelAction: config.showCancelAction ?? false,
-        mode: config.notificationsGrouping.mode,
-        texts: getNotificationTextsForNative(),
-      })
-  } catch {
-    // Ignore if native module is not available yet
-  }
-}
-
-export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
+async function reconcileDownloadTasks (): Promise<DownloadTask[]> {
   const nativeModule = ensureNativeModuleInitialized()
-  const downloads = await nativeModule.getExistingDownloadTasks()
+  delete runtimeEventsActivations.download
+  let downloads: Awaited<ReturnType<Spec['getExistingDownloadTasks']>>
+  try {
+    downloads = await nativeModule.getExistingDownloadTasks()
+  } catch (error) {
+    activateRuntimeEvents('download').catch(activationError => log('setRuntimeReady', activationError))
+    throw error
+  }
   const downloadTasks: DownloadTask[] = downloads.map(downloadInfo => {
     // Parse metadata from JSON string to object
     let metadata: Metadata = {}
@@ -600,7 +469,7 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
       errorCode: downloadInfo.errorCode ?? 0,
     }
     // second argument re-assigns event handlers
-    const task = new DownloadTask(taskInfo, tasksMap.get(taskInfo.id))
+    const task = new DownloadTask(taskInfo, { originalTask: tasksMap.get(taskInfo.id) })
 
     switch (taskInfo.state) {
       case nativeModule.TaskRunning: {
@@ -636,53 +505,51 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
   for (const task of downloadTasks)
     tasksMap.set(task.id, task)
 
-  await activateRuntimeEvents()
+  await activateRuntimeEvents('download')
   reconcilePendingDownloadEvents(downloadTasks)
 
   return downloadTasks
 }
 
-export function createDownloadTask ({
-  isAllowedOverRoaming = true,
-  isAllowedOverMetered = true,
-  metadata,
-  ...rest
-}: TaskInfo & DownloadParams) {
+export const getExistingDownloadTasks = (): Promise<DownloadTask[]> => {
+  if (downloadReconciliation) return downloadReconciliation
+  const reconciliation = reconcileDownloadTasks().finally(() => {
+    if (downloadReconciliation === reconciliation) downloadReconciliation = null
+  })
+  downloadReconciliation = reconciliation
+  return reconciliation
+}
+
+export function createDownloadTask ({ metadata, ...rest }: TaskInfo & DownloadParams) {
   // Ensure native module and event listeners are initialized before creating tasks
   ensureNativeModuleInitialized()
 
   if (!rest.id || !rest.url || !rest.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')
 
-  rest.headers = { ...config.headers, ...rest.headers }
-
   rest.destination = rest.destination.replace('file://', '')
 
   const task = new DownloadTask({
     id: rest.id,
     metadata,
-  })
-
-  task.setDownloadParams({
-    isAllowedOverRoaming,
-    isAllowedOverMetered,
-    ...rest,
-  })
+  }, { downloadParams: rest })
 
   tasksMap.set(rest.id, task)
-  activateRuntimeEvents().catch(error => log('setRuntimeReady', error))
+  activateRuntimeEvents('download').catch(error => log('setRuntimeReady', error))
 
   return task
 }
 
-export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
+async function reconcileUploadTasks (): Promise<UploadTask[]> {
   const nativeModule = ensureNativeModuleInitialized()
-  if (!nativeModule.getExistingUploadTasks) {
-    log('getExistingUploadTasks: not supported - native implementation missing')
-    return []
+  delete runtimeEventsActivations.upload
+  let uploads: Awaited<ReturnType<Spec['getExistingUploadTasks']>>
+  try {
+    uploads = await nativeModule.getExistingUploadTasks()
+  } catch (error) {
+    activateRuntimeEvents('upload').catch(activationError => log('setRuntimeReady', activationError))
+    throw error
   }
-
-  const uploads = await nativeModule.getExistingUploadTasks()
   const uploadTasks: UploadTask[] = uploads.map(uploadInfo => {
     // Parse metadata from JSON string to object
     let metadata: Metadata = {}
@@ -735,25 +602,27 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
   for (const task of uploadTasks)
     uploadTasksMap.set(task.id, task)
 
-  await activateRuntimeEvents()
+  await activateRuntimeEvents('upload')
   reconcilePendingUploadEvents(uploadTasks)
 
   return uploadTasks
 }
 
-export function createUploadTask ({
-  isAllowedOverRoaming = true,
-  isAllowedOverMetered = true,
-  metadata,
-  ...rest
-}: UploadTaskInfo & UploadParams) {
+export const getExistingUploadTasks = (): Promise<UploadTask[]> => {
+  if (uploadReconciliation) return uploadReconciliation
+  const reconciliation = reconcileUploadTasks().finally(() => {
+    if (uploadReconciliation === reconciliation) uploadReconciliation = null
+  })
+  uploadReconciliation = reconciliation
+  return reconciliation
+}
+
+export function createUploadTask ({ metadata, ...rest }: UploadTaskInfo & UploadParams) {
   // Ensure native module and event listeners are initialized before creating tasks
   ensureNativeModuleInitialized()
 
   if (!rest.id || !rest.url || !rest.source)
     throw new Error('[RNBackgroundDownloader] id, url and source are required')
-
-  rest.headers = { ...config.headers, ...rest.headers }
 
   rest.source = rest.source.replace('file://', '')
 
@@ -762,14 +631,10 @@ export function createUploadTask ({
     metadata,
   })
 
-  task.setUploadParams({
-    isAllowedOverRoaming,
-    isAllowedOverMetered,
-    ...rest,
-  })
+  task.setUploadParams(rest)
 
   uploadTasksMap.set(rest.id, task)
-  activateRuntimeEvents().catch(error => log('setRuntimeReady', error))
+  activateRuntimeEvents('upload').catch(error => log('setRuntimeReady', error))
 
   return task
 }

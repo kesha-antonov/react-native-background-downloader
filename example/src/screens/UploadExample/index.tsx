@@ -5,7 +5,6 @@ import { Directory, File, Paths } from 'expo-file-system'
 import {
   getExistingUploadTasks,
   createUploadTask,
-  setConfig,
   directories,
 } from '@anorak-games/react-native-background-downloader'
 import type { UploadTask } from '@anorak-games/react-native-background-downloader'
@@ -14,11 +13,6 @@ import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 const UPLOADS_SUBDIR = 'uploads'
-
-setConfig({
-  isLogsEnabled: true,
-  progressMinBytes: 1024 * 10, // 10 KB for faster progress updates on smaller files
-})
 
 interface UploadItemData {
   id: string

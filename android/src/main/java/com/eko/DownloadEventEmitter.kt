@@ -46,23 +46,25 @@ class DownloadEventEmitter(
     /**
      * Emit a download complete event.
      */
-    fun emitComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
+    fun emitComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long, metadata: String) {
         val params = Arguments.createMap()
         params.putString("id", id)
         params.putString("location", location)
         params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
         params.putDouble("bytesTotal", bytesTotal.toDouble())
+        params.putString("metadata", metadata)
         safeEmit(EVENT_DOWNLOAD_COMPLETE, params)
     }
 
     /**
      * Emit a download failed event.
      */
-    fun emitFailed(id: String, error: String, errorCode: Int) {
+    fun emitFailed(id: String, error: String, errorCode: Int, metadata: String) {
         val params = Arguments.createMap()
         params.putString("id", id)
         params.putInt("errorCode", errorCode)
         params.putString("error", error)
+        params.putString("metadata", metadata)
         safeEmit(EVENT_DOWNLOAD_FAILED, params)
     }
 

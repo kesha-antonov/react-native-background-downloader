@@ -1,77 +1,91 @@
-const plugin = require('../app.plugin.js')
+const {
+  ANDROID_ENABLE_LOGGING_KEY,
+  ANDROID_MAX_PARALLEL_DOWNLOADS_KEY,
+  ANDROID_PROGRESS_INTERVAL_KEY,
+  ANDROID_PROGRESS_MIN_BYTES_KEY,
+  IOS_ENABLE_LOGGING_KEY,
+  IOS_MAX_PARALLEL_DOWNLOADS_KEY,
+  IOS_PROGRESS_INTERVAL_KEY,
+  IOS_PROGRESS_MIN_BYTES_KEY,
+  applyAndroidBuildConfig,
+  applyIosBuildConfig,
+  resolvePluginOptions,
+} = require('../plugin/build')
+const fs = require('fs')
+const path = require('path')
 
-describe('RNBackgroundDownloader Expo Plugin', () => {
-  it('should be a valid config plugin', () => {
-    expect(typeof plugin).toBe('function')
+describe('Expo build configuration', () => {
+  test('resolves defaults', () => {
+    expect(resolvePluginOptions()).toEqual({
+      maxParallelDownloads: 4,
+      enableLogging: false,
+      progressInterval: 1000,
+      progressMinBytes: 1048576,
+    })
   })
 
-  it('should modify Objective-C AppDelegate content', () => {
-    const mockAppDelegateContent = `
-#import "AppDelegate.h"
-#import <React/RCTBundleURLProvider.h>
-
-@implementation AppDelegate
-
-- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
-{
-  self.moduleName = @"example";
-  self.initialProps = @{};
-  return [super application:application didFinishLaunchingWithOptions:launchOptions];
-}
-
-@end
-    `
-
-    // eslint-disable-next-line no-unused-vars
-    const mockConfig = {
-      modRequest: {
-        projectRoot: '/tmp',
-        projectName: 'TestApp',
-      },
-      modResults: {
-        language: 'objc',
-        contents: mockAppDelegateContent,
-      },
-    }
-
-    const result = plugin({})
-    // This test just verifies the plugin doesn't crash - more comprehensive testing would require mocking
-    expect(result).toBeDefined()
+  test.each([
+    [{ maxParallelDownloads: 0 }, 'maxParallelDownloads'],
+    [{ maxParallelDownloads: 1.5 }, 'maxParallelDownloads'],
+    [{ enableLogging: 'yes' }, 'enableLogging'],
+    [{ progressInterval: 249 }, 'progressInterval'],
+    [{ progressInterval: 250.5 }, 'progressInterval'],
+    [{ progressMinBytes: -1 }, 'progressMinBytes'],
+  ])('rejects invalid option %p', (option, message) => {
+    expect(() => resolvePluginOptions(option)).toThrow(message)
   })
 
-  it('should modify Swift AppDelegate content', () => {
-    const mockSwiftAppDelegateContent = `
-import Expo
-import React
-import ReactAppDependencyProvider
-
-@UIApplicationMain
-public class AppDelegate: ExpoAppDelegate {
-  var window: UIWindow?
-
-  public override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-  ) -> Bool {
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-}
-    `
-
-    // eslint-disable-next-line no-unused-vars
-    const mockConfig = {
-      modRequest: {
-        projectRoot: '/tmp',
-        projectName: 'TestApp',
-      },
-      modResults: {
-        language: 'swift',
-        contents: mockSwiftAppDelegateContent,
+  test('writes and replaces Android metadata idempotently', () => {
+    const manifest = {
+      manifest: {
+        application: [{
+          'meta-data': [
+            { $: { 'android:name': 'unrelated', 'android:value': 'keep' } },
+            { $: { 'android:name': ANDROID_MAX_PARALLEL_DOWNLOADS_KEY, 'android:value': '99' } },
+          ],
+        }],
       },
     }
+    const options = resolvePluginOptions({ maxParallelDownloads: 6, enableLogging: true, progressInterval: 750, progressMinBytes: 0 })
 
-    const result = plugin({})
-    // This test just verifies the plugin doesn't crash - more comprehensive testing would require mocking
-    expect(result).toBeDefined()
+    applyAndroidBuildConfig(manifest, options)
+    applyAndroidBuildConfig(manifest, options)
+
+    const metadata = manifest.manifest.application[0]['meta-data']
+    expect(metadata).toHaveLength(5)
+    expect(Object.fromEntries(metadata.map(item => [item.$['android:name'], item.$['android:value']]))).toEqual({
+      unrelated: 'keep',
+      [ANDROID_MAX_PARALLEL_DOWNLOADS_KEY]: '6',
+      [ANDROID_ENABLE_LOGGING_KEY]: 'true',
+      [ANDROID_PROGRESS_INTERVAL_KEY]: '750',
+      [ANDROID_PROGRESS_MIN_BYTES_KEY]: '0',
+    })
+  })
+
+  test('writes iOS Info.plist values without integration mutations', () => {
+    const plist = {
+      ExistingKey: 'keep',
+      [IOS_MAX_PARALLEL_DOWNLOADS_KEY]: 99,
+      [IOS_ENABLE_LOGGING_KEY]: false,
+      [IOS_PROGRESS_INTERVAL_KEY]: 9999,
+      [IOS_PROGRESS_MIN_BYTES_KEY]: 9999,
+    }
+    const options = resolvePluginOptions({ maxParallelDownloads: 8, enableLogging: true, progressInterval: 500, progressMinBytes: 2048 })
+
+    applyIosBuildConfig(plist, options)
+    expect(applyIosBuildConfig(plist, options)).toEqual({
+      ExistingKey: 'keep',
+      [IOS_MAX_PARALLEL_DOWNLOADS_KEY]: 8,
+      [IOS_ENABLE_LOGGING_KEY]: true,
+      [IOS_PROGRESS_INTERVAL_KEY]: 500,
+      [IOS_PROGRESS_MIN_BYTES_KEY]: 2048,
+    })
+  })
+
+  test('does not register source, AppDelegate, bridging-header, or Gradle mutations', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../plugin/src/index.ts'), 'utf8')
+    expect(source).not.toMatch(/withAppDelegate|withDangerousMod|withProjectBuildGradle|withGradleProperties|bridging/i)
+    expect(source).toMatch(/withAndroidManifest/)
+    expect(source).toMatch(/withInfoPlist/)
   })
 })

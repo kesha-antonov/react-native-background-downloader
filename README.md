@@ -1,1016 +1,112 @@
-# React Native Background Downloader
+# @anorak-games/react-native-background-downloader
 
-## Overview
+Reliable, process-owned native file downloads and uploads for React Native and Expo.
 
-Download and upload large files on iOS & Android — even when your app is in the background or terminated by the OS.
+This fork uses direct native HTTP transfers to avoid downloads stalling, while deliberately avoiding background-execution APIs. It adds no Android permissions, services, jobs, receivers, providers, notifications, or wake locks, and it does not use an iOS background `URLSession`.
 
-This is an experimental fork of [kesha-antonov/react-native-background-downloader](https://github.com/kesha-antonov/react-native-background-downloader)
-that attempts to allow download tasks to persist (or at least remain recoverable) through an [Expo over-the-air update](https://docs.expo.dev/versions/latest/sdk/updates/)
+Transfers may continue while the application process remains runnable. The operating system may suspend or terminate them after the app backgrounds. Tasks are not recoverable after process death.
 
-## 📦 Installation
+## Installation
 
-### Expo Projects
+This package requires React Native 0.76 or newer with the New Architecture enabled. Android and iOS builds fail with a clear error when it is disabled; there is no legacy bridge implementation.
 
-**Step 1:** Install the package
-
-```bash
-npx expo install @anorak-games/react-native-background-downloader
+```sh
+npm install @anorak-games/react-native-background-downloader
 ```
 
-**Step 2:** Add the config plugin to your `app.json` or `app.config.js`:
+Expo projects should include the plugin:
 
 ```json
 {
   "expo": {
     "plugins": [
-      "@anorak-games/react-native-background-downloader"
+      [
+        "@anorak-games/react-native-background-downloader",
+        {
+          "maxParallelDownloads": 4,
+          "enableLogging": false,
+          "progressInterval": 1000,
+          "progressMinBytes": 1048576
+        }
+      ]
     ]
   }
 }
 ```
 
-<details>
-<summary><strong>Plugin Options (optional)</strong></summary>
+The plugin writes only private Android application metadata and iOS `Info.plist` values. It does not modify the AppDelegate, bridging header, Gradle dependencies, permissions, or background modes.
 
-```js
-// app.config.js
-export default {
-  expo: {
-    plugins: [
-      ["@anorak-games/react-native-background-downloader", {
-        mmkvVersion: "1.3.16",  // Customize MMKV version on Android
-        skipMmkvDependency: true  // Skip if you want to add MMKV manually
-      }]
-    ]
-  }
-}
-```
+| Option | Default | Validation |
+| --- | ---: | --- |
+| `maxParallelDownloads` | `4` | Positive integer |
+| `enableLogging` | `false` | Boolean |
+| `progressInterval` | `1000` ms | Integer, at least `250` |
+| `progressMinBytes` | `1048576` bytes | Non-negative integer |
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `mmkvVersion` | string | `'1.3.16'` | The version of [MMKV](https://github.com/Tencent/MMKV/releases) to use on Android. See [MMKV version comparison](#mmkv-version-comparison) for details. |
-| `skipMmkvDependency` | boolean | `false` | Skip adding MMKV dependency. Set to `true` if you're using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) to avoid duplicate class errors. The plugin auto-detects `react-native-mmkv` but you can use this option to explicitly skip. See [MMKV version comparison](#mmkv-version-comparison). |
+Configuration is read once when the native process coordinator starts. Rebuild the native app after changing plugin options.
 
-</details>
+## Download
 
-**Step 3:** Rebuild your app
-
-```bash
-npx expo prebuild --clean
-npx expo run:ios   # or npx expo run:android
-```
-
-The plugin automatically handles:
-- **iOS:** Adding the required `handleEventsForBackgroundURLSession` method to AppDelegate
-- **Android:** Adding the required MMKV dependency
-
----
-
-### Bare React Native Projects
-
-**Step 1:** Install the package
-
-**yarn:**
-```bash
-yarn add @anorak-games/react-native-background-downloader
-```
-
-**npm:**
-```bash
-npm install @anorak-games/react-native-background-downloader
-```
-
-**Step 2:** Install iOS pods
-
-**yarn:**
-```bash
-cd ios && pod install && cd ..
-```
-
-**npm:**
-```bash
-cd ios && pod install && cd ..
-```
-
-**Step 3:** Configure iOS AppDelegate
-
-<details>
-<summary><strong>React Native 0.77+ (Swift)</strong></summary>
-
-In your project bridging header file (e.g. `ios/{projectName}-Bridging-Header.h`):
-
-```objc
-#import <RNBackgroundDownloader.h>
-```
-
-In your `AppDelegate.swift`:
-
-```swift
-func application(
-  _ application: UIApplication,
-  handleEventsForBackgroundURLSession identifier: String,
-  completionHandler: @escaping () -> Void
-) {
-  RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
-}
-```
-
-</details>
-
-<details>
-<summary><strong>React Native < 0.77 (Objective-C)</strong></summary>
-
-In your `AppDelegate.m`:
-
-```objc
-#import <RNBackgroundDownloader.h>
-
-- (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler
-{
-  [RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];
-}
-```
-
-</details>
-
-**Step 4:** Configure Android MMKV dependency
-
-Add MMKV to your `android/app/build.gradle`:
-
-```gradle
-dependencies {
-    implementation 'com.tencent:mmkv-shared:1.3.16'
-}
-```
-
-> **Note:** If you're already using [react-native-mmkv](https://github.com/mrousavy/react-native-mmkv) in your project, skip this step — it already includes MMKV. Note that `react-native-mmkv` v4.x uses [Margelo's fork of MMKV](https://github.com/margelo/MMKV) (`io.github.zhongwuzw:mmkv`) which re-adds armeabi-v7a (32-bit ARM) support that was dropped in the official MMKV 2.x release.
-
-> **⚠️ armeabi-v7a (32-bit ARM) users:** MMKV 2.x dropped 32-bit ABI support (since v2.0.0). If you need armeabi-v7a support and get a CMake error like `No compatible library found for //mmkv/mmkv`, use the MMKV 1.3.x LTS series instead — it supports both armeabi-v7a **and** 16KB page sizes (since v1.3.14):
-> ```gradle
-> dependencies {
->     implementation 'com.tencent:mmkv-shared:1.3.16'
-> }
-> ```
-
-#### MMKV version comparison
-
-| Dependency | armeabi-v7a (32-bit) | arm64-v8a | 16KB page size | Recommended for |
-|---|:---:|:---:|:---:|---|
-| `com.tencent:mmkv-shared:1.3.16` (**default**) | ✅ | ✅ | ✅ (since 1.3.14) | Most apps — broadest device coverage |
-| `com.tencent:mmkv-shared:2.x` | ❌ | ✅ | ✅ | 64-bit only apps (no legacy devices) |
-| `io.github.zhongwuzw:mmkv:2.3.0` ([Margelo fork](https://github.com/margelo/MMKV)) | ✅ | ✅ | ✅ | Used automatically by `react-native-mmkv` v4.x — skip manual dependency |
-| `react-native-mmkv` (already in project) | ✅ | ✅ | ✅ | If you already use `react-native-mmkv` — skip Step 4 entirely |
-
-**TL;DR:** Use the default `1.3.16`. If you already have `react-native-mmkv` in your project, skip Step 4.
-
-## React runtime reloads and OTA updates
-
-The native download and upload coordinator is process-wide. Replacing the React runtime with Dev Settings reload or an OTA update detaches only the old JavaScript event sink; it does not invalidate the native transfer engines, unregister their receivers, or cancel their sessions. The next runtime attaches to the same coordinator and can immediately start new transfers.
-
-Events that happen while no React runtime is ready are best-effort and buffered only in memory. Always reconcile native state during application initialization:
-
-```typescript
-const downloads = await getExistingDownloadTasks()
-const uploads = await getExistingUploadTasks()
-```
-
-Attach callbacks to tasks you want to keep, or stop tasks your application no longer owns. A process death may lose buffered callbacks, so persisted application state and the `getExisting*Tasks()` APIs remain the source of truth.
-
-## 🚀 Usage
-
-### Downloading a file
-
-```javascript
-import { Platform } from 'react-native'
-import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
-
-const jobId = 'file123'
-
-let task = createDownloadTask({
-  id: jobId,
-  url: 'https://link-to-very.large/file.zip',
-  destination: `${directories.documents}/file.zip`,
-  metadata: {}
-}).begin(({ expectedBytes, headers }) => {
-  console.log(`Going to download ${expectedBytes} bytes!`)
-}).progress(({ bytesDownloaded, bytesTotal }) => {
-  console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-}).done(({ bytesDownloaded, bytesTotal }) => {
-  console.log('Download is done!', { bytesDownloaded, bytesTotal })
-
-  // PROCESS YOUR STUFF
-}).error(({ error, errorCode }) => {
-  console.log('Download canceled due to error: ', { error, errorCode });
-})
-
-// starts download
-task.start()
-
-// ...later
-
-// Pause the task
-await task.pause()
-
-// Resume after pause
-await task.resume()
-
-// Cancel the task
-await task.stop()
-```
-
-### Re-Attaching to background tasks
-
-The killer feature of this library: **reconnect to downloads and uploads that continued running while your app was closed**, or **resume paused tasks from a previous session**.
-
-When the OS terminates your app to free memory, background transfers keep running. When your app restarts, call `getExistingDownloadTasks()` or `getExistingUploadTasks()` to get back in sync. Paused tasks are also preserved and can be resumed with `task.resume()`.
-
-> **💡 Tip:** Use meaningful task IDs (not random UUIDs) so you can match tasks to your UI components after restart.
-
-**Downloads:**
-
-```javascript
-import { getExistingDownloadTasks } from '@anorak-games/react-native-background-downloader'
-
-const lostTasks = await getExistingDownloadTasks()
-
-for (const task of lostTasks) {
-  console.log(`Found download: ${task.id}`)
-
-  task.progress(({ bytesDownloaded, bytesTotal }) => {
-    console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-  }).done(({ location, bytesDownloaded, bytesTotal }) => {
-    console.log('Download complete!', { location, bytesDownloaded, bytesTotal })
-  }).error(({ error, errorCode }) => {
-    console.log('Download failed:', { error, errorCode })
-  })
-}
-```
-
-**Uploads:**
-
-```javascript
-import { getExistingUploadTasks } from '@anorak-games/react-native-background-downloader'
-
-const lostUploads = await getExistingUploadTasks()
-
-for (const task of lostUploads) {
-  console.log(`Found upload: ${task.id}`)
-
-  task.progress(({ bytesUploaded, bytesTotal }) => {
-    console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
-  }).done(({ responseCode, responseBody }) => {
-    console.log('Upload complete!', { responseCode, responseBody })
-  }).error(({ error, errorCode }) => {
-    console.log('Upload failed:', { error, errorCode })
-  })
-}
-```
-
-<details>
-<summary><strong>Uploading a file</strong></summary>
-
-```javascript
-import { Platform } from 'react-native'
-import { createUploadTask, directories } from '@anorak-games/react-native-background-downloader'
-
-const jobId = 'upload123'
-
-let task = createUploadTask({
-  id: jobId,
-  url: 'https://your-server.com/upload',
-  source: `${directories.documents}/photo.jpg`,
-  method: 'POST', // or 'PUT', 'PATCH'
-  fieldName: 'file', // multipart form field name
-  mimeType: 'image/jpeg',
-  parameters: {
-    userId: '123',
-    description: 'My photo'
-  },
-  metadata: {}
-}).begin(({ expectedBytes }) => {
-  console.log(`Going to upload ${expectedBytes} bytes!`)
-}).progress(({ bytesUploaded, bytesTotal }) => {
-  console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
-}).done(({ responseCode, responseBody, bytesUploaded, bytesTotal }) => {
-  console.log('Upload is done!', { responseCode, responseBody })
-
-  // PROCESS YOUR STUFF
-}).error(({ error, errorCode }) => {
-  console.log('Upload canceled due to error: ', { error, errorCode })
-})
-
-// starts upload
-task.start()
-
-// ...later
-
-// Pause the task (platform support may vary)
-await task.pause()
-
-// Resume after pause
-await task.resume()
-
-// Cancel the task
-await task.stop()
-```
-
-</details>
-
-<details>
-<summary><strong>Updating headers on paused downloads</strong></summary>
-
-If your download uses authentication tokens that expire, you can update the headers of a paused download before resuming it. This is useful when auth tokens refresh while a download is paused:
-
-```javascript
-import { getExistingDownloadTasks } from '@anorak-games/react-native-background-downloader'
-
-// Get paused downloads
-const tasks = await getExistingDownloadTasks()
-
-for (const task of tasks) {
-  if (task.state === 'PAUSED') {
-    // Update headers with new auth token before resuming
-    await task.setDownloadParams({
-      ...task.downloadParams,
-      headers: {
-        ...task.downloadParams?.headers,
-        Authorization: 'Bearer new-refreshed-token'
-      }
-    })
-
-    // Now resume with the updated headers
-    await task.resume()
-  }
-}
-```
-
-**Notes:**
-- `setDownloadParams()` is async and returns `true` if native headers were updated
-- Headers are only updated in the native layer when the task is in `PAUSED` state
-- On iOS, the download will resume using HTTP Range headers with the new headers
-- On Android, both in-memory and persisted paused state are updated
-
-> **Use case:** User pauses a large download, closes the app, and returns hours or days later. By then, the auth token has expired. This feature allows refreshing the token and updating headers before resuming, without restarting the download from scratch.
-
-</details>
-
-## ⚙️ Advanced Configuration
-
-<details>
-<summary><strong>Using custom headers</strong></summary>
-If you need to send custom headers with your download request, you can do in it 2 ways:
-
-1) Globally using `setConfig()`:
-```javascript
-import { setConfig } from '@anorak-games/react-native-background-downloader'
-
-setConfig({
-  headers: {
-    Authorization: 'Bearer 2we$@$@Ddd223',
-  }
-})
-```
-This way, all downloads with have the given headers.
-
-2) Per download by passing a headers object in the options of `createDownloadTask()`:
-```javascript
-import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
-
-const task = createDownloadTask({
-  id: 'file123',
-  url: 'https://link-to-very.large/file.zip'
-  destination: `${directories.documents}/file.zip`,
-  headers: {
-    Authorization: 'Bearer 2we$@$@Ddd223'
-  }
-}).begin(({ expectedBytes, headers }) => {
-  console.log(`Going to download ${expectedBytes} bytes!`)
-}).progress(({ bytesDownloaded, bytesTotal }) => {
-  console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-}).done(({ location, bytesDownloaded, bytesTotal }) => {
-  console.log('Download is done!', { location, bytesDownloaded, bytesTotal })
-}).error(({ error, errorCode }) => {
-  console.log('Download canceled due to error: ', { error, errorCode })
-})
-
-task.start()
-```
-Headers given in `createDownloadTask()` are **merged** with the ones given in `setConfig({ headers: { ... } })`.
-
-</details>
-
-<details>
-<summary><strong>Configuring parallel downloads and network types</strong></summary>
-
-You can configure global settings for download behavior using `setConfig()`:
-
-#### Max Parallel Downloads
-
-Control how many downloads transfer at once. This is useful for managing bandwidth and server load.
-
-```javascript
-import { setConfig } from '@anorak-games/react-native-background-downloader'
-
-// Set maximum parallel downloads to 8 (default is 4)
-setConfig({
-  maxParallelDownloads: 8
-})
-```
-
-**Note:** the two platforms apply it at different layers. On iOS it is the download session's maximum simultaneous connections per host. On Android it caps the library's own downloader - the mechanism used on Android 16+, and whenever `DownloadManager` or a UIDT job can't take the download - while downloads that run through `DownloadManager` or the JobScheduler are queued by those schedulers instead.
-
-#### Cellular/WiFi Restrictions
-
-Control whether downloads are allowed over cellular (metered) networks:
-
-```javascript
-import { setConfig } from '@anorak-games/react-native-background-downloader'
-
-// Only allow downloads over WiFi (disable cellular data)
-setConfig({
-  allowsCellularAccess: false
-})
-
-// Allow downloads over both WiFi and cellular (default)
-setConfig({
-  allowsCellularAccess: true
-})
-```
-
-This is a cross-platform setting that works on both iOS and Android:
-- **iOS**: Sets the `allowsCellularAccess` property on the NSURLSession configuration
-- **Android**: Applied on all three download mechanisms - `DownloadManager` requests (`setAllowedOverMetered`), the UIDT/JobScheduler jobs used on Android 14+ (the job requires an unmetered network), and the foreground-service fallback used on Android < 14 (gated on a `ConnectivityManager` unmetered-network callback)
-
-When cellular is disallowed and the device only has a metered connection, the download doesn't fail - it waits until an unmetered network (e.g. WiFi) becomes available, then starts automatically. If the unmetered network is lost mid-download (e.g. WiFi drops and the device falls back to cellular), the download pauses instead of failing and automatically resumes from where it left off once an unmetered network returns. The restriction is kept across pause/resume and app restarts.
-
-**Per-download override (Android only):** On Android, you can override the global cellular setting for individual downloads using the `isAllowedOverMetered` option in `createDownloadTask()`:
-
-```javascript
-const task = createDownloadTask({
-  id: 'file123',
-  url: 'https://link-to-very.large/file.zip',
-  destination: `${directories.documents}/file.zip`,
-  isAllowedOverMetered: true  // This download can use cellular even if global setting is false
-})
-```
-
-</details>
-
-<details>
-<summary><strong>iOS Data Protection (downloading while the device is locked)</strong></summary>
-
-On iOS, files protected with `NSFileProtectionComplete` cannot be written while the device is locked. Since a background download can finish while the screen is locked, the library saves files with **`completeUntilFirstUserAuthentication`** by default - writable while locked after the first unlock since boot - and, if a save still can't happen because the device is locked, it stages the bytes and finishes the save (emitting `complete`) when the device is next unlocked.
-
-You usually don't need to change this. If your app has stricter security requirements you can raise the protection level globally or per task (iOS only - ignored on Android):
-
-```javascript
-import { setConfig, createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
-
-// Global default for all downloads
-setConfig({
-  iosDataProtection: 'completeUntilFirstUserAuthentication', // default
-})
-
-// Per-download override
-const task = createDownloadTask({
-  id: 'secret-doc',
-  url: 'https://example.com/secret.pdf',
-  destination: `${directories.documents}/secret.pdf`,
-  iosDataProtection: 'complete', // strongest; note: won't be writable while locked before first unlock
-})
-```
-
-| Value | NSFileProtection level | Notes |
-|-------|------------------------|-------|
-| `'completeUntilFirstUserAuthentication'` | `NSFileProtectionCompleteUntilFirstUserAuthentication` | **Default.** Accessible after the first unlock since boot - recommended for background downloads |
-| `'complete'` | `NSFileProtectionComplete` | Strongest. File is inaccessible whenever the device is locked |
-| `'completeUnlessOpen'` | `NSFileProtectionCompleteUnlessOpen` | Accessible while open, even if the device locks afterward |
-| `'none'` | `NSFileProtectionNone` | No protection |
-
-</details>
-
-<details>
-<summary><strong>Enabling debug logs</strong></summary>
-
-The library includes verbose debug logging that can help diagnose download issues. Logging is disabled by default but can be enabled at runtime using `setConfig()`. **Logging works in both debug and production/release builds.**
-
-```javascript
-import { setConfig } from '@anorak-games/react-native-background-downloader'
-
-// Option 1: Enable native console logging (logs appear in Xcode/Android Studio console)
-setConfig({
-  isLogsEnabled: true
-})
-
-// Option 2: Enable logging with a JavaScript callback to capture logs in your app
-setConfig({
-  isLogsEnabled: true,
-  logCallback: (log) => {
-    // log.message - The debug message
-    // log.taskId - Optional task ID associated with the log (iOS only)
-    console.log('[BackgroundDownloader]', log.message)
-
-    // You can also send logs to your analytics/crash reporting service
-    // crashlytics.log(log.message)
-  }
-})
-
-// Disable logging
-setConfig({
-  isLogsEnabled: false
-})
-```
-
-**Notes:**
-- When `isLogsEnabled` is `true`, native debug logs (NSLog on iOS, Log.d/w/e on Android) are printed
-- The `logCallback` function is called for each native debug log (iOS only sends logs to callback currently)
-- Logs include detailed information about download lifecycle, session management, and errors
-- In production builds, logs are only printed when explicitly enabled via `isLogsEnabled`
-
-</details>
-
-<details>
-<summary><strong>Handling slow-responding URLs</strong></summary>
-
-This library automatically includes connection timeout improvements for slow-responding URLs. By default, the following headers are added to all download requests on Android:
-
-- `Connection: keep-alive` - Keeps the connection open for better handling
-- `Keep-Alive: timeout=600, max=1000` - Sets a 10-minute keep-alive timeout
-- `User-Agent: ReactNative-BackgroundDownloader/3.2.6` - Proper user agent for better server compatibility
-
-These headers help prevent downloads from getting stuck in "pending" state when servers take several minutes to respond initially. You can override these headers by providing your own in the `headers` option.
-
-</details>
-
-<details>
-<summary><strong>Handling URLs with many redirects (Android)</strong></summary>
-
-Android's DownloadManager has a built-in redirect limit that can cause `ERROR_TOO_MANY_REDIRECTS` for URLs with multiple redirects (common with podcast URLs, tracking services, CDNs, etc.).
-
-To handle this, you can use the `maxRedirects` option to pre-resolve redirects before passing the final URL to DownloadManager:
-
-```javascript
-import { Platform } from 'react-native'
-import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
-
-// Example: Podcast URL with multiple redirects
-const task = createDownloadTask({
-  id: 'podcast-episode',
-  url: 'https://pdst.fm/e/chrt.fm/track/479722/arttrk.com/p/example.mp3',
-  destination: `${directories.documents}/episode.mp3`,
-  maxRedirects: 10, // Follow up to 10 redirects before downloading
-}).begin(({ expectedBytes }) => {
-  console.log(`Going to download ${expectedBytes} bytes!`)
-}).progress(({ bytesDownloaded, bytesTotal }) => {
-  console.log(`Downloaded: ${bytesDownloaded / bytesTotal * 100}%`)
-}).done(({ location, bytesDownloaded, bytesTotal }) => {
-  console.log('Download is done!', { location, bytesDownloaded, bytesTotal })
-}).error(({ error, errorCode }) => {
-  console.log('Download canceled due to error: ', { error, errorCode })
-
-  if (errorCode === 1005) { // ERROR_TOO_MANY_REDIRECTS
-    console.log('Consider increasing maxRedirects or using a different URL')
-  }
-})
-
-task.start()
-```
-
-**Notes on maxRedirects:**
-- Only available on Android (iOS handles redirects automatically)
-- If not specified or set to 0, no redirect resolution is performed
-- Uses HEAD requests to resolve redirects efficiently
-- Falls back to original URL if redirect resolution fails
-- Respects the same headers and timeouts as the main download
-
-</details>
-
-<details>
-<summary><strong>Notification Configuration (Android)</strong></summary>
-
-On Android 14+ (API 34), downloads use User-Initiated Data Transfer (UIDT) jobs which **require** notifications. Due to Android system requirements, notifications cannot be completely disabled when using UIDT jobs. However, you can control their visibility:
-
-- When `showNotificationsEnabled: true` - Full notifications with progress, title, and custom texts
-- When `showNotificationsEnabled: false` (default) - Minimal silent notifications with lowest priority that are barely noticeable
-
-**Basic configuration:**
-
-```javascript
-import { setConfig } from '@anorak-games/react-native-background-downloader'
-
-// Enable notifications and notification grouping with custom texts
-setConfig({
-  showNotificationsEnabled: true, // Show full notifications (default: false - minimal silent notifications)
-  notificationsGrouping: {
-    enabled: true,           // Enable grouping (default: false)
-    texts: {
-      downloadTitle: 'Download',
-      downloadStarting: 'Starting download...',
-      downloadProgress: 'Downloading... {progress}%',
-      downloadPaused: 'Paused',
-      downloadFinished: 'Download complete',
-      groupTitle: 'Downloads',
-      groupText: '{count} downloads in progress',
-    },
-  },
-})
-
-// Use minimal silent notifications (default behavior)
-setConfig({
-  showNotificationsEnabled: false, // Minimal silent notifications (required by UIDT but barely visible)
-})
-```
-
-**Cancel button and completion notification (Android 14+):**
-
-Two extras are available on top of `showNotificationsEnabled`. Both are off by default, so enabling notifications alone never adds an alerting notification or a button your app is not ready for:
-
-```javascript
-setConfig({
-  showNotificationsEnabled: true,
-  // Adds a Cancel button to the download notification. Tapping it stops the
-  // download like task.stop() and fires the task's .error() handler with
-  // errorCode = -1, so handle that in your app before enabling it.
-  showCancelAction: true,
-  // Posts a "download complete" notification when a download finishes.
-  // Tapping it opens the saved file with the system chooser.
-  // Skipped in 'summaryOnly' grouping mode.
-  showCompletionNotification: true,
-  notificationsGrouping: {
-    enabled: true,
-    texts: {
-      downloadCancel: 'Cancel',        // Label of the Cancel button
-      downloadFinished: 'Download complete', // Title of the completion notification
-    },
-  },
-})
-```
-
-Per-download notification titles are supported too - pass `metadata.notificationTitle` to override `groupName` and the default `downloadTitle` for a single download. See [Platform Notes](docs/PLATFORM_NOTES.md#download-notifications-android-14) for the full behavior.
-
-**Notification grouping modes:**
-
-When downloading many files (e.g., thousands of photos), you can use the `mode` option to control how notifications are displayed:
-
-| Mode | Description |
-|------|-------------|
-| `'individual'` | Default. Shows all individual notifications grouped together with a summary |
-| `'summaryOnly'` | Shows only ONE notification with real-time aggregate progress (e.g., "45% - 5 files"). Individual UIDT notifications are collapsed into an invisible group. Ideal for bulk downloads |
-
-```javascript
-import { setConfig } from '@anorak-games/react-native-background-downloader'
-
-// For bulk downloads (e.g., syncing thousands of photos)
-// Use 'summaryOnly' mode to show only ONE notification with aggregate progress
-setConfig({
-  showNotificationsEnabled: true,
-  notificationsGrouping: {
-    enabled: true,
-    mode: 'summaryOnly', // Only show summary notification with progress bar
-    texts: {
-      groupTitle: 'Syncing Photos',
-      groupText: '{count} files downloading',
-    },
-  },
-})
-```
-
-**Example: Batch downloading multiple files with grouped notifications:**
-
-```javascript
-import { setConfig, createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
-
-// Configure for bulk downloads with single summary notification
-setConfig({
-  showNotificationsEnabled: true,
-  notificationsGrouping: {
-    enabled: true,
-    mode: 'summaryOnly',
-    texts: {
-      groupTitle: 'Photo Sync',
-      groupText: '{count} photos downloading',
-    },
-  },
-})
-
-// Download multiple files - they all share ONE notification with aggregate progress
-const photos = [
-  { id: 'photo-1', url: 'https://example.com/photo1.jpg' },
-  { id: 'photo-2', url: 'https://example.com/photo2.jpg' },
-  { id: 'photo-3', url: 'https://example.com/photo3.jpg' },
-  // ... potentially thousands of files
-]
-
-const GROUP_ID = 'photo-sync-batch'
-
-for (const photo of photos) {
-  const task = createDownloadTask({
-    id: photo.id,
-    url: photo.url,
-    destination: `${directories.documents}/${photo.id}.jpg`,
-    metadata: {
-      groupId: GROUP_ID,        // Required for grouping
-      groupName: 'Photo Sync',  // Displayed in notification title
-    },
-  })
-    .progress(({ bytesDownloaded, bytesTotal }) => {
-      // Progress tracked per file, notification shows aggregate progress
-    })
-    .done(() => {
-      console.log(`Downloaded ${photo.id}`)
-    })
-    .error(({ error }) => {
-      console.error(`Failed ${photo.id}:`, error)
-    })
-
-  task.start()
-}
-
-// User sees: ONE notification showing "45% - 3 files" with progress bar
-// instead of 3 separate notifications cluttering the notification shade
-// Notification automatically disappears when all downloads complete
-```
-
-**Grouping downloads by category:**
-
-When notification grouping is enabled, you can group related downloads (e.g., by album, playlist, podcast) by passing `groupId` and `groupName` in the task `metadata`:
-
-```javascript
-import { createDownloadTask, directories } from '@anorak-games/react-native-background-downloader'
-
-// Download album songs - they will be grouped under one notification
-const task = createDownloadTask({
-  id: 'song-1',
-  url: 'https://example.com/albums/summer-hits/track01.mp3',
-  destination: `${directories.documents}/track01.mp3`,
-  metadata: {
-    groupId: 'album-summer-hits',  // Unique identifier for the group
-    groupName: 'Summer Hits 2024', // Display name in notification title
-  },
-})
-
-task.start()
-```
-
-**Notification behavior during pause/resume:**
-
-When a download is paused on Android 14+:
-- The background UIDT job is cancelled (to prevent downloads continuing in background)
-- A detached "Paused" notification remains visible showing current progress
-- When resumed, a new UIDT job is created and the notification switches to "Downloading" state
-- When stopped, the notification is removed
-- **When app is closed, all download notifications are automatically removed**
-
-This ensures users always see the download status without unexpected background activity.
-
-**Configuration options:**
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `showNotificationsEnabled` | boolean | `false` | Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs require a notification, but it will be barely visible). This is a top-level config option. |
-| `notificationsGrouping.enabled` | boolean | `false` | Enable notification grouping |
-| `notificationsGrouping.mode` | `'individual'` \| `'summaryOnly'` | `'individual'` | Notification display mode. Use `'summaryOnly'` for bulk downloads to show only ONE notification with real-time aggregate progress |
-| `notificationsGrouping.texts` | object | See below | Customizable notification texts |
-
-**Notification texts (`notificationsGrouping.texts`):**
-
-| Key | Default | Placeholders | Description |
-|-----|---------|--------------|-------------|
-| `downloadTitle` | `'Download'` | — | Title for individual download notifications |
-| `downloadStarting` | `'Starting download...'` | — | Text when download is starting |
-| `downloadProgress` | `'Downloading... {progress}%'` | `{progress}` | Progress text with current percentage (0-100) |
-| `downloadPaused` | `'Paused'` | — | Text when download is paused |
-| `downloadFinished` | `'Download complete'` | — | Text when download is finished |
-| `groupTitle` | `'Downloads'` | — | Title for group summary notification |
-| `groupText` | `'{count} download(s) in progress'` | `{count}` | Group summary text with active downloads count |
-
-**Notes:**
-- Notifications cannot be completely disabled on Android 14+ due to UIDT requirements
-- When `showNotificationsEnabled: false`, notifications are created with minimal visibility (lowest priority, empty content)
-- Paused downloads show a non-ongoing notification (can be swiped away by user)
-- Active downloads show an ongoing notification (cannot be swiped away)
-- This feature only affects Android 14+ (API 34) where UIDT jobs are used
-- On older Android versions, the standard DownloadManager notifications are shown
-- iOS uses system download notifications and doesn't support custom grouping
-- **Use `mode: 'summaryOnly'` when downloading many files** to prevent notification spam - shows ONE notification with aggregate progress bar that updates in real-time
-
-</details>
-
-## 📚 API
-
-For complete API documentation, see the **[API Reference](./docs/API.md)**.
-
-### Quick Reference
-
-```typescript
+```ts
 import {
-  setConfig,
   createDownloadTask,
-  createUploadTask,
-  getExistingDownloadTasks,
-  getExistingUploadTasks,
-  directories
+  directories,
 } from '@anorak-games/react-native-background-downloader'
+
+const task = createDownloadTask({
+  id: 'archive',
+  url: 'https://example.com/archive.zip',
+  destination: `${directories.documents}/archive.zip`,
+  headers: { Authorization: 'Bearer token' },
+  metadata: { kind: 'archive' },
+})
+
+task
+  .begin(({ expectedBytes }) => console.log('size', expectedBytes))
+  .progress(({ bytesDownloaded, bytesTotal }) => console.log(bytesDownloaded, bytesTotal))
+  .done(({ location }) => console.log('saved', location))
+  .error(({ error, errorCode }) => console.error(errorCode, error))
+
+task.start()
 ```
 
-| Function | Description |
-|----------|-------------|
-| `createDownloadTask(options)` | Create a new download task |
-| `createUploadTask(options)` | Create a new upload task |
-| `getExistingDownloadTasks()` | Get downloads running in background |
-| `getExistingUploadTasks()` | Get uploads running in background |
-| `setConfig(config)` | Set global configuration |
-| `directories.documents` | Path to app's documents directory |
+Downloads support `pause()`, `resume()`, and `stop()`. Android resumes with HTTP Range requests only when a strong `ETag` or `Last-Modified` validator proves the resource is unchanged; otherwise it restarts cleanly from byte zero. iOS suspends and resumes the current process-owned `URLSessionTask`.
 
-## 📱 Platform Notes
+Each active download must have its own destination path. Running multiple downloads against the same destination is unsupported. On iOS, replacing an existing destination is not transactional; download to a unique path and perform the final replacement in application code when the previous file must be preserved.
 
-For detailed platform-specific information, see **[Platform Notes](./docs/PLATFORM_NOTES.md)**.
+## Upload
 
-Key points:
-- **iOS**: Uses `NSURLSession` for true background downloads
-- **Android**: Uses `DownloadManager` + Foreground Services + MMKV
-- **Pause/Resume**: Works on both platforms (Android requires server Range header support)
+```ts
+import { createUploadTask } from '@anorak-games/react-native-background-downloader'
 
-## ❓ Troubleshooting
+const task = createUploadTask({
+  id: 'upload',
+  url: 'https://example.com/upload',
+  source: '/absolute/path/file.bin',
+  method: 'PUT',
+  headers: { Authorization: 'Bearer token' },
+})
 
-<details>
-<summary><strong>Download stuck in "pending" state (Android)</strong></summary>
+task
+  .progress(({ bytesUploaded, bytesTotal }) => console.log(bytesUploaded, bytesTotal))
+  .done(({ responseCode, responseBody }) => console.log(responseCode, responseBody))
+  .error(({ error, errorCode }) => console.error(errorCode, error))
 
-This can happen with slow-responding servers. The library automatically adds keep-alive headers, but you can also try:
-- Increase timeout by setting custom headers
-- Check if the server supports the download URL
-- Enable debug logs to see what's happening: `setConfig({ isLogsEnabled: true })`
-</details>
-
-<details>
-<summary><strong>Duplicate class errors with react-native-mmkv (Android)</strong></summary>
-
-If you're using `react-native-mmkv`, you don't need to add the MMKV dependency manually - it's already included. The library uses `compileOnly` to avoid conflicts.
-
-`react-native-mmkv` v4.x uses [Margelo's fork of MMKV](https://github.com/margelo/MMKV) (`io.github.zhongwuzw:mmkv`) which re-adds armeabi-v7a (32-bit ARM) support, so you have full ABI coverage including 32-bit devices when using `react-native-mmkv`.
-</details>
-
-<details>
-<summary><strong>EXC_BAD_ACCESS crash on iOS with react-native-mmkv</strong></summary>
-
-This was fixed in v4.4.0. Update to the latest version. The podspec declares the MMKV dependency itself, so you don't need to add anything to your Podfile. If you do pin it manually, exclude the broken 2.4.1 release (see the entry below):
-
-```ruby
-pod 'MMKV', '>= 1.0.0', '!= 2.4.1'
-```
-</details>
-
-<details>
-<summary><strong>iOS build fails with "use of undeclared identifier 'memset_s'" (MMKVCore)</strong></summary>
-
-```text
-Pods/MMKVCore/Core/aes/AESCrypt.cpp:83:11
-(void)memset_s(ptr, len, 0, len);
-      ^ use of undeclared identifier 'memset_s'
+task.start()
 ```
 
-This is an upstream bug in **MMKVCore 2.4.1** ([Tencent/MMKV#1675](https://github.com/Tencent/MMKV/issues/1675)) - it does not compile on Apple platforms. Update to the latest version of this library: the podspec now excludes exactly that release, so a fresh `pod install` resolves `MMKVCore 2.4.0` instead.
+Multipart uploads can also specify `fieldName`, `mimeType`, and string `parameters`.
 
-If you are on a version with the fix and still hitting this, your `Podfile.lock` is pinning the broken version. Refresh it:
+## Runtime reloads and task reconciliation
 
-```bash
-cd ios
-pod update MMKV MMKVCore
-```
+The native coordinator is process-scoped and independent of a particular React Native runtime. During an Expo OTA or React runtime reload it keeps current transfers alive, buffers native events, and rejects stale-runtime delivery.
 
-If some other pod in your graph forces `MMKVCore 2.4.1` and you cannot move off it, define the missing feature-test macro on the command line (the `#define` inside `AESCrypt.cpp` lands too late because CocoaPods force-includes the generated prefix header first):
+Call `getExistingDownloadTasks()` and `getExistingUploadTasks()` after a new runtime starts to reconcile tasks from the current process. These functions never restore work after the operating system kills or relaunches the process.
 
-```ruby
-# ios/Podfile
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    next unless target.name == 'MMKVCore'
-    target.build_configurations.each do |config|
-      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
-      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << '__STDC_WANT_LIB_EXT1__=1'
-    end
-  end
-end
-```
-</details>
+The native runtime-event buffer holds at most 256 coalesced entries. If more entries accumulate before JavaScript reconciles and acknowledges them, the oldest entries are discarded.
 
-<details>
-<summary><strong>Downloads "don't work" when the iOS screen is locked</strong></summary>
+## Timeouts
 
-On iOS the actual transfer is handed to the system `nsurlsessiond` daemon and **keeps running while the app is suspended and the screen is locked** - this library already configures the background session correctly (`discretionary = NO`, `sessionSendsLaunchEvents = YES`). If it looks like downloads stop when locked, check these in order:
+Android uses 30-second connection and read inactivity timeouts. iOS uses a 30-second request inactivity timeout and a 24-hour total resource timeout for large transfers. A stalled socket therefore fails instead of remaining active indefinitely.
 
-1. **Did you force-quit the app?** If the user swipes the app away in the app switcher, iOS halts *that app's* background transfers until it's relaunched. This is an OS policy and cannot be worked around by any library.
-2. **You won't get live `progress` events while locked.** Your JavaScript isn't running while the app is suspended, so `begin` / `progress` / `complete` callbacks fire when the app resumes or is relaunched - not in real time. Re-attach with `getExistingDownloadTasks()` on launch.
-3. **AppDelegate wiring.** Make sure `handleEventsForBackgroundURLSession` is implemented (see [Installation](#-installation)). The native coordinator invokes the operating-system completion handler after it finishes processing background-session events.
-4. **Data Protection (the one this library handles).** On a passcoded, locked device, files protected with `NSFileProtectionComplete` can't be written, so a download that *finishes* while locked could previously fail to save. The library now writes the file with `NSFileProtectionCompleteUntilFirstUserAuthentication` by default (writable while locked after the first unlock since boot), and if the move still can't happen because the device is locked it stages the bytes and completes the save automatically when the device is next unlocked - emitting `complete` then. You can change the level with `setConfig({ iosDataProtection })` or per task (see Advanced Configuration).
-5. **Test on a real device.** The iOS Simulator's background-transfer behavior is unreliable; verify on hardware.
-</details>
-
-<details>
-<summary><strong>Downloads not resuming after app restart</strong></summary>
-
-Make sure to call `getExistingDownloadTasks()` at app startup and re-attach your callbacks. The task IDs you provide are used to identify downloads across restarts.
-</details>
-
-<details>
-<summary><strong>Google Play Console asking about Foreground Service</strong></summary>
-
-See the [Google Play Console Declaration](#google-play-console-declaration) section for the required steps.
-</details>
-
-<details>
-<summary><strong>TypeToken errors in release builds (Android)</strong></summary>
-
-Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section.
-</details>
-
-## 🧪 Example App
-
-The repository includes a full example app demonstrating all features:
-
-```bash
-cd example
-yarn install
-
-# iOS
-cd ios && pod install && cd ..
-yarn ios
-
-# Android
-yarn android
-```
-
-The example app shows:
-- Starting multiple downloads
-- Pause/resume functionality
-- Progress tracking with animations
-- Re-attaching to background tasks
-- File management
-
-## 💡 Use Cases
-
-This library is perfect for apps that need reliable file transfers:
-
-- 🎵 **Music/Podcast Apps** - Download episodes for offline listening
-- 📚 **E-book Readers** - Download books in the background
-- 🎬 **Video Streaming** - Offline video downloads
-- 📁 **File Managers** - Large file transfers
-- 🎮 **Games** - Download game assets and updates
-- 📱 **Enterprise Apps** - Sync large documents and media
-
-## 🔄 Migration Guide
-
-Upgrading from an older version? Check the [Migration Guide](./MIGRATION.md) for detailed instructions:
-
-- [v4.3.x → v4.4.0](./MIGRATION.md#migration-guide-v43x--v440) - iOS MMKV dependency change
-- [v4.1.x → v4.2.0](./MIGRATION.md#migration-guide-v41x--v420) - Android pause/resume support
-- [v4.0.x → v4.1.0](./MIGRATION.md#migration-guide-v40x--v410) - MMKV dependency change
-- [v3.2.6 → v4.0.0](./MIGRATION.md#migration-guide-v326--v400) - Major API changes
-
-See the [Changelog](./CHANGELOG.md) for a complete list of changes in each version.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Install dependencies (`yarn install`)
-4. Make your changes
-5. Run tests (`yarn test`)
-6. Run linting (`yarn lint`)
-7. Commit your changes (`git commit -m 'Add amazing feature'`)
-8. Push to the branch (`git push origin feature/amazing-feature`)
-9. Open a Pull Request
-
-### Development Setup
-
-```bash
-# Install dependencies
-yarn install
-
-# Run tests
-yarn test
-
-# Run linting
-yarn lint
-
-# Build the Expo plugin
-yarn build-plugin
-
-# Run the example app
-cd example && yarn install
-yarn ios  # or yarn android
-```
-
-## 👥 Authors
-
-Upstream Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
-
-Based on [react-native-background-downloader](https://github.com/ekolabs/react-native-background-downloader) by [Elad Gil](https://github.com/ptelad) (unmaintained since 2019)
-
-> Please note that this project is maintained in free time. If you find it helpful, please consider [becoming a sponsor](https://github.com/sponsors/kesha-antonov) of the upstream repo.
-
-## 📄 License
-
-[Apache 2.0](./LICENSE)
+See [API](docs/API.md) and [platform notes](docs/PLATFORM_NOTES.md) for the complete contract.

@@ -1,8 +1,5 @@
 package com.eko
 
-import android.content.Context
-import android.util.Log
-import com.eko.utils.HeaderUtils
 import java.io.BufferedReader
 import java.io.DataOutputStream
 import java.io.File
@@ -11,16 +8,14 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Handles file uploads with progress tracking and background support.
+ * Handles process-owned file uploads with progress tracking.
  * Uses HTTP/HTTPS with multipart form-data support.
  */
-class Uploader(private val context: Context) {
+class Uploader {
 
     companion object {
         private const val TAG = "Uploader"
@@ -35,6 +30,7 @@ class Uploader(private val context: Context) {
         val isPaused: AtomicBoolean = AtomicBoolean(false),
         val isCancelled: AtomicBoolean = AtomicBoolean(false),
         val bytesUploaded: AtomicLong = AtomicLong(0),
+        val sessionId: AtomicLong = AtomicLong(0),
         var bytesTotal: Long = 0,
         @Volatile var thread: Thread? = null,
         @Volatile var connection: HttpURLConnection? = null,
@@ -49,7 +45,6 @@ class Uploader(private val context: Context) {
     }
 
     private val activeUploads = ConcurrentHashMap<String, UploadState>()
-    private val executorService: ExecutorService = Executors.newCachedThreadPool()
 
     /**
      * Start a new upload.
@@ -59,6 +54,7 @@ class Uploader(private val context: Context) {
         val existingState = activeUploads[config.id]
         if (existingState != null) {
             RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling existing upload before starting new one: ${config.id}")
+            existingState.sessionId.incrementAndGet()
             existingState.isCancelled.set(true)
             try {
                 existingState.connection?.disconnect()
@@ -66,7 +62,7 @@ class Uploader(private val context: Context) {
                 RNBackgroundDownloaderModuleImpl.logW(TAG, "Error cleaning up existing upload: ${e.message}")
             }
             existingState.thread?.interrupt()
-            activeUploads.remove(config.id)
+            activeUploads.remove(config.id, existingState)
         }
 
         val file = File(config.source)
@@ -83,10 +79,10 @@ class Uploader(private val context: Context) {
         activeUploads[config.id] = state
 
         val thread = Thread {
-            executeUpload(state, listener)
+            executeUpload(state, listener, state.sessionId.get())
         }
         state.thread = thread
-        executorService.submit(thread)
+        thread.start()
     }
 
     /**
@@ -96,6 +92,7 @@ class Uploader(private val context: Context) {
      */
     fun pause(id: String): Boolean {
         val state = activeUploads[id] ?: return false
+        state.sessionId.incrementAndGet()
         state.isPaused.set(true)
         try {
             state.connection?.disconnect()
@@ -120,12 +117,13 @@ class Uploader(private val context: Context) {
         state.isPaused.set(false)
         state.bytesUploaded.set(0) // Reset since we restart
         state.hasReportedBegin = false
+        val sessionId = state.sessionId.get()
 
         val thread = Thread {
-            executeUpload(state, listener)
+            executeUpload(state, listener, sessionId)
         }
         state.thread = thread
-        executorService.submit(thread)
+        thread.start()
 
         RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming upload: $id (restarting from beginning)")
         return true
@@ -138,6 +136,7 @@ class Uploader(private val context: Context) {
         val state = activeUploads[id] ?: return false
         RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling upload: $id")
 
+        state.sessionId.incrementAndGet()
         state.isCancelled.set(true)
         state.isPaused.set(false)
 
@@ -173,12 +172,12 @@ class Uploader(private val context: Context) {
      */
     fun getActiveUploadIds(): Set<String> = activeUploads.keys.toSet()
 
-    private fun executeUpload(state: UploadState, listener: UploadListener) {
+    private fun executeUpload(state: UploadState, listener: UploadListener, expectedSessionId: Long) {
         var connection: HttpURLConnection? = null
         val config = state.config
 
         try {
-            if (state.isCancelled.get()) {
+            if (state.sessionId.get() != expectedSessionId || state.isCancelled.get()) {
                 return
             }
 
@@ -224,13 +223,13 @@ class Uploader(private val context: Context) {
             state.bytesTotal = totalBytes
 
             // Report begin
-            if (!state.hasReportedBegin) {
+            if (!state.hasReportedBegin && state.sessionId.get() == expectedSessionId) {
                 state.hasReportedBegin = true
                 listener.onBegin(config.id, totalBytes)
             }
 
             // Start upload
-            if (state.isCancelled.get() || state.isPaused.get()) {
+            if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || state.isPaused.get()) {
                 return
             }
 
@@ -240,15 +239,15 @@ class Uploader(private val context: Context) {
             val outputStream = DataOutputStream(connection.outputStream)
 
             if (useMultipart) {
-                writeMultipartBody(outputStream, config, file, boundary, state, listener)
+                writeMultipartBody(outputStream, config, file, boundary, state, listener, expectedSessionId)
             } else {
-                writeFileBody(outputStream, file, state, listener)
+                writeFileBody(outputStream, file, state, listener, expectedSessionId)
             }
 
             outputStream.flush()
             outputStream.close()
 
-            if (state.isCancelled.get() || state.isPaused.get()) {
+            if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || state.isPaused.get()) {
                 return
             }
 
@@ -269,29 +268,33 @@ class Uploader(private val context: Context) {
                 ""
             }
 
-            if (responseCode in 200..299) {
+            if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || activeUploads[config.id] !== state) {
+                return
+            } else if (responseCode in 200..299) {
                 listener.onComplete(config.id, responseCode, responseBody, state.bytesUploaded.get(), state.bytesTotal)
             } else {
                 listener.onError(config.id, "HTTP error: $responseCode - $responseBody", responseCode)
             }
 
-            activeUploads.remove(config.id)
+            activeUploads.remove(config.id, state)
 
         } catch (e: InterruptedException) {
             RNBackgroundDownloaderModuleImpl.logD(TAG, "Upload interrupted: ${state.id}")
-            if (!state.isPaused.get() && !state.isCancelled.get()) {
+            if (state.sessionId.get() == expectedSessionId && !state.isPaused.get() && !state.isCancelled.get()) {
                 listener.onError(state.id, "Upload interrupted", -1)
-                activeUploads.remove(state.id)
+                activeUploads.remove(state.id, state)
             }
         } catch (e: Exception) {
-            if (state.isPaused.get()) {
+            if (state.sessionId.get() != expectedSessionId) {
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Upload session invalidated: ${state.id}")
+            } else if (state.isPaused.get()) {
                 RNBackgroundDownloaderModuleImpl.logD(TAG, "Upload stopped (paused): ${state.id}")
             } else if (state.isCancelled.get()) {
                 RNBackgroundDownloaderModuleImpl.logD(TAG, "Upload stopped (cancelled): ${state.id}")
             } else {
                 RNBackgroundDownloaderModuleImpl.logE(TAG, "Upload error: ${e.message}")
                 listener.onError(state.id, e.message ?: "Upload failed", -1)
-                activeUploads.remove(state.id)
+                activeUploads.remove(state.id, state)
             }
         } finally {
             try {
@@ -336,7 +339,8 @@ class Uploader(private val context: Context) {
         file: File,
         boundary: String,
         state: UploadState,
-        listener: UploadListener
+        listener: UploadListener,
+        expectedSessionId: Long
     ) {
         val crlf = "\r\n"
         val twoHyphens = "--"
@@ -346,14 +350,15 @@ class Uploader(private val context: Context) {
 
         // Write parameters
         config.parameters?.forEach { (key, value) ->
-            if (state.isCancelled.get() || state.isPaused.get()) return
+            if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || state.isPaused.get()) return
 
             val paramPart = "$twoHyphens$boundary$crlf" +
                 "Content-Disposition: form-data; name=\"$key\"$crlf$crlf" +
                 "$value$crlf"
             outputStream.writeBytes(paramPart)
             val bytesWritten = state.bytesUploaded.addAndGet(paramPart.length.toLong())
-            listener.onProgress(config.id, bytesWritten, state.bytesTotal)
+            if (state.sessionId.get() == expectedSessionId)
+                listener.onProgress(config.id, bytesWritten, state.bytesTotal)
         }
 
         // Write file header
@@ -368,11 +373,12 @@ class Uploader(private val context: Context) {
             val buffer = ByteArray(BUFFER_SIZE)
             var bytesRead: Int
             while (fileInputStream.read(buffer).also { bytesRead = it } != -1) {
-                if (state.isCancelled.get() || state.isPaused.get()) return
+                if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || state.isPaused.get()) return
 
                 outputStream.write(buffer, 0, bytesRead)
                 val bytesWritten = state.bytesUploaded.addAndGet(bytesRead.toLong())
-                listener.onProgress(config.id, bytesWritten, state.bytesTotal)
+                if (state.sessionId.get() == expectedSessionId)
+                    listener.onProgress(config.id, bytesWritten, state.bytesTotal)
             }
         }
 
@@ -385,24 +391,27 @@ class Uploader(private val context: Context) {
         val endBoundary = "$twoHyphens$boundary$twoHyphens$crlf"
         outputStream.writeBytes(endBoundary)
         val finalBytes = state.bytesUploaded.addAndGet(endBoundary.length.toLong())
-        listener.onProgress(config.id, finalBytes, state.bytesTotal)
+        if (state.sessionId.get() == expectedSessionId)
+            listener.onProgress(config.id, finalBytes, state.bytesTotal)
     }
 
     private fun writeFileBody(
         outputStream: DataOutputStream,
         file: File,
         state: UploadState,
-        listener: UploadListener
+        listener: UploadListener,
+        expectedSessionId: Long
     ) {
         FileInputStream(file).use { fileInputStream ->
             val buffer = ByteArray(BUFFER_SIZE)
             var bytesRead: Int
             while (fileInputStream.read(buffer).also { bytesRead = it } != -1) {
-                if (state.isCancelled.get() || state.isPaused.get()) return
+                if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || state.isPaused.get()) return
 
                 outputStream.write(buffer, 0, bytesRead)
                 val bytesWritten = state.bytesUploaded.addAndGet(bytesRead.toLong())
-                listener.onProgress(state.id, bytesWritten, state.bytesTotal)
+                if (state.sessionId.get() == expectedSessionId)
+                    listener.onProgress(state.id, bytesWritten, state.bytesTotal)
             }
         }
     }

@@ -1,12 +1,7 @@
-/**
- * Test for getExistingDownloadTasks function to ensure it works on both
- * new architecture (TurboModules) and old architecture (Bridge)
- */
-
 import { getExistingDownloadTasks, createDownloadTask } from '../src/index'
-import { NativeModules } from 'react-native'
+import { TurboModuleRegistry } from 'react-native'
 
-const { RNBackgroundDownloader } = NativeModules
+const RNBackgroundDownloader = TurboModuleRegistry.getEnforcing('RNBackgroundDownloader')
 
 describe('getExistingDownloadTasks', () => {
   test('getExistingDownloadTasks should be defined and callable', async () => {

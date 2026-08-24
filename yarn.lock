@@ -43,7 +43,7 @@ __metadata:
     react-test-renderer: "npm:19.2.0"
     typescript: "npm:5.9.3"
   peerDependencies:
-    react-native: ">=0.57.0"
+    react-native: ">=0.76.0"
   languageName: unknown
   linkType: soft
 

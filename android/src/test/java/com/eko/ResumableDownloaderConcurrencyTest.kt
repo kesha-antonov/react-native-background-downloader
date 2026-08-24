@@ -6,6 +6,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -14,6 +15,7 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -77,13 +79,14 @@ class ResumableDownloaderConcurrencyTest {
     }
 
     private fun start(id: String) {
+        val destination = File(tempFolder.root, id)
+        destination.createNewFile()
         downloader.startDownload(
             id = id,
             url = server.url("/$id").toString(),
-            destination = tempFolder.newFile(id).absolutePath,
+            destination = destination.absolutePath,
             headers = emptyMap(),
-            listener = listener,
-            isAllowedOverMetered = true
+            listener = listener
         )
     }
 
@@ -148,6 +151,27 @@ class ResumableDownloaderConcurrencyTest {
     }
 
     @Test
+    fun `a waiting download does not alter its destination`() {
+        ResumableDownloader.setMaxConcurrentTransfers(1)
+
+        start("running")
+        awaitUntil("the first transfer to reach the server") { requested.size == 1 }
+
+        val destination = tempFolder.newFile("preserved").apply { writeText("valid payload") }
+        downloader.startDownload(
+            id = "waiting",
+            url = server.url("/waiting").toString(),
+            destination = destination.absolutePath,
+            headers = emptyMap(),
+            listener = listener
+        )
+
+        assertStaysAt(1, "the second download must wait for a slot")
+        assertEquals("valid payload", destination.readText())
+        assertTrue(!File("${destination.absolutePath}.part").exists())
+    }
+
+    @Test
     fun `a download cancelled while waiting never starts`() {
         ResumableDownloader.setMaxConcurrentTransfers(1)
 
@@ -195,5 +219,25 @@ class ResumableDownloaderConcurrencyTest {
         awaitUntil("every download to complete", timeoutMs = 20000) { completed.size == 12 }
         assertEquals("no download ran twice", 12, requested.toSet().size)
         assertTrue("no download failed: $failed", failed.isEmpty())
+    }
+
+    @Test
+    fun `replacing an active id completes only the replacement`() {
+        ResumableDownloader.setMaxConcurrentTransfers(2)
+
+        start("same-id")
+        awaitUntil("the original transfer to reach the server") { requested.size == 1 }
+        val original = downloader.getState("same-id")!!
+
+        start("same-id")
+        val replacement = downloader.getState("same-id")!!
+        assertNotSame(original, replacement)
+        assertTrue(original.isCancelled.get())
+        assertTrue(original.sessionId.get() > 0)
+        awaitUntil("the replacement transfer to start") { requested.size == 2 }
+
+        holdResponses.countDown()
+        awaitUntil("the replacement transfer to complete") { completed.size == 1 }
+        assertTrue("the invalidated transfer must not fail: $failed", failed.isEmpty())
     }
 }

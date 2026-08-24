@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Replaced Android system schedulers, services, notifications, and persistence with the process-owned resumable downloader. The library manifest now contributes no permissions or application components.
+- Replaced the iOS background session and AppDelegate integration with one shared default `URLSession` owned by the process. Direct replacement of an existing destination is not transactional on iOS.
+- Retained runtime-generation isolation, coalesced event buffering, and current-process task reconciliation across React Native and Expo OTA runtime reloads.
+- Retained downloads, uploads, progress callbacks, per-task headers, and manual pause, resume, and stop controls. Transfers no longer recover after process death.
+- Replaced `setConfig()` with four Expo plugin build settings: `maxParallelDownloads`, `enableLogging`, `progressInterval`, and `progressMinBytes`.
+- Removed notification, network-policy, redirect-limit, and iOS data-protection options, along with MMKV, MMKVCore, and Gson integration.
+- Made React Native 0.76 with the New Architecture the minimum supported integration and removed the legacy bridge implementations and event-emitter fallback.
+- Android stages downloads in sibling partial files and atomically replaces the destination only after a complete response. Concurrent downloads must use distinct destination paths.
+- Android validates resumed ranges with `ETag` or `Last-Modified` and restarts from byte zero when the resource cannot be proven unchanged.
+- Terminal events remain buffered until JavaScript acknowledges them while they remain within the 256-entry coalescing buffer. The oldest entry is discarded on overflow.
+- Task reconciliation gates live event delivery while taking its native snapshot so a terminal event cannot be replaced by stale running state.
+- Removed post-creation download parameter and header mutation; task options are fixed at creation.
+
 ## v4.6.1-anorak.1
 
 ### Architecture Changes

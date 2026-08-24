@@ -7,7 +7,7 @@ const NPM = 'https://www.npmjs.com/package/@anorak-games/react-native-background
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'React Native Background Downloader',
-  tagline: 'Download and upload large files on iOS and Android, even when your app is in the background or terminated',
+  tagline: 'Reliable process-owned downloads and uploads without background execution declarations',
   favicon: 'img/favicon.ico',
 
   url: 'https://anorak-games.github.io',
@@ -52,7 +52,7 @@ const config = {
         {
           name: 'keywords',
           content:
-            'react native background download, expo background download, react native background upload, react native download large file, nsurlsession, android downloadmanager, turbomodule',
+            'react native reliable download, expo native download, react native file upload, react native large file transfer, urlsession, turbomodule',
         },
       ],
       colorMode: { respectPrefersColorScheme: true },
@@ -71,10 +71,10 @@ const config = {
           {
             title: 'Docs',
             items: [
-              { label: 'Installation', to: '/installation' },
-              { label: 'Usage', to: '/usage' },
+              { label: 'Introduction', to: '/' },
+              { label: 'Platform notes', to: '/platform-notes' },
               { label: 'API reference', to: '/api' },
-              { label: 'Troubleshooting', to: '/troubleshooting' },
+              { label: 'Migration guide', to: '/migration' },
             ],
           },
           {
@@ -82,7 +82,7 @@ const config = {
             items: [
               { label: 'GitHub', href: REPO },
               { label: 'npm', href: NPM },
-              { label: 'Changelog', href: `${REPO}/blob/main/CHANGELOG.md` },
+              { label: 'Changelog', href: `${REPO}/blob/anorak-main/CHANGELOG.md` },
             ],
           },
         ],

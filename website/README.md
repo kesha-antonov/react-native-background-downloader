@@ -1,7 +1,7 @@
 # Documentation site
 
-The site published at
-<https://kesha-antonov.github.io/react-native-background-downloader/>.
+The site is configured for
+<https://anorak-games.github.io/react-native-background-downloader/>.
 
 ## How the content works
 
@@ -13,14 +13,13 @@ one copy of the documentation:
 
 | Site page | Source |
 |---|---|
-| Introduction, Comparison, Installation, Usage, Configuration, Troubleshooting, Example app, Contributing | sections of `../README.md` |
+| Introduction and usage | `../README.md` |
 | API reference | `../docs/API.md` |
 | Platform notes | `../docs/PLATFORM_NOTES.md` |
 | Migration guide | `../MIGRATION.md` |
 
-To change the docs, edit those files. The script slices the README by its `##`
-headings, so if you rename one it will fail loudly with the heading it could not
-find - update the `PAGES` table in the script to match.
+To change the docs, edit those files. The generated page list is defined by the
+`PAGES` table in the sync script.
 
 The script also rewrites GitHub-relative links (`#anchors`, `./docs/API.md`,
 `./MIGRATION.md`) into links between site pages, and gives every heading an
@@ -40,7 +39,4 @@ from this directory.
 
 ## Deployment
 
-[`.github/workflows/docs.yml`](../.github/workflows/docs.yml) builds and
-publishes to GitHub Pages on every push to `main` that touches the README, the
-`docs/` directory, `MIGRATION.md`, or this folder. Pull requests build the site
-without deploying it.
+The production build is created with `yarn build` from this directory.

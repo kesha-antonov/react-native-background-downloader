@@ -45,24 +45,26 @@ class UploadEventEmitter(
     /**
      * Emit an upload complete event.
      */
-    fun emitComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long) {
+    fun emitComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long, metadata: String) {
         val params = Arguments.createMap()
         params.putString("id", id)
         params.putInt("responseCode", responseCode)
         params.putString("responseBody", responseBody)
         params.putDouble("bytesUploaded", bytesUploaded.toDouble())
         params.putDouble("bytesTotal", bytesTotal.toDouble())
+        params.putString("metadata", metadata)
         safeEmit(EVENT_UPLOAD_COMPLETE, params)
     }
 
     /**
      * Emit an upload failed event.
      */
-    fun emitFailed(id: String, error: String, errorCode: Int) {
+    fun emitFailed(id: String, error: String, errorCode: Int, metadata: String) {
         val params = Arguments.createMap()
         params.putString("id", id)
         params.putInt("errorCode", errorCode)
         params.putString("error", error)
+        params.putString("metadata", metadata)
         safeEmit(EVENT_UPLOAD_FAILED, params)
     }
 

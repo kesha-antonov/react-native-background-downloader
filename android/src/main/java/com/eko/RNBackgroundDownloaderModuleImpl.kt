@@ -1,56 +1,31 @@
 package com.eko
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.media.MediaScannerConnection
-import android.net.Uri
-import android.os.Build
 import android.util.Log
-import android.webkit.MimeTypeMap
-import com.eko.handlers.OnBegin
-import com.eko.handlers.OnProgress
-import com.eko.handlers.OnProgressState
 import com.eko.utils.HeaderUtils
-import com.eko.utils.ReadableConverters
-import com.eko.utils.RedirectResolver
-import com.eko.utils.StorageManager
 import com.facebook.react.bridge.Arguments
-import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
-import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
-import com.facebook.react.modules.core.DeviceEventManagerModule
-import org.json.JSONObject
-import java.io.File
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
+import java.util.concurrent.ConcurrentHashMap
 
-class RNBackgroundDownloaderModuleImpl private constructor(initialReactContext: ReactApplicationContext) {
-
+class RNBackgroundDownloaderModuleImpl private constructor(initialContext: Context) {
   companion object {
     const val NAME = "RNBackgroundDownloader"
-
-    private val stateMap = mapOf(
-      DownloadManager.STATUS_FAILED to DownloadConstants.TASK_CANCELING,
-      DownloadManager.STATUS_PAUSED to DownloadConstants.TASK_SUSPENDED,
-      DownloadManager.STATUS_PENDING to DownloadConstants.TASK_RUNNING,
-      DownloadManager.STATUS_RUNNING to DownloadConstants.TASK_RUNNING,
-      DownloadManager.STATUS_SUCCESSFUL to DownloadConstants.TASK_COMPLETED
-    )
-
     private val sharedLock = Any()
 
-    // Controls whether debug logs are enabled
+    @Volatile
+    private var sharedInstance: RNBackgroundDownloaderModuleImpl? = null
+
     @Volatile
     private var isLogsEnabled = false
 
-    // Helper functions for conditional logging
+    fun getInstance(context: Context): RNBackgroundDownloaderModuleImpl =
+      sharedInstance ?: synchronized(sharedLock) {
+        sharedInstance ?: RNBackgroundDownloaderModuleImpl(context).also { sharedInstance = it }
+      }
+
     fun logD(tag: String, message: String) {
       if (isLogsEnabled) Log.d(tag, message)
     }
@@ -62,1489 +37,327 @@ class RNBackgroundDownloaderModuleImpl private constructor(initialReactContext: 
     fun logE(tag: String, message: String) {
       if (isLogsEnabled) Log.e(tag, message)
     }
-
-    // Lets native-only entry points such as notification actions reach the
-    // process coordinator without depending on a React runtime.
-    @Volatile
-    private var activeInstance: RNBackgroundDownloaderModuleImpl? = null
-
-    @Volatile
-    private var sharedInstance: RNBackgroundDownloaderModuleImpl? = null
-
-    fun getInstance(reactContext: ReactApplicationContext): RNBackgroundDownloaderModuleImpl =
-      sharedInstance ?: synchronized(sharedLock) {
-        sharedInstance ?: RNBackgroundDownloaderModuleImpl(reactContext).also {
-          sharedInstance = it
-          activeInstance = it
-        }
-      }
-
-    /**
-     * Stop a download from native code, going through the same path as a
-     * task.stop() call from JS (progress tracking, resumable/DownloadManager
-     * cancellation, persisted state cleanup).
-     *
-     * @return `true` when the module was alive and handled the stop, `false`
-     * when there is no instance yet (e.g. a broadcast cold-started the process)
-     * and the caller has to fall back to a narrower cancellation.
-     */
-    fun stopTaskFromNative(configId: String): Boolean {
-      val instance = activeInstance ?: return false
-      instance.stopTask(configId)
-      return true
-    }
   }
 
-  private val applicationContext = initialReactContext.applicationContext
-
-  private val runtimeBinding = RuntimeBinding<ReactApplicationContext>()
-
-  @Volatile
-  private var coordinatorInitialized = false
-
-  // Storage manager for persistent state
-  private val storageManager = StorageManager(applicationContext, NAME)
-
-  private val cachedExecutorPool: ExecutorService = Executors.newCachedThreadPool()
-  private val fixedExecutorPool: ExecutorService = Executors.newFixedThreadPool(1)
-  private val downloader: Downloader
-  private var downloadReceiver: BroadcastReceiver? = null
-  private var downloadIdToConfig = mutableMapOf<Long, RNBGDTaskConfig>()
-  private val configIdToDownloadId = mutableMapOf<String, Long>()
-  private val configIdToProgressFuture = mutableMapOf<String, Future<OnProgressState?>>()
-  private val configIdToHeaders = mutableMapOf<String, Map<String, String>>()
+  private val applicationContext = initialContext.applicationContext
+  private val buildConfig = NativeBuildConfig.load(applicationContext)
+  private val runtimeBinding = RuntimeBinding<(String, Any?) -> Unit>()
   private val eventLock = Any()
   private val pendingEvents = RuntimeEventBuffer<Any?>()
-  @Volatile
-  private var ee: DeviceEventManagerModule.RCTDeviceEventEmitter? = null
-  @Volatile
-  private var readyBindingToken: Long? = null
+  private val downloader = ResumableDownloader()
+  private val uploader = Uploader()
+  private val downloadConfigs = ConcurrentHashMap<String, RNBGDTaskConfig>()
+  private val uploadConfigs = ConcurrentHashMap<String, RNBGDUploadTaskConfig>()
 
-  // Centralized progress reporting with threshold filtering and batching
-  private val progressReporter = ProgressReporter(
-    onEmitProgress = { reportsArray ->
-      dispatchProgressEvent("downloadProgress", reportsArray)
-    }
-  )
+  private val readyFamilies = mutableSetOf<String>()
 
-  // Centralized event emitter for download events
-  private val eventEmitter by lazy {
-    DownloadEventEmitter(::dispatchTaskEvent)
-  }
+  private val downloadEventEmitter = DownloadEventEmitter(::dispatchTaskEvent)
+  private val uploadEventEmitter = UploadEventEmitter(::dispatchTaskEvent)
+  private val downloadProgressReporter = ProgressReporter(::dispatchDownloadProgress)
+  private val uploadProgressReporter = ProgressReporter(::dispatchUploadProgress, "bytesUploaded")
 
-  // Uploader for handling file uploads
-  private val uploader: Uploader by lazy { Uploader(applicationContext) }
-
-  // Centralized event emitter for upload events
-  private val uploadEventEmitter by lazy {
-    UploadEventEmitter(::dispatchTaskEvent)
-  }
-
-  // Centralized progress reporting for uploads
-  private val uploadProgressReporter = ProgressReporter(
-    onEmitProgress = { reportsArray ->
-      dispatchProgressEvent("uploadProgress", reportsArray)
-    },
-    bytesFieldName = "bytesUploaded"
-  )
-
-  // Upload task configs mapping configId -> config
-  private val uploadConfigs = mutableMapOf<String, RNBGDUploadTaskConfig>()
-
-  // Flag to track if module is fully initialized
-  @Volatile
-  private var isInitialized = false
-
-  // Flag to track if download receiver is registered
-  @Volatile
-  private var isReceiverRegistered = false
-
-  // Map to store metadata for paused downloads
-  private val configIdToMetadata = mutableMapOf<String, String>()
-
-  // Map to store the metered-network permission per download so pause/resume and
-  // recovery snapshots keep the constraint that the download was started with
-  private val configIdToIsAllowedOverMetered = mutableMapOf<String, Boolean>()
-
-  /**
-   * Resolve the metered-network permission for a download: the in-memory intent
-   * recorded at start wins, then the caller-supplied persisted source (UIDT job
-   * extras, download state or task config), then the permissive default. Keeps
-   * the precedence policy in one place for every pause/snapshot path.
-   */
-  private fun resolveIsAllowedOverMetered(configId: String, persistedValue: Boolean?): Boolean {
-    return configIdToIsAllowedOverMetered[configId] ?: persistedValue ?: true
-  }
-
-  // Last time (ms) a recovery snapshot was persisted for a resumable download,
-  // used to throttle snapshot writes from the frequent progress callbacks.
-  private val configIdToLastSnapshotMs = mutableMapOf<String, Long>()
-
-  private fun ensureEventEmitterInitialized() {
-    synchronized(eventLock) {
-      if (ee != null) return
-      val context = runtimeBinding.current()?.value ?: return
-      ee = try {
-        context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      } catch (e: Exception) {
-        logW(NAME, "Could not initialize event emitter: ${e.message}")
+  private fun removeDownloadConfig(id: String, config: RNBGDTaskConfig): Boolean {
+    var removed = false
+    downloadConfigs.compute(id) { _, current ->
+      if (current === config) {
+        removed = true
         null
+      } else {
+        current
       }
     }
+    return removed
   }
 
-  private fun dispatchTaskEvent(eventName: String, payload: WritableMap) {
-    synchronized(eventLock) {
-      val emitter = ee
-      if (runtimeBinding.current()?.token == readyBindingToken && emitter != null) {
-        try {
-          emitter.emit(eventName, payload)
-          return
-        } catch (e: Exception) {
-          logW(NAME, "Failed to emit $eventName event: ${e.message}")
-        }
-      }
-
-      val id = payload.getString("id") ?: return
-      val family = if (eventName.startsWith("upload")) "upload" else "download"
-      if (eventName.endsWith("Complete") || eventName.endsWith("Failed")) {
-        pendingEvents.remove("$family-progress:$id")
-      }
-      pendingEvents.put(eventName, "$family:$id", payload.copy())
-    }
-  }
-
-  private fun dispatchProgressEvent(eventName: String, reports: WritableArray) {
-    synchronized(eventLock) {
-      val emitter = ee
-      if (runtimeBinding.current()?.token == readyBindingToken && emitter != null) {
-        try {
-          emitter.emit(eventName, reports)
-          return
-        } catch (e: Exception) {
-          logW(NAME, "Failed to emit $eventName event: ${e.message}")
-        }
-      }
-
-      val family = if (eventName.startsWith("upload")) "upload" else "download"
-      for (index in 0 until reports.size()) {
-        val report = reports.getMap(index) ?: continue
-        val id = report.getString("id") ?: continue
-        pendingEvents.put(eventName, "$family-progress:$id", report.copy())
+  private fun removeUploadConfig(id: String, config: RNBGDUploadTaskConfig): Boolean {
+    var removed = false
+    uploadConfigs.compute(id) { _, current ->
+      if (current === config) {
+        removed = true
+        null
+      } else {
+        current
       }
     }
+    return removed
   }
 
-  /**
-   * Ensure download receiver is registered before starting downloads.
-   * This fixes issues on first app install where download() might be called
-   * before initialize() completes, causing download completion events to be missed.
-   */
-  private fun ensureReceiverRegistered() {
-    synchronized(sharedLock) {
-      if (!isReceiverRegistered) {
-        registerDownloadReceiver()
-        logD(NAME, "Download receiver registered eagerly before download")
-      }
-    }
-  }
-
-  // Listener for resumable downloads
-  private val resumableDownloadListener = object : ResumableDownloader.DownloadListener {
+  private fun downloadListener(config: RNBGDTaskConfig) = object : ResumableDownloader.DownloadListener {
     override fun onBegin(id: String, expectedBytes: Long, headers: Map<String, String>) {
-      val headersMap = Arguments.createMap()
-      for ((key, value) in headers) {
-        headersMap.putString(key, value)
-      }
-      onBeginDownload(id, headersMap, expectedBytes)
+      if (downloadConfigs[id] !== config) return
+      val headerMap = Arguments.createMap()
+      headers.forEach(headerMap::putString)
+      downloadEventEmitter.emitBegin(id, headerMap, expectedBytes)
     }
 
     override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
-      onProgressDownload(id, bytesDownloaded, bytesTotal)
-      // Persist a recovery snapshot so this download can be recovered if the app
-      // is force-stopped (which kills the foreground service and its in-memory state).
-      maybeSnapshotActiveResumable(id, bytesDownloaded, bytesTotal)
+      if (downloadConfigs[id] === config)
+        downloadProgressReporter.reportProgress(id, bytesDownloaded, bytesTotal)
     }
 
     override fun onComplete(id: String, location: String, bytesDownloaded: Long, bytesTotal: Long) {
-      // Drop any buffered progress for this task so it cannot arrive in JS after downloadComplete
-      progressReporter.clearPendingReport(id)
-      eventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal)
-
-      // Clean up all download state
-      synchronized(sharedLock) {
-        cleanupDownloadState(id)
-      }
+      if (!removeDownloadConfig(id, config)) return
+      downloadProgressReporter.clearDownloadState(id)
+      downloadEventEmitter.emitComplete(id, location, bytesDownloaded, bytesTotal, config.metadata)
     }
 
     override fun onError(id: String, error: String, errorCode: Int) {
-      // Drop any buffered progress for this task so it cannot arrive in JS after downloadFailed
-      progressReporter.clearPendingReport(id)
-      eventEmitter.emitFailed(id, error, errorCode)
+      if (!removeDownloadConfig(id, config)) return
+      downloadProgressReporter.clearDownloadState(id)
+      downloadEventEmitter.emitFailed(id, error, errorCode, config.metadata)
+    }
+  }
 
-      // Clean up all download state
-      synchronized(sharedLock) {
-        cleanupDownloadState(id)
-      }
+  private fun uploadListener(config: RNBGDUploadTaskConfig) = object : Uploader.UploadListener {
+    override fun onBegin(id: String, expectedBytes: Long) {
+      if (uploadConfigs[id] === config)
+        uploadEventEmitter.emitBegin(id, expectedBytes)
+    }
+
+    override fun onProgress(id: String, bytesUploaded: Long, bytesTotal: Long) {
+      if (uploadConfigs[id] !== config) return
+      uploadProgressReporter.reportProgress(id, bytesUploaded, bytesTotal)
+      config.bytesUploaded = bytesUploaded
+      config.bytesTotal = bytesTotal
+    }
+
+    override fun onComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long) {
+      if (!removeUploadConfig(id, config)) return
+      uploadProgressReporter.clearDownloadState(id)
+      uploadEventEmitter.emitComplete(id, responseCode, responseBody, bytesUploaded, bytesTotal, config.metadata)
+    }
+
+    override fun onError(id: String, error: String, errorCode: Int) {
+      if (!removeUploadConfig(id, config)) return
+      uploadProgressReporter.clearDownloadState(id)
+      uploadEventEmitter.emitFailed(id, error, errorCode, config.metadata)
     }
   }
 
   init {
-    loadDownloadIdToConfigMap()
-    loadConfigMap()
-
-    downloader = Downloader(applicationContext, storageManager)
+    isLogsEnabled = buildConfig.enableLogging
+    ResumableDownloader.setMaxConcurrentTransfers(buildConfig.maxParallelDownloads)
+    downloadProgressReporter.configure(buildConfig.progressInterval, buildConfig.progressMinBytes)
+    uploadProgressReporter.configure(buildConfig.progressInterval, buildConfig.progressMinBytes)
   }
 
-  fun getConstants(): Map<String, Any>? {
-    val constants = mutableMapOf<String, Any>()
+  fun getConstants(): Map<String, Any> = mapOf(
+    "documents" to applicationContext.filesDir.absolutePath,
+    "TaskRunning" to DownloadConstants.TASK_RUNNING,
+    "TaskSuspended" to DownloadConstants.TASK_SUSPENDED,
+    "TaskCanceling" to DownloadConstants.TASK_CANCELING,
+    "TaskCompleted" to DownloadConstants.TASK_COMPLETED,
+    "isLoggingEnabled" to buildConfig.enableLogging
+  )
 
-    // Use internal storage (filesDir) for consistency with iOS and to avoid
-    // issues with external storage paths on some devices
-    constants["documents"] = applicationContext.filesDir.absolutePath
-
-    constants["TaskRunning"] = DownloadConstants.TASK_RUNNING
-    constants["TaskSuspended"] = DownloadConstants.TASK_SUSPENDED
-    constants["TaskCanceling"] = DownloadConstants.TASK_CANCELING
-    constants["TaskCompleted"] = DownloadConstants.TASK_COMPLETED
-
-    return constants
-  }
-
-  fun setLogsEnabled(enabled: Boolean) {
-    isLogsEnabled = enabled
-  }
-
-  fun setMaxParallelDownloads(max: Int) {
-    // Caps the transfers the library's own downloader runs at once - the path
-    // with no scheduler in front of it. DownloadManager and the JobScheduler
-    // queue their own work, so downloads running through them are unaffected.
-    ResumableDownloader.setMaxConcurrentTransfers(max)
-    logD(NAME, "setMaxParallelDownloads: $max")
-  }
-
-  fun setAllowsCellularAccess(allows: Boolean) {
-    // Store the setting for future downloads
-    // This will be used in the download() method to set isAllowedOverMetered
-    storageManager.saveBooleanSync("allowsCellularAccess", allows)
-    logD(NAME, "setAllowsCellularAccess: $allows")
-  }
-
-  fun setNotificationGroupingConfig(config: ReadableMap) {
-    val enabled = if (config.hasKey("enabled")) config.getBoolean("enabled") else false
-    val showNotificationsEnabled = if (config.hasKey("showNotificationsEnabled")) config.getBoolean("showNotificationsEnabled") else false
-    val showCompletionNotification = if (config.hasKey("showCompletionNotification")) config.getBoolean("showCompletionNotification") else false
-    val showCancelAction = if (config.hasKey("showCancelAction")) config.getBoolean("showCancelAction") else false
-    val mode = if (config.hasKey("mode")) config.getString("mode") ?: "individual" else "individual"
-    val texts = if (config.hasKey("texts")) config.getMap("texts") else null
-
-    val textsMap = mutableMapOf<String, String>()
-    texts?.let {
-      val iterator = it.keySetIterator()
-      while (iterator.hasNextKey()) {
-        val key = iterator.nextKey()
-        textsMap[key] = it.getString(key) ?: ""
-      }
-    }
-
-    // Store the config for use by UIDTDownloadJobService
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      UIDTDownloadJobService.setNotificationGroupingConfig(
-        enabled,
-        showNotificationsEnabled,
-        showCompletionNotification,
-        showCancelAction,
-        mode,
-        textsMap
-      )
-    }
-
-    logD(NAME, "setNotificationGroupingConfig: enabled=$enabled, showNotificationsEnabled=$showNotificationsEnabled, showCompletionNotification=$showCompletionNotification, showCancelAction=$showCancelAction, mode=$mode, texts=$textsMap")
-  }
-
-  fun initialize(context: ReactApplicationContext): Long {
-    val token = synchronized(eventLock) {
-      val attachedToken = runtimeBinding.attach(context)
-      ee = context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      readyBindingToken = null
-      isInitialized = true
-      attachedToken
-    }
-
-    val shouldInitializeCoordinator = synchronized(sharedLock) {
-      if (coordinatorInitialized) false else {
-        coordinatorInitialized = true
-        true
-      }
-    }
-    if (!shouldInitializeCoordinator) return token
-
-    synchronized(sharedLock) {
-      registerDownloadReceiver()
-    }
-
-    // Set the listener for resumable downloads (used by the background service)
-    downloader.setResumableDownloadListener(resumableDownloadListener)
-
-    // Note: We don't clean up paused notifications here because they should remain visible
-    // showing that downloads are paused. They will be cancelled when download is resumed or stopped.
-
-    // Load persisted upload configs (for app restart recovery)
-    synchronized(sharedLock) {
-      val persistedUploads = storageManager.loadUploadConfigs()
-      for ((id, config) in persistedUploads) {
-        // Mark as suspended since they need to be restarted after app restart
-        config.state = DownloadConstants.TASK_SUSPENDED
-        uploadConfigs[id] = config
-      }
-      if (persistedUploads.isNotEmpty()) {
-        logD(NAME, "Loaded ${persistedUploads.size} persisted upload configs")
-      }
-    }
-
-    for ((downloadId, config) in downloadIdToConfig) {
-      resumeTasks(downloadId, config)
-    }
-
-    return token
+  fun initialize(eventSink: (String, Any?) -> Unit): Long = synchronized(eventLock) {
+    val token = runtimeBinding.attach(eventSink)
+    readyFamilies.clear()
+    token
   }
 
   fun invalidate(bindingToken: Long) {
     synchronized(eventLock) {
       if (!runtimeBinding.detach(bindingToken)) return
-      readyBindingToken = null
-      isInitialized = false
-      ee = null
+      readyFamilies.clear()
     }
   }
 
   fun isBindingTokenCurrent(bindingToken: Long): Boolean = runtimeBinding.isCurrent(bindingToken)
 
-  fun setRuntimeReady(bindingToken: Long): WritableArray = synchronized(eventLock) {
-    val events = Arguments.createArray()
-    if (!runtimeBinding.isCurrent(bindingToken)) return@synchronized events
+  fun setRuntimeReady(bindingToken: Long, family: String): WritableArray = synchronized(eventLock) {
+    val result = Arguments.createArray()
+    if (!runtimeBinding.isCurrent(bindingToken)) return@synchronized result
+    require(family == "download" || family == "upload") { "Unknown task family: $family" }
 
-    readyBindingToken = bindingToken
-    for (event in pendingEvents.snapshot()) {
+    readyFamilies.add(family)
+    pendingEvents.snapshot().filter { it.key.startsWith(family) }.forEach { event ->
       val record = Arguments.createMap()
       record.putString("name", event.name)
       record.putString("key", event.key)
       record.putMap("payload", (event.payload as ReadableMap).copy())
-      events.pushMap(record)
+      result.pushMap(record)
     }
-    events
+    result
+  }
+
+  fun prepareRuntimeReconciliation(bindingToken: Long, family: String) = synchronized(eventLock) {
+    if (!runtimeBinding.isCurrent(bindingToken)) return@synchronized
+    require(family == "download" || family == "upload") { "Unknown task family: $family" }
+    readyFamilies.remove(family)
   }
 
   fun acknowledgeRuntimeEvents(bindingToken: Long, keys: ReadableArray) {
     synchronized(eventLock) {
       if (!runtimeBinding.isCurrent(bindingToken)) return
-      for (index in 0 until keys.size()) {
+      for (index in 0 until keys.size())
         keys.getString(index)?.let(pendingEvents::remove)
-      }
     }
-  }
-
-  private fun registerDownloadReceiver() {
-    // Prevent double registration
-    if (isReceiverRegistered) {
-      return
-    }
-
-    val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-
-    downloadReceiver = object : BroadcastReceiver() {
-      override fun onReceive(context: Context, intent: Intent) {
-        val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-
-        // Check if this download is being intentionally cancelled (paused or stopped)
-        val cancelIntent = downloader.getCancelIntent(downloadId)
-        if (cancelIntent != null) {
-          downloader.clearCancelIntent(downloadId)
-          logD(NAME, "Ignoring broadcast for ${cancelIntent.name.lowercase()} download: $downloadId")
-          return
-        }
-
-        val config = downloadIdToConfig[downloadId]
-
-        if (config != null) {
-          val downloadStatus = downloader.checkDownloadStatus(downloadId)
-          val status = downloadStatus.getInt("status")
-          val localUri = downloadStatus.getString("localUri")
-
-          stopTaskProgress(config.id)
-
-          synchronized(sharedLock) {
-            // Drop any buffered progress that slipped past stopTaskProgress's clearPendingReport
-            // (the polling thread may have re-added it between clearPendingReport and this lock)
-            progressReporter.clearPendingReport(config.id)
-            when (status) {
-              DownloadManager.STATUS_SUCCESSFUL -> {
-                onSuccessfulDownload(config, downloadStatus)
-              }
-              DownloadManager.STATUS_FAILED -> {
-                onFailedDownload(config, downloadStatus)
-              }
-            }
-
-            if (localUri != null) {
-              // Prevent memory leaks from MediaScanner.
-              // Download successful, clean task after media scanning.
-              val paths = arrayOf(localUri)
-              MediaScannerConnection.scanFile(context, paths, null) { _, _ ->
-                stopTask(config.id)
-              }
-            } else {
-              // Download failed, clean task.
-              stopTask(config.id)
-            }
-          }
-        }
-      }
-    }
-
-    compatRegisterReceiver(applicationContext, downloadReceiver!!, filter, true)
-    isReceiverRegistered = true
-  }
-
-  // TAKEN FROM
-  // https://github.com/facebook/react-native/pull/38256/files\#diff-d5e21477eeadeb0c536d5870f487a8528f9a16ae928c397fec7b255805cc8ad3
-  private fun compatRegisterReceiver(
-    context: Context,
-    receiver: BroadcastReceiver,
-    filter: IntentFilter,
-    exported: Boolean
-  ) {
-    if (Build.VERSION.SDK_INT >= 34 && context.applicationInfo.targetSdkVersion >= 34) {
-      context.registerReceiver(
-        receiver,
-        filter,
-        if (exported) Context.RECEIVER_EXPORTED else Context.RECEIVER_NOT_EXPORTED
-      )
-    } else {
-      context.registerReceiver(receiver, filter)
-    }
-  }
-
-  private fun resumeTasks(downloadId: Long, config: RNBGDTaskConfig) {
-    Thread {
-      try {
-        var bytesDownloaded: Long = 0
-        var bytesTotal: Long = 0
-
-        if (!config.reportedBegin) {
-          val onBeginCallable = OnBegin(config, this::onBeginDownload)
-          val onBeginFuture = cachedExecutorPool.submit(onBeginCallable)
-          val onBeginState = onBeginFuture.get()
-          bytesTotal = onBeginState.expectedBytes
-
-          config.reportedBegin = true
-          downloadIdToConfig[downloadId] = config
-          saveDownloadIdToConfigMap()
-        }
-
-        val onProgressCallable = OnProgress(
-          config,
-          downloader,
-          downloadId,
-          bytesDownloaded,
-          bytesTotal,
-          this::onProgressDownload
-        )
-        val onProgressFuture = cachedExecutorPool.submit(onProgressCallable)
-        configIdToProgressFuture[config.id] = onProgressFuture
-      } catch (e: Exception) {
-        logE(NAME, "resumeTasks: ${Log.getStackTraceString(e)}")
-      }
-    }.start()
-  }
-
-  private fun removeTaskFromMap(downloadId: Long) {
-    synchronized(sharedLock) {
-      val config = downloadIdToConfig[downloadId]
-
-      if (config != null) {
-        configIdToDownloadId.remove(config.id)
-        progressReporter.clearDownloadState(config.id)
-        downloadIdToConfig.remove(downloadId)
-        saveDownloadIdToConfigMap()
-      }
-    }
-  }
-
-  /**
-   * Cleans up all state associated with a download.
-   * This consolidates cleanup logic that was previously duplicated across
-   * onComplete, onError, stopTask, and removeTaskFromMap.
-   *
-   * @param configId The config ID of the download to clean up
-   * @param downloadId Optional download ID for DownloadManager cleanup
-   * @param removePausedState Whether to remove paused state from downloader
-   */
-  private fun cleanupDownloadState(
-    configId: String,
-    downloadId: Long? = null,
-    removePausedState: Boolean = true
-  ) {
-    configIdToDownloadId.remove(configId)
-    configIdToHeaders.remove(configId)
-    configIdToMetadata.remove(configId)
-    configIdToIsAllowedOverMetered.remove(configId)
-    configIdToLastSnapshotMs.remove(configId)
-    progressReporter.clearDownloadState(configId)
-    // Drop any force-stop recovery snapshot for this download.
-    downloader.removeActiveDownloadSnapshot(configId)
-
-    if (downloadId != null) {
-      downloadIdToConfig.remove(downloadId)
-      saveDownloadIdToConfigMap()
-    }
-
-    if (removePausedState) {
-      downloader.removePausedState(configId)
-    }
-  }
-
-  /**
-   * Persist a recovery snapshot for an in-progress resumable download, throttled so
-   * the frequent progress callbacks don't write to storage on every buffer read.
-   * If the app is force-stopped, restoreRecoverableDownloads() uses this snapshot to
-   * surface the download again via getExistingDownloadTasks.
-   */
-  private fun maybeSnapshotActiveResumable(configId: String, bytesDownloaded: Long, bytesTotal: Long) {
-    val now = System.currentTimeMillis()
-    val last = configIdToLastSnapshotMs[configId] ?: 0L
-    if (now - last < DownloadConstants.RECOVERY_SNAPSHOT_INTERVAL_MS) {
-      return
-    }
-    configIdToLastSnapshotMs[configId] = now
-
-    // The active state lives in the foreground-service ResumableDownloader (Android < 14)
-    // or, on Android 14+, in the UIDT job. Check both so force-stop recovery works on
-    // every supported version.
-    val state = downloader.getActiveResumableDownloads()[configId]
-      ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-        UIDTDownloadJobService.getJobDownloadState(configId)
-      else null)
-      ?: return
-    val headers = configIdToHeaders[configId] ?: state.headers
-    val metadata = configIdToMetadata[configId] ?: "{}"
-    // Persisted fallback: the UIDT job extras survive process death for jobs the
-    // JobScheduler restarted in a fresh process; the download state carries the
-    // flag on the foreground-service path.
-    val persistedIsAllowedOverMetered =
-      (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-        UIDTDownloadJobService.getJobIsAllowedOverMetered(configId)
-      else null)
-        ?: state.isAllowedOverMetered
-
-    downloader.saveActiveDownloadSnapshot(
-      Downloader.PausedDownloadInfo(
-        configId = configId,
-        url = state.url,
-        destination = state.destination,
-        headers = headers,
-        bytesDownloaded = bytesDownloaded,
-        bytesTotal = bytesTotal,
-        metadata = metadata,
-        isAllowedOverMetered = resolveIsAllowedOverMetered(configId, persistedIsAllowedOverMetered)
-      )
-    )
   }
 
   fun download(options: ReadableMap) {
-    // Ensure event emitter is initialized before starting download
-    // This fixes issues on first app install where download() might be called
-    // before initialize() completes
-    ensureEventEmitterInitialized()
-
-    // Ensure download receiver is registered before starting download
-    // This fixes issues on first app install where download completion events
-    // might be missed if download() is called before initialize() completes
-    ensureReceiverRegistered()
-
-    val id = options.getString("id")
-    var url = options.getString("url")
-    val destination = options.getString("destination")
-    val headers = options.getMap("headers")
-    // Handle metadata - it should be a string, but handle object case defensively
-    val metadata = if (options.hasKey("metadata")) {
-      when (options.getType("metadata")) {
-        ReadableType.String -> options.getString("metadata")
-        ReadableType.Map -> {
-          // If passed as object, convert to JSON string properly
-          try {
-            val map = options.getMap("metadata")
-            ReadableConverters.toJsonObject(map)?.toString() ?: "{}"
-          } catch (e: Exception) {
-            logW(NAME, "Failed to convert metadata map to string: ${e.message}")
-            "{}"
-          }
-        }
-        else -> null
-      }
-    } else null
-
-    val progressIntervalScope = options.getInt("progressInterval")
-    val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
-    if (progressIntervalScope > 0 || progressMinBytesScope > 0) {
-      val newInterval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else progressReporter.getProgressInterval()
-      val newMinBytes = if (progressMinBytesScope > 0) progressMinBytesScope else progressReporter.getProgressMinBytes()
-      progressReporter.configure(newInterval, newMinBytes)
-      // Sync notification update interval with progress interval for Android 14+
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        UIDTDownloadJobService.setNotificationUpdateInterval(newInterval)
-      }
-      saveConfigMap()
-    }
-
-    val isAllowedOverRoaming = options.getBoolean("isAllowedOverRoaming")
-    // Use per-download setting if provided, otherwise fall back to global setting
-    val isAllowedOverMetered = if (options.hasKey("isAllowedOverMetered")) {
-      options.getBoolean("isAllowedOverMetered")
-    } else {
-      // Fall back to global allowsCellularAccess setting
-      storageManager.getBooleanSync("allowsCellularAccess", true)
-    }
-    // Use global notification setting instead of per-task setting
-    val isNotificationVisible = UIDTDownloadJobService.isNotificationsEnabled()
-
-    // Get maxRedirects parameter
-    var maxRedirects = 0
-    if (options.hasKey("maxRedirects")) {
-      maxRedirects = options.getInt("maxRedirects")
-    }
-
-    if (id == null || url == null || destination == null) {
-      logE(NAME, "download: id, url and destination must be set.")
-      return
-    }
-
-    // Resolve redirects if maxRedirects is specified
-    if (maxRedirects > 0) {
-      logD(NAME, "Resolving redirects for URL: $url (maxRedirects: $maxRedirects)")
-      url = RedirectResolver.resolve(url, maxRedirects, headers)
-      logD(NAME, "Final resolved URL: $url")
-    }
-
-    val request = DownloadManager.Request(Uri.parse(url))
-    request.setAllowedOverRoaming(isAllowedOverRoaming)
-    request.setAllowedOverMetered(isAllowedOverMetered)
-    request.setNotificationVisibility(
-      if (isNotificationVisible) DownloadManager.Request.VISIBILITY_VISIBLE
-      else DownloadManager.Request.VISIBILITY_HIDDEN
+    val id = requireString(options, "id")
+    val config = RNBGDTaskConfig(
+      id = id,
+      url = requireString(options, "url"),
+      destination = requireString(options, "destination"),
+      metadata = options.optionalString("metadata") ?: "{}",
+      headers = HeaderUtils.toMap(options.optionalMap("headers"))
     )
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-      request.setRequiresCharging(false)
-    }
+    downloadConfigs[id] = config
+    downloadProgressReporter.initializeDownload(id)
+    downloader.startDownload(config.id, config.url, config.destination, config.headers, downloadListener(config))
+  }
 
-    // Note: On Android 16+, we use ResumableDownloader with UIDT jobs instead of DownloadManager
-    // for better background execution support. See the Android 16+ check below in download path.
+  fun pauseTask(id: String) {
+    if (!downloader.pause(id)) throw IllegalArgumentException("Download task not found: $id")
+    downloadConfigs[id]?.state = DownloadConstants.TASK_SUSPENDED
+  }
 
-    // Add default headers to improve connection handling for slow-responding URLs
-    HeaderUtils.applyDefaultHeaders(request, headers)
+  fun resumeTask(id: String) {
+    val config = downloadConfigs[id] ?: throw IllegalArgumentException("Download task not found: $id")
+    if (!downloader.resume(id, downloadListener(config))) throw IllegalArgumentException("Download task is not paused: $id")
+    config.state = DownloadConstants.TASK_RUNNING
+  }
 
-    headers?.let {
-      val iterator = it.keySetIterator()
-      while (iterator.hasNextKey()) {
-        val headerKey = iterator.nextKey()
-        request.addRequestHeader(headerKey, it.getString(headerKey))
-      }
-    }
-
-    // DownloadManager requires external storage for downloads
-    // Use app's private external files directory: /storage/emulated/0/Android/data/<package>/files/
-    // This keeps files private to the app while being compatible with DownloadManager
-    val uuid = (System.currentTimeMillis() and 0xfffffff).toInt()
-    val extension = MimeTypeMap.getFileExtensionFromUrl(destination)
-    val filename = "$uuid.$extension"
-
-    // Get external files directory and validate it's a proper external storage path
-    val externalFilesDir = applicationContext.getExternalFilesDir(null)
-    val isValidExternalPath = externalFilesDir != null &&
-        (externalFilesDir.absolutePath.startsWith("/storage/") ||
-         externalFilesDir.absolutePath.startsWith("/sdcard/") ||
-         externalFilesDir.absolutePath.startsWith("/mnt/"))
-
-    // Save headers for potential pause/resume functionality
-    val headersMap = HeaderUtils.toMap(headers)
-    val metadataValue = metadata ?: "{}"
-
-    // Helper function to start download with DownloadManager and track state
-    fun startDownloadManagerDownload(downloadId: Long) {
-      val config = RNBGDTaskConfig(id, url, destination, metadataValue, isAllowedOverMetered = isAllowedOverMetered)
-      synchronized(sharedLock) {
-        // Clean up any stale state from previous downloads with the same ID
-        downloader.cleanupStaleState(id)
-        // Clear any stale progress data and initialize tracking for new download
-        progressReporter.clearDownloadState(id)
-        progressReporter.initializeDownload(id)
-        configIdToDownloadId[id] = downloadId
-        configIdToHeaders[id] = headersMap
-        configIdToMetadata[id] = metadataValue
-        configIdToIsAllowedOverMetered[id] = isAllowedOverMetered
-        downloadIdToConfig[downloadId] = config
-        saveDownloadIdToConfigMap()
-        resumeTasks(downloadId, config)
-      }
-    }
-
-    // Helper function to run the download through the library's own downloader:
-    // a UIDT job on Android 14+, the foreground service below that.
-    // Returns whether a mechanism took it; with allowServiceFallback = false a
-    // download that can't get a UIDT job comes back unstarted so the caller can
-    // try DownloadManager instead.
-    fun startWithResumableDownloader(allowServiceFallback: Boolean = true): Boolean {
-      val spec = Downloader.PausedDownloadInfo(
-        configId = id,
-        url = url,
-        destination = destination,
-        headers = headersMap,
-        bytesDownloaded = 0L,
-        bytesTotal = -1L,
-        metadata = metadataValue,
-        isAllowedOverMetered = isAllowedOverMetered
-      )
-      synchronized(sharedLock) {
-        // Clean up any stale state from previous downloads with the same ID
-        downloader.cleanupStaleState(id)
-        // Clear any stale progress data and initialize tracking for new download
-        progressReporter.clearDownloadState(id)
-        progressReporter.initializeDownload(id)
-        configIdToHeaders[id] = headersMap
-        configIdToMetadata[id] = metadataValue
-        configIdToIsAllowedOverMetered[id] = isAllowedOverMetered
-        // Persist an initial recovery snapshot right away: progress-driven
-        // snapshots only start with the first received byte, so without this a
-        // download parked at 0 bytes (e.g. waiting for an unmetered network)
-        // would vanish without a trace if the app is force-stopped.
-        downloader.saveActiveDownloadSnapshot(spec)
-        configIdToLastSnapshotMs[id] = System.currentTimeMillis()
-      }
-
-      val started = downloader.startResumableDownload(spec, resumableDownloadListener, allowServiceFallback)
-      if (!started) {
-        // Nothing took the download - drop the bookkeeping so the mechanism the
-        // caller tries next starts from a clean slate
-        synchronized(sharedLock) {
-          downloader.removeActiveDownloadSnapshot(id)
-          configIdToLastSnapshotMs.remove(id)
-        }
-      }
-      return started
-    }
-
-    // On Android 16+ (API 36), DownloadManager has strict path restrictions and throws
-    // SecurityException for app-specific external storage paths. Use ResumableDownloader instead.
-    if (Build.VERSION.SDK_INT >= 36) {
-      logD(NAME, "Android 16+ detected: Using ResumableDownloader to avoid DownloadManager path restrictions")
-      startWithResumableDownloader()
-      return
-    }
-
-    // On Android 14/15, prefer a UIDT job: it isn't subject to App Standby
-    // quotas, and it is the only path where the library manages the download's
-    // notification, so grouping, the completion notification, the Cancel action
-    // and per-download titles work for a fresh download instead of only after a
-    // pause/resume. DownloadManager stays as the fallback for when the job can't
-    // be scheduled - most importantly download() called from the background,
-    // where user-initiated jobs are refused.
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      if (startWithResumableDownloader(allowServiceFallback = false)) {
-        logD(NAME, "Android 14+: using a UIDT job for download: $id")
-        return
-      }
-      logD(NAME, "Android 14+: no UIDT job for $id, using DownloadManager")
-    }
-
-    if (isValidExternalPath) {
-      // Use DownloadManager with valid external storage path
-      // Download directly to final destination to avoid file duplication
-      val destFile = File(destination)
-      val parentDir = destFile.parentFile
-      if (parentDir != null && !parentDir.exists()) {
-        parentDir.mkdirs()
-      }
-      request.setDestinationUri(Uri.fromFile(destFile))
-      try {
-        startDownloadManagerDownload(downloader.download(request))
-      } catch (e: SecurityException) {
-        // Handle "Unsupported path" SecurityException on Android 16+
-        logW(NAME, "DownloadManager SecurityException (path not supported): ${e.message}")
-        logD(NAME, "Falling back to ResumableDownloader for download: $id")
-        startWithResumableDownloader()
-      }
-    } else {
-      // External files directory path is invalid or null
-      // Try setDestinationInExternalFilesDir as fallback, then ResumableDownloader if that fails
-      logW(NAME, "External files directory path may be invalid for DownloadManager: ${externalFilesDir?.absolutePath}")
-
-      try {
-        // Try standard setDestinationInExternalFilesDir - may work on some devices
-        request.setDestinationInExternalFilesDir(applicationContext, null, filename)
-        startDownloadManagerDownload(downloader.download(request))
-        logD(NAME, "Using setDestinationInExternalFilesDir for download: $id")
-      } catch (e: Exception) {
-        // DownloadManager failed - fall back to ResumableDownloader
-        // This handles OnePlus and other devices that return paths like /data/local/tmp/external/
-        logW(NAME, "DownloadManager failed with: ${e.message}")
-        logD(NAME, "Using ResumableDownloader as fallback for download: $id")
-        startWithResumableDownloader()
-      }
+  fun stopTask(id: String) {
+    downloader.cancel(id)
+    downloadProgressReporter.clearDownloadState(id)
+    downloadConfigs.remove(id)
+    synchronized(eventLock) {
+      pendingEvents.remove("download-progress:$id")
+      pendingEvents.remove("download:$id")
     }
   }
 
-  // Pause a download. If it's a DownloadManager download, this cancels it and saves state.
-  // If it's already using ResumableDownloader, it pauses the HTTP connection.
-  fun pauseTask(configId: String) {
-    synchronized(sharedLock) {
-      // First check if it's an active resumable download
-      if (downloader.isResumableDownload(configId)) {
-        // Get state before pausing - check both UIDT jobs and regular service
-        var state: ResumableDownloader.DownloadState? = null
-        var uidtIsAllowedOverMetered: Boolean? = null
-
-        // Check UIDT jobs first (Android 14+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-          state = UIDTDownloadJobService.getJobDownloadState(configId)
-          // Read from the job extras before pausing - pausing removes the job
-          // (and its extras) from the registry
-          uidtIsAllowedOverMetered = UIDTDownloadJobService.getJobIsAllowedOverMetered(configId)
-        }
-
-        // Fall back to regular service if not found in UIDT jobs
-        if (state == null) {
-          state = downloader.resumableDownloader.getState(configId)
-        }
-
-        // Pause the download
-        val paused = downloader.pauseResumable(configId)
-
-        if (paused && state != null) {
-          // Save to persistent storage so we can resume after app restart
-          val headers = configIdToHeaders[configId] ?: state.headers
-          val metadata = configIdToMetadata[configId] ?: "{}"
-
-          downloader.savePausedDownloadState(
-            Downloader.PausedDownloadInfo(
-              configId = configId,
-              url = state.url,
-              destination = state.destination,
-              headers = headers,
-              bytesDownloaded = state.bytesDownloaded.get(),
-              bytesTotal = state.bytesTotal,
-              metadata = metadata,
-              isAllowedOverMetered = resolveIsAllowedOverMetered(
-                configId,
-                uidtIsAllowedOverMetered ?: state.isAllowedOverMetered
-              )
-            )
-          )
-
-          // Now tracked as an explicit paused download - drop the recovery snapshot.
-          downloader.removeActiveDownloadSnapshot(configId)
-          configIdToLastSnapshotMs.remove(configId)
-
-          logD(NAME, "Paused resumable download: $configId (saved state: ${state.bytesDownloaded.get()}/${state.bytesTotal} bytes)")
-        }
-        return
-      }
-
-      // Otherwise, it's a DownloadManager download - pause by canceling and saving state
-      val downloadId = configIdToDownloadId[configId]
-      if (downloadId != null) {
-        val config = downloadIdToConfig[downloadId]
-        if (config != null) {
-          val headers = configIdToHeaders[configId] ?: emptyMap()
-          val metadata = configIdToMetadata[configId] ?: config.metadata
-          val isAllowedOverMetered = resolveIsAllowedOverMetered(configId, config.isAllowedOverMetered)
-
-          // Stop progress tracking
-          stopTaskProgress(configId)
-
-          // Pause the download (this cancels DownloadManager and saves state)
-          val paused = downloader.pause(downloadId, configId, config.url, config.destination, headers, metadata, isAllowedOverMetered)
-
-          if (paused) {
-            // Remove from DownloadManager tracking
-            downloadIdToConfig.remove(downloadId)
-            configIdToDownloadId.remove(configId)
-            saveDownloadIdToConfigMap()
-            logD(NAME, "Paused DownloadManager download: $configId")
-          }
-        }
-        return
-      }
-
-      // Finally, check for a UIDT job that is scheduled but not yet running -
-      // e.g. held pending by its unmetered-network constraint. Such a job is
-      // invisible to the branches above (no registry entry until onStartJob),
-      // and without this it would start downloading despite the user's pause
-      // once its network constraint is satisfied.
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        val pending = UIDTDownloadJobService.cancelPendingJob(applicationContext, configId)
-        if (pending != null) {
-          downloader.savePausedDownloadState(
-            Downloader.PausedDownloadInfo(
-              configId = configId,
-              url = pending.url,
-              destination = pending.destination,
-              headers = configIdToHeaders[configId] ?: pending.headers,
-              bytesDownloaded = pending.startByte,
-              bytesTotal = pending.totalBytes,
-              metadata = configIdToMetadata[configId] ?: pending.metadata,
-              isAllowedOverMetered = pending.isAllowedOverMetered
-            )
-          )
-          logD(NAME, "Paused pending UIDT job: $configId at byte ${pending.startByte}")
-        }
-      }
+  fun getExistingDownloadTasks(): WritableArray {
+    val result = Arguments.createArray()
+    downloadConfigs.values.forEach { config ->
+      val state = downloader.getState(config.id) ?: return@forEach
+      val task = Arguments.createMap()
+      task.putString("id", config.id)
+      task.putString("metadata", config.metadata)
+      task.putInt("state", if (state.isPaused.get()) DownloadConstants.TASK_SUSPENDED else DownloadConstants.TASK_RUNNING)
+      task.putDouble("bytesDownloaded", state.bytesDownloaded.get().toDouble())
+      task.putDouble("bytesTotal", state.bytesTotal.toDouble())
+      task.putInt("errorCode", config.errorCode)
+      task.putString("destination", config.destination)
+      result.pushMap(task)
     }
-  }
-
-  // Resume a paused download using HTTP Range headers via ResumableDownloader.
-  fun resumeTask(configId: String) {
-    synchronized(sharedLock) {
-      // First check if it's a paused UIDT job (Android 14+)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        if (UIDTDownloadJobService.isPausedJob(configId)) {
-          downloader.resumeResumable(configId, resumableDownloadListener)
-          logD(NAME, "Resumed paused UIDT job: $configId")
-          return
-        }
-      }
-
-      // Check if it's a paused resumable download in the foreground service
-      if (downloader.resumableDownloader.isPaused(configId)) {
-        downloader.resumeResumable(configId, resumableDownloadListener)
-        logD(NAME, "Resumed paused resumable download: $configId")
-        return
-      }
-
-      // Check if we have saved paused state from a DownloadManager download
-      if (downloader.isPaused(configId)) {
-        val resumed = downloader.resume(configId, resumableDownloadListener)
-        if (resumed) {
-          logD(NAME, "Resumed download via ResumableDownloader: $configId")
-        }
-        return
-      }
-    }
-  }
-
-  fun stopTask(configId: String) {
-    synchronized(sharedLock) {
-      // Stop progress tracking
-      stopTaskProgress(configId)
-
-      // Cancel any detached paused notification (Android 14+)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        UIDTDownloadJobService.cancelNotification(applicationContext, configId)
-      }
-
-      // Cancel resumable download if active
-      downloader.cancelResumable(configId)
-
-      // Cancel DownloadManager download if active and clean up
-      val downloadId = configIdToDownloadId[configId]
-      if (downloadId != null) {
-        downloader.cancel(downloadId)
-      }
-
-      // Clean up all download state
-      cleanupDownloadState(configId, downloadId)
-    }
-  }
-
-  /**
-   * Update headers for a paused download task.
-   * This allows changing auth tokens before resuming a download.
-   */
-  fun updateTaskHeaders(configId: String, headers: ReadableMap): Boolean {
-    return try {
-      synchronized(sharedLock) {
-        val headersMap = HeaderUtils.toMap(headers)
-
-        // Update the in-memory headers map
-        configIdToHeaders[configId] = headersMap
-
-        // Update paused download state if it exists
-        downloader.updatePausedDownloadHeaders(configId, headersMap)
-
-        logD(NAME, "Updated headers for task: $configId")
-        true
-      }
-    } catch (e: Exception) {
-      logE(NAME, "Failed to update task headers: ${Log.getStackTraceString(e)}")
-      false
-    }
-  }
-
-  fun getExistingDownloadTasks(): com.facebook.react.bridge.WritableArray {
-    val foundTasks = Arguments.createArray()
-    val processedIds = mutableSetOf<String>()
-
-    synchronized(sharedLock) {
-      // Phase 1: Query active downloads from DownloadManager
-      val query = DownloadManager.Query()
-      try {
-        downloader.downloadManager.query(query)?.use { cursor ->
-          if (cursor.moveToFirst()) {
-            do {
-              val downloadStatus = downloader.getDownloadStatus(cursor)
-              val downloadId = downloadStatus.getString("downloadId")?.toLong()
-
-              if (downloadId != null && downloadIdToConfig.containsKey(downloadId)) {
-                val config = downloadIdToConfig[downloadId]
-
-                if (config != null) {
-                  val status = downloadStatus.getInt("status")
-                  // Handle completed downloads - file is already at final destination
-                  if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    val localUri = downloadStatus.getString("localUri")
-                    if (localUri != null) {
-                      // Verify the file exists at the destination
-                      val destFile = File(config.destination)
-                      if (!destFile.exists()) {
-                        logE(NAME, "Completed download file not found at destination: ${config.destination}")
-                      }
-                    }
-                  }
-
-                  val params = Arguments.createMap()
-
-                  params.putString("id", config.id)
-                  params.putString("metadata", config.metadata)
-                  val state = stateMap[status] ?: 0
-                  params.putInt("state", state)
-
-                  val bytesDownloaded = downloadStatus.getDouble("bytesDownloaded")
-                  params.putDouble("bytesDownloaded", bytesDownloaded)
-                  val bytesTotal = downloadStatus.getDouble("bytesTotal")
-                  params.putDouble("bytesTotal", bytesTotal)
-                  val percent = if (bytesTotal > 0) bytesDownloaded / bytesTotal else 0.0
-
-                  foundTasks.pushMap(params)
-                  processedIds.add(config.id)
-                  configIdToDownloadId[config.id] = downloadId
-                  progressReporter.setPercent(config.id, percent)
-                }
-              } else if (downloadId != null) {
-                downloader.cancel(downloadId)
-              }
-            } while (cursor.moveToNext())
-          }
-        }
-      } catch (e: Exception) {
-        logE(NAME, "getExistingDownloadTasks: ${Log.getStackTraceString(e)}")
-      }
-
-      // Phase 2: Query UIDT jobs (Android 14+)
-      // On Android 14+, downloads may use UIDT instead of DownloadManager.
-      // Scheduled-but-not-yet-started jobs are included: they have no registry
-      // entry (that is filled in onStartJob), so without them a download waiting
-      // on its network constraint - or every job at all after a process restart -
-      // would be missing from the list while its transfer is still coming.
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        try {
-          val uidtJobs = UIDTDownloadJobService.getAllActiveJobs() +
-            UIDTDownloadJobService.getScheduledJobs(applicationContext)
-
-          for (job in uidtJobs) {
-            // Skip if already processed from DownloadManager
-            if (processedIds.contains(job.id)) {
-              continue
-            }
-
-            val params = Arguments.createMap()
-            params.putString("id", job.id)
-            params.putString("metadata", job.metadata)
-
-            val state = stateMap[job.status] ?: DownloadConstants.TASK_RUNNING
-            params.putInt("state", state)
-
-            params.putDouble("bytesDownloaded", job.bytesDownloaded.toDouble())
-            params.putDouble("bytesTotal", job.bytesTotal.toDouble())
-            params.putString("destination", job.destination)
-
-            val percent = if (job.bytesTotal > 0) job.bytesDownloaded.toDouble() / job.bytesTotal else 0.0
-
-            foundTasks.pushMap(params)
-            processedIds.add(job.id)
-            progressReporter.setPercent(job.id, percent)
-          }
-        } catch (e: Exception) {
-          logE(NAME, "getExistingDownloadTasks UIDT: ${Log.getStackTraceString(e)}")
-        }
-      }
-
-      // Phase 3: Add paused downloads (persisted across app restarts)
-      val pausedDownloads = downloader.getAllPausedDownloads()
-      for ((configId, pausedInfo) in pausedDownloads) {
-        if (processedIds.contains(configId)) {
-          continue
-        }
-
-        val params = Arguments.createMap()
-        params.putString("id", configId)
-        params.putString("metadata", pausedInfo.metadata)
-        params.putInt("state", DownloadConstants.TASK_SUSPENDED) // PAUSED state
-        params.putDouble("bytesDownloaded", pausedInfo.bytesDownloaded.toDouble())
-        params.putDouble("bytesTotal", pausedInfo.bytesTotal.toDouble())
-        params.putString("destination", pausedInfo.destination)
-
-        foundTasks.pushMap(params)
-        processedIds.add(configId)
-      }
-
-      // Phase 4: Add active resumable downloads (in-progress via ResumableDownloader).
-      // These run in the foreground service (Android < 14) and are invisible to
-      // DownloadManager, so without this phase getExistingDownloadTasks misses them
-      // while they are actively downloading (it only saw them once paused, via Phase 3).
-      // On Android 14+ active downloads run as UIDT jobs and are surfaced in Phase 2.
-      for ((configId, state) in downloader.getActiveResumableDownloads()) {
-        if (processedIds.contains(configId) || state.isCancelled.get()) {
-          continue
-        }
-
-        val params = Arguments.createMap()
-        params.putString("id", configId)
-        params.putString("metadata", configIdToMetadata[configId] ?: "{}")
-        params.putInt(
-          "state",
-          if (state.isPaused.get()) DownloadConstants.TASK_SUSPENDED else DownloadConstants.TASK_RUNNING
-        )
-
-        val bytesDownloaded = state.bytesDownloaded.get()
-        val bytesTotal = state.bytesTotal
-        params.putDouble("bytesDownloaded", bytesDownloaded.toDouble())
-        params.putDouble("bytesTotal", bytesTotal.toDouble())
-        params.putString("destination", state.destination)
-
-        val percent = if (bytesTotal > 0) bytesDownloaded.toDouble() / bytesTotal else 0.0
-        foundTasks.pushMap(params)
-        processedIds.add(configId)
-        progressReporter.setPercent(configId, percent)
-      }
-
-      logD(NAME, "getExistingDownloadTasks: found ${foundTasks.size()} tasks")
-    }
-
-    return foundTasks
-  }
-
-  @Suppress("UNUSED_PARAMETER")
-  fun addListener(eventName: String) {
-  }
-
-  @Suppress("UNUSED_PARAMETER")
-  fun removeListeners(count: Int) {
-  }
-
-  private fun onBeginDownload(configId: String, headers: WritableMap, expectedBytes: Long) {
-    eventEmitter.emitBegin(configId, headers, expectedBytes)
-  }
-
-  private fun onProgressDownload(configId: String, bytesDownloaded: Long, bytesTotal: Long) {
-    // Delegate all progress handling to ProgressReporter
-    // It handles threshold filtering, batching, and emission
-    progressReporter.reportProgress(configId, bytesDownloaded, bytesTotal)
-  }
-
-  private fun onSuccessfulDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
-    @Suppress("UNUSED_VARIABLE")
-    val localUri = downloadStatus.getString("localUri")
-
-    // File is already at the final destination - no need to move it
-    // Verify it exists at the expected location
-    val destinationFile = File(config.destination)
-    if (!destinationFile.exists()) {
-      logE(NAME, "Downloaded file not found at destination: ${config.destination}")
-      val newDownloadStatus = Arguments.createMap()
-      newDownloadStatus.putString("downloadId", downloadStatus.getString("downloadId"))
-      newDownloadStatus.putInt("status", DownloadManager.STATUS_FAILED)
-      newDownloadStatus.putInt("reason", DownloadManager.ERROR_FILE_ERROR)
-      newDownloadStatus.putString("reasonText", "Downloaded file not found at destination")
-      onFailedDownload(config, newDownloadStatus)
-      return
-    }
-
-    eventEmitter.emitComplete(
-      config.id,
-      config.destination,
-      downloadStatus.getDouble("bytesDownloaded").toLong(),
-      downloadStatus.getDouble("bytesTotal").toLong()
-    )
-  }
-
-  private fun onFailedDownload(config: RNBGDTaskConfig, downloadStatus: WritableMap) {
-    logE(
-      NAME, "onFailedDownload: " +
-          "${downloadStatus.getInt("status")}:" +
-          "${downloadStatus.getInt("reason")}:" +
-          downloadStatus.getString("reasonText")
-    )
-
-    val reason = downloadStatus.getInt("reason")
-    var reasonText = downloadStatus.getString("reasonText")
-
-    // Enhanced handling for ERROR_CANNOT_RESUME (1008)
-    if (reason == DownloadManager.ERROR_CANNOT_RESUME) {
-      logW(
-        NAME, "ERROR_CANNOT_RESUME detected for download: ${config.id}" +
-            ". This is a known Android DownloadManager issue with larger files. " +
-            "Consider restarting the download or using smaller file segments."
-      )
-
-      // Clean up the failed download entry
-      removeTaskFromMap(downloadStatus.getString("downloadId")?.toLong() ?: 0L)
-
-      // Provide more helpful error message
-      reasonText =
-        "ERROR_CANNOT_RESUME - Unable to resume download. This may occur with large files due to Android DownloadManager limitations. Try restarting the download."
-    }
-
-    eventEmitter.emitFailed(config.id, reasonText ?: "Unknown error", reason)
-  }
-
-  private fun saveDownloadIdToConfigMap() {
-    logD(NAME, "saveDownloadIdToConfigMap() called with ${downloadIdToConfig.size} entries")
-    synchronized(sharedLock) {
-      storageManager.saveDownloadIdToConfigMap(downloadIdToConfig)
-    }
-  }
-
-  private fun loadDownloadIdToConfigMap() {
-    logD(NAME, "loadDownloadIdToConfigMap() called")
-    synchronized(sharedLock) {
-      downloadIdToConfig = storageManager.loadDownloadIdToConfigMap()
-      logD(NAME, "loadDownloadIdToConfigMap() loaded ${downloadIdToConfig.size} entries")
-    }
-  }
-
-  private fun saveConfigMap() {
-    synchronized(sharedLock) {
-      storageManager.saveProgressConfig(
-        progressReporter.getProgressInterval(),
-        progressReporter.getProgressMinBytes()
-      )
-    }
-  }
-
-  private fun loadConfigMap() {
-    synchronized(sharedLock) {
-      val (interval, minBytes) = storageManager.loadProgressConfig()
-      if (interval > 0 || minBytes > 0) {
-        progressReporter.configure(interval, minBytes)
-        // Sync notification update interval with progress interval for Android 14+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-          UIDTDownloadJobService.setNotificationUpdateInterval(interval)
-        }
-      }
-    }
-  }
-
-  private fun stopTaskProgress(configId: String) {
-    val onProgressFuture = configIdToProgressFuture[configId]
-    if (onProgressFuture != null) {
-      onProgressFuture.cancel(true)
-      configIdToProgressFuture.remove(configId)
-    }
-    // Clear any batched progress report to prevent stale data from being emitted
-    // when a new download starts with the same configId
-    progressReporter.clearPendingReport(configId)
-  }
-
-  // ============= Upload methods =============
-
-  // Listener for upload events
-  private val uploadListener = object : Uploader.UploadListener {
-    override fun onBegin(id: String, expectedBytes: Long) {
-      synchronized(sharedLock) {
-        uploadConfigs[id]?.let { config ->
-          config.reportedBegin = true
-          config.bytesTotal = expectedBytes
-        }
-      }
-      uploadEventEmitter.emitBegin(id, expectedBytes)
-    }
-
-    override fun onProgress(id: String, bytesUploaded: Long, bytesTotal: Long) {
-      synchronized(sharedLock) {
-        uploadConfigs[id]?.let { config ->
-          config.bytesUploaded = bytesUploaded
-          config.bytesTotal = bytesTotal
-        }
-      }
-      // Use progress reporter for batching
-      uploadProgressReporter.reportProgress(id, bytesUploaded, bytesTotal)
-    }
-
-    override fun onComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long) {
-      synchronized(sharedLock) {
-        uploadConfigs[id]?.state = DownloadConstants.TASK_COMPLETED
-        uploadConfigs.remove(id)
-        // Remove from persistent storage on completion
-        storageManager.saveUploadConfigs(uploadConfigs)
-      }
-      uploadEventEmitter.emitComplete(id, responseCode, responseBody, bytesUploaded, bytesTotal)
-    }
-
-    override fun onError(id: String, error: String, errorCode: Int) {
-      synchronized(sharedLock) {
-        uploadConfigs[id]?.state = DownloadConstants.TASK_CANCELING
-        uploadConfigs.remove(id)
-        // Remove from persistent storage on error
-        storageManager.saveUploadConfigs(uploadConfigs)
-      }
-      uploadEventEmitter.emitFailed(id, error, errorCode)
-    }
+    return result
   }
 
   fun upload(options: ReadableMap) {
-    // Ensure event emitter is initialized
-    ensureEventEmitterInitialized()
-
-    val id = options.getString("id")
-    val url = options.getString("url")
-    val source = options.getString("source")
-    val method = if (options.hasKey("method")) options.getString("method") else "POST"
-    val metadata = if (options.hasKey("metadata")) {
-      when (options.getType("metadata")) {
-        ReadableType.String -> options.getString("metadata")
-        ReadableType.Map -> {
-          try {
-            val map = options.getMap("metadata")
-            ReadableConverters.toJsonObject(map)?.toString() ?: "{}"
-          } catch (e: Exception) {
-            logW(NAME, "Failed to convert metadata map to string: ${e.message}")
-            "{}"
-          }
-        }
-        else -> null
-      }
-    } else null
-
-    val fieldName = if (options.hasKey("fieldName")) options.getString("fieldName") else null
-    val mimeType = if (options.hasKey("mimeType")) options.getString("mimeType") else null
-    val headers = if (options.hasKey("headers")) {
-      val headersMap = options.getMap("headers")
-      val result = mutableMapOf<String, String>()
-      if (headersMap != null) {
-        val iterator = headersMap.keySetIterator()
-        while (iterator.hasNextKey()) {
-          val key = iterator.nextKey()
-          result[key] = headersMap.getString(key) ?: ""
-        }
-      }
-      result
-    } else null
-    val parameters = if (options.hasKey("parameters")) {
-      val paramsMap = options.getMap("parameters")
-      val result = mutableMapOf<String, String>()
-      if (paramsMap != null) {
-        val iterator = paramsMap.keySetIterator()
-        while (iterator.hasNextKey()) {
-          val key = iterator.nextKey()
-          result[key] = paramsMap.getString(key) ?: ""
-        }
-      }
-      result
-    } else null
-
-    // Progress settings
-    val progressIntervalScope = options.getInt("progressInterval")
-    val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
-    if (progressIntervalScope > 0 || progressMinBytesScope > 0) {
-      val newInterval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else uploadProgressReporter.getProgressInterval()
-      val newMinBytes = if (progressMinBytesScope > 0) progressMinBytesScope else uploadProgressReporter.getProgressMinBytes()
-      uploadProgressReporter.configure(newInterval, newMinBytes)
-    }
-
-    if (id == null || url == null || source == null) {
-      logE(NAME, "upload: id, url and source must be set.")
-      return
-    }
-
+    val id = requireString(options, "id")
     val config = RNBGDUploadTaskConfig(
       id = id,
-      url = url,
-      source = source,
-      metadata = metadata ?: "{}",
-      method = method ?: "POST",
-      headers = headers,
-      fieldName = fieldName,
-      mimeType = mimeType,
-      parameters = parameters
+      url = requireString(options, "url"),
+      source = requireString(options, "source"),
+      metadata = options.optionalString("metadata") ?: "{}",
+      method = options.optionalString("method") ?: "POST",
+      headers = HeaderUtils.toMap(options.optionalMap("headers")),
+      fieldName = options.optionalString("fieldName"),
+      mimeType = options.optionalString("mimeType"),
+      parameters = options.optionalMap("parameters")?.let(HeaderUtils::toMap)
     )
-
-    synchronized(sharedLock) {
-      uploadConfigs[id] = config
-      uploadProgressReporter.initializeDownload(id)
-      // Persist upload config for app restart recovery
-      storageManager.saveUploadConfigs(uploadConfigs)
-    }
-
-    uploader.startUpload(config, uploadListener)
+    uploadConfigs[id] = config
+    uploadProgressReporter.initializeDownload(id)
+    uploader.startUpload(config, uploadListener(config))
   }
 
-  fun pauseUploadTask(configId: String) {
-    synchronized(sharedLock) {
-      uploadConfigs[configId]?.state = DownloadConstants.TASK_SUSPENDED
-      // Persist state change
-      storageManager.saveUploadConfigs(uploadConfigs)
-    }
-    uploader.pause(configId)
-    logD(NAME, "Paused upload: $configId")
+  fun pauseUploadTask(id: String) {
+    if (!uploader.pause(id)) throw IllegalArgumentException("Upload task not found: $id")
+    uploadConfigs[id]?.state = DownloadConstants.TASK_SUSPENDED
   }
 
-  fun resumeUploadTask(configId: String) {
-    synchronized(sharedLock) {
-      uploadConfigs[configId]?.state = DownloadConstants.TASK_RUNNING
-      // Persist state change
-      storageManager.saveUploadConfigs(uploadConfigs)
-    }
-    uploader.resume(configId, uploadListener)
-    logD(NAME, "Resumed upload: $configId")
+  fun resumeUploadTask(id: String) {
+    val config = uploadConfigs[id] ?: throw IllegalArgumentException("Upload task not found: $id")
+    if (!uploader.resume(id, uploadListener(config))) throw IllegalArgumentException("Upload task is not paused: $id")
+    config.state = DownloadConstants.TASK_RUNNING
   }
 
-  fun stopUploadTask(configId: String) {
-    synchronized(sharedLock) {
-      uploadConfigs.remove(configId)
-      uploadProgressReporter.clearDownloadState(configId)
-      // Remove from persistent storage
-      storageManager.saveUploadConfigs(uploadConfigs)
+  fun stopUploadTask(id: String) {
+    uploader.cancel(id)
+    uploadProgressReporter.clearDownloadState(id)
+    uploadConfigs.remove(id)
+    synchronized(eventLock) {
+      pendingEvents.remove("upload-progress:$id")
+      pendingEvents.remove("upload:$id")
     }
-    uploader.cancel(configId)
-    logD(NAME, "Stopped upload: $configId")
   }
 
-  fun getExistingUploadTasks(): com.facebook.react.bridge.WritableArray {
-    val foundTasks = Arguments.createArray()
+  fun getExistingUploadTasks(): WritableArray {
+    val result = Arguments.createArray()
+    uploadConfigs.values.forEach { config ->
+      val state = uploader.getState(config.id) ?: return@forEach
+      val task = Arguments.createMap()
+      task.putString("id", config.id)
+      task.putString("metadata", config.metadata)
+      task.putInt("state", if (state.isPaused.get()) DownloadConstants.TASK_SUSPENDED else DownloadConstants.TASK_RUNNING)
+      task.putDouble("bytesUploaded", state.bytesUploaded.get().toDouble())
+      task.putDouble("bytesTotal", state.bytesTotal.toDouble())
+      task.putInt("errorCode", config.errorCode)
+      result.pushMap(task)
+    }
+    return result
+  }
 
-    synchronized(sharedLock) {
-      for ((id, config) in uploadConfigs) {
-        val uploadState = uploader.getState(id)
-        val params = Arguments.createMap()
-        params.putString("id", config.id)
-        params.putString("metadata", config.metadata)
+  private fun dispatchTaskEvent(name: String, payload: WritableMap) {
+    synchronized(eventLock) {
+      val family = if (name.startsWith("upload")) "upload" else "download"
+      val id = payload.getString("id") ?: return
+      val terminal = name.endsWith("Complete") || name.endsWith("Failed")
+      if (terminal) {
+        pendingEvents.remove("$family-progress:$id")
+        pendingEvents.put(name, "$family:$id", payload.copy())
+      }
 
-        val state = when {
-          uploadState?.isPaused?.get() == true -> DownloadConstants.TASK_SUSPENDED
-          uploadState?.isCancelled?.get() == true -> DownloadConstants.TASK_CANCELING
-          uploadState != null -> DownloadConstants.TASK_RUNNING
-          else -> config.state
+      val binding = runtimeBinding.current()
+      if (binding != null && readyFamilies.contains(family)) {
+        try {
+          binding.value.invoke(name, payload)
+          return
+        } catch (error: Exception) {
+          logW(NAME, "Failed to emit $name: ${error.message}")
         }
-        params.putInt("state", state)
+      }
 
-        val bytesUploaded = uploadState?.bytesUploaded?.get() ?: config.bytesUploaded
-        val bytesTotal = uploadState?.bytesTotal ?: config.bytesTotal
-        params.putDouble("bytesUploaded", bytesUploaded.toDouble())
-        params.putDouble("bytesTotal", bytesTotal.toDouble())
+      if (!terminal)
+        pendingEvents.put(name, "$family:$id", payload.copy())
+    }
+  }
 
-        foundTasks.pushMap(params)
+  private fun dispatchDownloadProgress(reports: WritableArray) = dispatchProgress("downloadProgress", "download", reports)
+
+  private fun dispatchUploadProgress(reports: WritableArray) = dispatchProgress("uploadProgress", "upload", reports)
+
+  private fun dispatchProgress(name: String, family: String, reports: WritableArray) {
+    synchronized(eventLock) {
+      val binding = runtimeBinding.current()
+      if (binding != null && readyFamilies.contains(family)) {
+        try {
+          binding.value.invoke(name, reports)
+          return
+        } catch (error: Exception) {
+          logW(NAME, "Failed to emit $name: ${error.message}")
+        }
+      }
+
+      for (index in 0 until reports.size()) {
+        val report = reports.getMap(index) ?: continue
+        val id = report.getString("id") ?: continue
+        pendingEvents.put(name, "$family-progress:$id", report.copy())
       }
     }
-
-    return foundTasks
   }
+
+  private fun requireString(options: ReadableMap, key: String): String =
+    options.optionalString(key)?.takeIf(String::isNotBlank)
+      ?: throw IllegalArgumentException("$key is required")
+
+  private fun ReadableMap.optionalString(key: String): String? =
+    if (hasKey(key) && !isNull(key)) getString(key) else null
+
+  private fun ReadableMap.optionalMap(key: String): ReadableMap? =
+    if (hasKey(key) && !isNull(key)) getMap(key) else null
 }

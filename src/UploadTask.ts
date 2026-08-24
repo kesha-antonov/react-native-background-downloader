@@ -16,7 +16,6 @@ import {
   UnsafeObject,
   Headers,
 } from './types'
-import { config } from './config'
 import { log } from './logger'
 
 // Import shared native module getter to avoid duplicating TurboModule lookup
@@ -153,22 +152,14 @@ export class UploadTask {
   async pause (): Promise<void> {
     log('UploadTask: pause', this.id)
     this.state = 'PAUSED'
-    const nativeModule = getNativeModule()
-    if (nativeModule.pauseUploadTask)
-      await nativeModule.pauseUploadTask(this.id)
-    else
-      log('UploadTask: pause not supported - native implementation missing')
+    await getNativeModule().pauseUploadTask(this.id)
   }
 
   async resume (): Promise<void> {
     log('UploadTask: resume', this.id)
     this.state = 'UPLOADING'
     this.errorCode = 0
-    const nativeModule = getNativeModule()
-    if (nativeModule.resumeUploadTask)
-      await nativeModule.resumeUploadTask(this.id)
-    else
-      log('UploadTask: resume not supported - native implementation missing')
+    await getNativeModule().resumeUploadTask(this.id)
   }
 
   start () {
@@ -184,26 +175,15 @@ export class UploadTask {
       return
     }
 
-    const nativeModule = getNativeModule()
-    if (!nativeModule.upload) {
-      log('UploadTask: start. Upload not supported - native implementation missing')
-      this.errorHandler?.({ error: 'Upload not supported - native implementation missing', errorCode: -3 })
-      return
-    }
-
     this.state = 'UPLOADING'
 
     // kick-off upload after returning the task
-    nativeModule.upload({
+    getNativeModule().upload({
       id: this.id,
       metadata: JSON.stringify(this.metadata),
-      progressInterval: config.progressInterval,
-      progressMinBytes: config.progressMinBytes,
       ...this.uploadParams,
       method: this.uploadParams.method ?? 'POST',
       headers: this.headersToUnsafeObject(this.uploadParams.headers),
-      isAllowedOverRoaming: this.uploadParams.isAllowedOverRoaming ?? false,
-      isAllowedOverMetered: this.uploadParams.isAllowedOverMetered ?? false,
     })
   }
 
@@ -211,11 +191,7 @@ export class UploadTask {
     log('UploadTask: stop', this.id)
 
     this.state = 'STOPPED'
-    const nativeModule = getNativeModule()
-    if (nativeModule.stopUploadTask)
-      await nativeModule.stopUploadTask(this.id)
-    else
-      log('UploadTask: stop not supported - native implementation missing')
+    await getNativeModule().stopUploadTask(this.id)
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {

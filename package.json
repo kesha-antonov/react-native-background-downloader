@@ -1,14 +1,11 @@
 {
   "name": "@anorak-games/react-native-background-downloader",
   "version": "4.6.1-anorak.2",
-  "description": "Background file downloads and uploads for React Native and Expo. Large files keep transferring on iOS and Android while your app is in the background or terminated. Pause/resume, progress events, TurboModules, TypeScript.",
+  "description": "Reliable process-owned native file downloads and uploads for React Native and Expo, with pause/resume, progress events, TurboModules, and TypeScript.",
   "keywords": [
     "react-native",
     "expo",
     "expo-plugin",
-    "background",
-    "background-download",
-    "background-upload",
     "download",
     "downloader",
     "upload",
@@ -16,6 +13,8 @@
     "file-download",
     "file-upload",
     "file-transfer",
+    "native-transfer",
+    "process-owned",
     "large-files",
     "resumable",
     "resumable-download",
@@ -25,13 +24,9 @@
     "android",
     "nsurlsession",
     "urlsession",
-    "downloadmanager",
-    "foreground-service",
     "turbomodule",
     "new-architecture",
-    "typescript",
-    "offline",
-    "offline-first"
+    "typescript"
   ],
   "repository": {
     "type": "git",
@@ -93,8 +88,7 @@
   "jest": {
     "preset": "react-native",
     "setupFiles": [
-      "./__mocks__/RNBackgroundDownloader.js",
-      "./__mocks__/NativeEventEmitter.js"
+      "./__mocks__/RNBackgroundDownloader.js"
     ],
     "roots": [
       "./__tests__"
@@ -142,7 +136,7 @@
     "typescript": "5.9.3"
   },
   "peerDependencies": {
-    "react-native": ">=0.57.0"
+    "react-native": ">=0.76.0"
   },
   "publishConfig": {
     "access": "public",

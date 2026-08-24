@@ -13,9 +13,6 @@ import java.util.concurrent.ConcurrentHashMap
  * - Time-based batching for efficient JS bridge calls
  * - Log throttling to reduce noise
  *
- * This consolidates progress reporting logic that was previously
- * duplicated across RNBackgroundDownloaderModuleImpl and ResumableDownloadService.
- *
  * @param onEmitProgress Callback to emit batched progress reports
  * @param bytesFieldName The field name for bytes progress (e.g., "bytesDownloaded" for downloads, "bytesUploaded" for uploads)
  */
@@ -27,9 +24,7 @@ class ProgressReporter(
         private const val TAG = "ProgressReporter"
     }
 
-    // Per-download tracking state
-    private val configIdToPercent = ConcurrentHashMap<String, Double>()
-    private val configIdToLastBytes = ConcurrentHashMap<String, Long>()
+    private val thresholds = ProgressThresholdTracker()
     private val progressReports = ConcurrentHashMap<String, WritableMap>()
 
     // Batching configuration
@@ -45,6 +40,7 @@ class ProgressReporter(
     fun configure(interval: Long, minBytes: Long) {
         progressInterval = interval
         progressMinBytes = minBytes
+        thresholds.minBytes = minBytes
     }
 
     /**
@@ -68,31 +64,12 @@ class ProgressReporter(
      * @param bytesTotal Total bytes to download (-1 if unknown)
      */
     fun reportProgress(configId: String, bytesDownloaded: Long, bytesTotal: Long) {
-        val prevPercent = configIdToPercent[configId] ?: 0.0
-        val prevBytes = configIdToLastBytes[configId] ?: 0L
-
-        // For unknown total (-1), use 0 for percent calculation
-        val effectiveTotal = if (bytesTotal > 0) bytesTotal else 0L
-        val percent = if (effectiveTotal > 0) bytesDownloaded.toDouble() / effectiveTotal else 0.0
-
-        // Check if we should report progress based on percentage OR bytes threshold
-        val percentThresholdMet = effectiveTotal > 0 &&
-            (percent - prevPercent > DownloadConstants.PROGRESS_REPORT_THRESHOLD)
-
-        // Only check bytes threshold if progressMinBytes > 0
-        val bytesThresholdMet = progressMinBytes > 0 &&
-            (bytesDownloaded - prevBytes >= progressMinBytes)
-
-        // Report progress if either threshold is met, or if total bytes unknown (for realtime streams)
-        // bytesTotal <= 0 means unknown size (-1) or zero
-        if (percentThresholdMet || bytesThresholdMet || bytesTotal <= 0) {
+        if (thresholds.shouldReport(configId, bytesDownloaded, bytesTotal)) {
             val params = Arguments.createMap()
             params.putString("id", configId)
             params.putDouble(bytesFieldName, bytesDownloaded.toDouble())
             params.putDouble("bytesTotal", bytesTotal.toDouble())
             progressReports[configId] = params
-            configIdToPercent[configId] = percent
-            configIdToLastBytes[configId] = bytesDownloaded
         }
 
         // Check if it's time to emit batched reports
@@ -136,8 +113,7 @@ class ProgressReporter(
      * @param configId The download identifier to clean up
      */
     fun clearDownloadState(configId: String) {
-        configIdToPercent.remove(configId)
-        configIdToLastBytes.remove(configId)
+        thresholds.clear(configId)
         progressReports.remove(configId)
     }
 
@@ -155,15 +131,45 @@ class ProgressReporter(
      * Set the percent tracking for a download (for restoring state).
      */
     fun setPercent(configId: String, percent: Double) {
-        configIdToPercent[configId] = percent
+        thresholds.setPercent(configId, percent)
     }
 
     /**
      * Initialize tracking for a new download.
      */
     fun initializeDownload(configId: String) {
-        configIdToPercent[configId] = 0.0
-        configIdToLastBytes[configId] = 0L
+        thresholds.initialize(configId)
+    }
+}
+
+internal class ProgressThresholdTracker(var minBytes: Long = 0) {
+    private val percents = ConcurrentHashMap<String, Double>()
+    private val lastBytes = ConcurrentHashMap<String, Long>()
+
+    fun shouldReport(id: String, bytes: Long, total: Long): Boolean {
+        val percent = if (total > 0) bytes.toDouble() / total else 0.0
+        val report = total <= 0 ||
+            percent - (percents[id] ?: 0.0) > DownloadConstants.PROGRESS_REPORT_THRESHOLD ||
+            minBytes > 0 && bytes - (lastBytes[id] ?: 0L) >= minBytes
+        if (report) {
+            percents[id] = percent
+            lastBytes[id] = bytes
+        }
+        return report
+    }
+
+    fun initialize(id: String) {
+        percents[id] = 0.0
+        lastBytes[id] = 0L
+    }
+
+    fun clear(id: String) {
+        percents.remove(id)
+        lastBytes.remove(id)
+    }
+
+    fun setPercent(id: String, percent: Double) {
+        percents[id] = percent
     }
 }
 

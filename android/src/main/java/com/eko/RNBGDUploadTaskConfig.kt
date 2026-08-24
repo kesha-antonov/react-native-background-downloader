@@ -2,7 +2,7 @@ package com.eko
 
 /**
  * Configuration class for upload tasks.
- * Stores all necessary info for an upload and its state.
+ * Stores the current-process state for an upload.
  */
 data class RNBGDUploadTaskConfig(
     val id: String,

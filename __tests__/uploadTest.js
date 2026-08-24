@@ -1,7 +1,6 @@
 import {
   createUploadTask,
   getExistingUploadTasks,
-  setConfig,
 } from '../src/index'
 import { UploadTask } from '../src/UploadTask'
 
@@ -112,12 +111,6 @@ test('upload task validates required fields', () => {
 })
 
 test('upload task accepts custom headers', () => {
-  setConfig({
-    headers: {
-      'X-Global-Header': 'global-value',
-    },
-  })
-
   const task = createUploadTask({
     id: 'test-headers',
     url: 'https://example.com/upload',
@@ -127,8 +120,6 @@ test('upload task accepts custom headers', () => {
     },
   })
 
-  // Global and custom headers should be merged
-  expect(task.uploadParams?.headers).toHaveProperty('X-Global-Header')
   expect(task.uploadParams?.headers).toHaveProperty('X-Custom-Header')
 })
 

@@ -1,15 +1,13 @@
 /**
- * Test for Android-specific pause/resume behavior
- * These tests ensure that pause/resume methods don't crash on Android,
- * even though the functionality is not supported.
+ * Pause and resume are implemented by both process-owned native engines.
  */
 
 import { createDownloadTask } from '../src/index'
-import { NativeModules } from 'react-native'
+import { TurboModuleRegistry } from 'react-native'
 
-const RNBackgroundDownloaderNative = NativeModules.RNBackgroundDownloader
+const RNBackgroundDownloaderNative = TurboModuleRegistry.getEnforcing('RNBackgroundDownloader')
 
-describe('Android pause/resume limitations', () => {
+describe('pause and resume', () => {
   let task
 
   beforeEach(() => {
@@ -21,31 +19,23 @@ describe('Android pause/resume limitations', () => {
     task.start()
   })
 
-  test('pause method should not crash on Android', () => {
-    // This should not throw an exception, even on Android
+  test('pause delegates to native', () => {
     expect(() => {
       task.pause()
     }).not.toThrow()
 
-    // The mock should still be called (the actual Android limitation
-    // is handled at the native level)
     expect(RNBackgroundDownloaderNative.pauseTask).toHaveBeenCalled()
   })
 
-  test('resume method should not crash on Android', () => {
-    // This should not throw an exception, even on Android
+  test('resume delegates to native', () => {
     expect(() => {
       task.resume()
     }).not.toThrow()
 
-    // The mock should still be called (the actual Android limitation
-    // is handled at the native level)
     expect(RNBackgroundDownloaderNative.resumeTask).toHaveBeenCalled()
   })
 
-  test('task state should be updated even if pause/resume is not supported', () => {
-    // Even if the native functionality doesn't work on Android,
-    // the JavaScript state should still be updated for consistency
+  test('task state is updated', () => {
     task.pause()
     expect(task.state).toBe('PAUSED')
 

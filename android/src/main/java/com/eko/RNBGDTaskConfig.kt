@@ -1,14 +1,11 @@
 package com.eko
 
-import java.io.Serializable
-
 data class RNBGDTaskConfig(
-    var id: String,
-    var url: String,
-    var destination: String,
-    var metadata: String = "{}",
-    var reportedBegin: Boolean = false,
-    // Nullable so configs persisted by older versions (key absent in JSON)
-    // load as null and fall back to true instead of Gson's default false.
-    var isAllowedOverMetered: Boolean? = null
-) : Serializable
+  val id: String,
+  val url: String,
+  val destination: String,
+  val metadata: String = "{}",
+  val headers: Map<String, String> = emptyMap(),
+  var state: Int = DownloadConstants.TASK_RUNNING,
+  var errorCode: Int = 0
+)

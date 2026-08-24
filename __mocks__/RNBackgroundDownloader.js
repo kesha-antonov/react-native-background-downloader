@@ -1,6 +1,6 @@
 /* eslint-disable */
 
-import { NativeModules, TurboModuleRegistry } from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
 
 // states:
 // 0 - Running
@@ -21,18 +21,12 @@ const eventCallbacks = {
 };
 
 const mockModule = {
-    addListener: jest.fn(),
-    removeListeners: jest.fn(),
     download: jest.fn(),
     pauseTask: jest.fn(),
     resumeTask: jest.fn(),
     stopTask: jest.fn(),
     setRuntimeReady: jest.fn().mockResolvedValue([]),
     acknowledgeRuntimeEvents: jest.fn(),
-    setLogsEnabled: jest.fn(),
-    setMaxParallelDownloads: jest.fn(),
-    setAllowsCellularAccess: jest.fn(),
-    setNotificationGroupingConfig: jest.fn(),
     TaskRunning: 0,
     TaskSuspended: 1,
     TaskCanceling: 2,
@@ -43,6 +37,7 @@ const mockModule = {
         TaskSuspended: 1,
         TaskCanceling: 2,
         TaskCompleted: 3,
+        isLoggingEnabled: false,
     }),
     getExistingDownloadTasks: jest.fn().mockImplementation(() => {
         const foundDownloads = [
@@ -92,6 +87,7 @@ const mockModule = {
         return Promise.resolve(foundDownloads);
     }),
     documents: '/tmp/documents',
+    isLoggingEnabled: false,
     // Event emitter methods for new architecture - store callbacks
     onDownloadBegin: jest.fn().mockImplementation((callback) => {
         eventCallbacks.downloadBegin = callback;
@@ -134,11 +130,7 @@ const mockModule = {
     }),
 };
 
-// Mock TurboModuleRegistry.get to return our mock module
-jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(mockModule);
-
-// Also set up NativeModules for fallback
-NativeModules.RNBackgroundDownloader = mockModule;
+jest.spyOn(TurboModuleRegistry, 'getEnforcing').mockReturnValue(mockModule);
 
 // Export helper to trigger events in tests
 export const emitEvent = (eventName, data) => {

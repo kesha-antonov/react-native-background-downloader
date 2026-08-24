@@ -15,12 +15,6 @@ object DownloadConstants {
     /** Timeout for reading HTTP response (milliseconds) */
     const val READ_TIMEOUT_MS = 30_000  // 30 seconds
 
-    /** Timeout for HEAD requests when fetching headers (milliseconds) */
-    const val HEAD_REQUEST_READ_TIMEOUT_MS = 60_000  // 60 seconds
-
-    /** Timeout for redirect resolution requests (milliseconds) */
-    const val REDIRECT_TIMEOUT_MS = 10_000  // 10 seconds
-
     // ========== Download Buffer ==========
 
     /** Size of buffer for reading download data (bytes) */
@@ -30,19 +24,6 @@ object DownloadConstants {
 
     /** Minimum percentage change required to report progress */
     const val PROGRESS_REPORT_THRESHOLD = 0.01  // 1%
-
-    /** Interval for throttling progress log messages (milliseconds) */
-    const val PROGRESS_LOG_INTERVAL_MS = 500L
-
-    /** Interval for persisting in-progress resumable download recovery snapshots (milliseconds) */
-    const val RECOVERY_SNAPSHOT_INTERVAL_MS = 2_000L
-
-    /**
-     * Grace period before classifying an IO error on an unmetered-only download (milliseconds).
-     * A socket abort caused by network loss/metering usually arrives before ConnectivityService
-     * updates the network's capabilities and delivers onLost - re-check after this delay.
-     */
-    const val UNMETERED_RECHECK_DELAY_MS = 3_000L
 
     // ========== HTTP Headers ==========
 
@@ -69,46 +50,10 @@ object DownloadConstants {
     /** Download completed successfully */
     const val TASK_COMPLETED = 3
 
-    // ========== Error Codes ==========
-
-    /** Device storage is full */
-    const val ERR_STORAGE_FULL = 0
-
-    /** No internet connection */
-    const val ERR_NO_INTERNET = 1
-
-    /** Missing write permission */
-    const val ERR_NO_WRITE_PERMISSION = 2
-
-    /** File not found on server */
-    const val ERR_FILE_NOT_FOUND = 3
-
-    /** Other/unknown error */
-    const val ERR_OTHERS = 100
-
-    // ========== Service Configuration ==========
-
-    /** Notification channel ID for foreground service */
-    const val NOTIFICATION_CHANNEL_ID = "resumable_download_channel"
-
-    /** Notification ID for foreground service */
-    const val NOTIFICATION_ID = 9999
-
-    /** Wake lock timeout (milliseconds) - 1 hour */
-    const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L
-
     /**
      * Transfers the library's own downloader runs at once by default, matching
      * the JS `maxParallelDownloads` default. Downloads over the limit wait for a
      * slot instead of each taking a thread and a socket of their own.
      */
     const val DEFAULT_MAX_PARALLEL_DOWNLOADS = 4
-
-    /**
-     * How long a download may wait for the download service to connect before it
-     * is failed. Binding normally completes in milliseconds; the wait only runs
-     * long when the system refused to start the service at all, and a download
-     * left parked there would never report anything to JS.
-     */
-    const val SERVICE_START_TIMEOUT_MS = 15_000L
 }

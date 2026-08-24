@@ -4159,8 +4159,6 @@ __metadata:
     react: "npm:19.1.0"
     react-native: "npm:0.81.5"
     react-native-gesture-handler: "npm:~2.28.0"
-    react-native-mmkv: "npm:^4.1.1"
-    react-native-nitro-modules: "npm:^0.33.1"
     react-native-reanimated: "npm:^4.2.1"
     react-native-root-siblings: "npm:^5.0.1"
     react-native-root-toast: "npm:^4.0.1"
@@ -6906,27 +6904,6 @@ __metadata:
     react: "*"
     react-native: "*"
   checksum: 10/8fb6d8ab7b953c7d7cec8c987cef24f1c5348a293a85cb49c7c53b54ef110c0ca746736ae730e297603c8c76020df912e93915fb17518c4f2f91143757177aba
-  languageName: node
-  linkType: hard
-
-"react-native-mmkv@npm:^4.1.1":
-  version: 4.1.1
-  resolution: "react-native-mmkv@npm:4.1.1"
-  peerDependencies:
-    react: "*"
-    react-native: "*"
-    react-native-nitro-modules: "*"
-  checksum: 10/d5e77790d8f033e5197e7155a9bd921445da33995af84edf46ee1fddf977651fe67563bcc669d9b924fef90b0b876e4a7d38fd2764846b43ad6dff8d00eb0f80
-  languageName: node
-  linkType: hard
-
-"react-native-nitro-modules@npm:^0.33.1":
-  version: 0.33.1
-  resolution: "react-native-nitro-modules@npm:0.33.1"
-  peerDependencies:
-    react: "*"
-    react-native: "*"
-  checksum: 10/2203c124434fffd35a43490e5367039891c8ed4a4fe836f44a4fb0d1166e30afc83f8ce743aa6bd8f6531c4b39b570e671dec5cd5db86c1ddbc5fa4e010e0e32
   languageName: node
   linkType: hard
 

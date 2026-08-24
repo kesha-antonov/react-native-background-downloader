@@ -30,56 +30,20 @@ const PAGES = [
   {
     id: 'intro',
     slug: '/',
-    title: 'React Native Background Downloader',
+    title: 'Reliable native transfers for React Native',
     sidebarLabel: 'Introduction',
     description:
-      'Download and upload large files in React Native and Expo apps on iOS and Android, continuing while the app is backgrounded or terminated by the OS.',
-    keywords: ['react native background download', 'expo background download', 'react native download large file'],
-    sections: ['✨ Features', '💡 Why?', '💡 Use Cases'],
-  },
-  {
-    id: 'comparison',
-    title: 'Comparison with other libraries',
-    sidebarLabel: 'Comparison',
-    description:
-      'How background transfers in this library compare with expo-file-system, react-native-blob-util and react-native-fs, including which of them survive an app restart.',
-    keywords: ['expo-file-system background download', 'react-native-blob-util vs', 'react native download in background'],
-    sections: ['⚖️ Comparison'],
-  },
-  {
-    id: 'installation',
-    title: 'Installation',
-    sidebarLabel: 'Installation',
-    description:
-      'Install the library in an Expo project with the config plugin, or in a bare React Native project on iOS and Android, including MMKV version selection.',
-    keywords: ['expo config plugin download', 'react native background downloader install'],
-    sections: ['📋 Requirements', '📦 Installation'],
-  },
-  {
-    id: 'usage',
-    title: 'Downloading files in the background',
-    sidebarLabel: 'Usage',
-    description:
-      'Start a background download, track progress, handle completion and errors, and re-attach to downloads that were still running after your app restarted.',
-    keywords: ['react native resume download after app killed', 'getExistingDownloadTasks', 'background download progress'],
-    sections: ['🚀 Usage'],
-  },
-  {
-    id: 'configuration',
-    title: 'Advanced configuration',
-    sidebarLabel: 'Configuration',
-    description:
-      'Configure parallel downloads, cellular and Wi-Fi restrictions, notifications, headers, progress intervals and other advanced options.',
-    keywords: ['download only on wifi react native', 'max parallel downloads ios'],
-    sections: ['⚙️ Advanced Configuration'],
+      'Process-owned downloads and uploads for React Native and Expo without background execution declarations.',
+    keywords: ['react native reliable download', 'expo native download', 'react native large file transfer'],
+    file: 'README.md',
   },
   {
     id: 'api',
     title: 'API reference',
     sidebarLabel: 'API reference',
     description:
-      'Full API reference: download, upload, checkForExistingDownloads, task events, configuration options and TypeScript types.',
-    keywords: ['react native background downloader api'],
+      'Download and upload task creation, controls, callbacks, reconciliation, and build-time configuration.',
+    keywords: ['react native file transfer api'],
     file: 'docs/API.md',
   },
   {
@@ -87,42 +51,17 @@ const PAGES = [
     title: 'Platform notes for iOS and Android',
     sidebarLabel: 'Platform notes',
     description:
-      'iOS and Android specifics: NSURLSession background sessions, DownloadManager, foreground services, Android 14 notification requirements and ProGuard rules.',
-    keywords: ['nsurlsession background download', 'android downloadmanager react native', 'android 14 foreground service download'],
+      'The process-owned execution model and declaration-free Android and iOS integration.',
+    keywords: ['react native process owned transfer', 'android download without foreground service'],
     file: 'docs/PLATFORM_NOTES.md',
-  },
-  {
-    id: 'troubleshooting',
-    title: 'Troubleshooting',
-    sidebarLabel: 'Troubleshooting',
-    description:
-      'Fixes for the most common problems: downloads not resuming, empty task lists after a restart, build failures and missing native setup steps.',
-    keywords: ['getExistingDownloadTasks returns empty', 'react native background download not working'],
-    sections: ['❓ Troubleshooting'],
-  },
-  {
-    id: 'example-app',
-    title: 'Example app',
-    sidebarLabel: 'Example app',
-    description: 'Run the bundled Expo example app to see background downloads and uploads working end to end.',
-    keywords: ['react native background downloader example'],
-    sections: ['🧪 Example App'],
   },
   {
     id: 'migration',
     title: 'Migration guide',
     sidebarLabel: 'Migration guide',
-    description: 'Upgrade between major versions, with the breaking changes and the code changes each one requires.',
-    keywords: ['react native background downloader migration', 'upgrade v3 to v4'],
+    description: 'Move from runtime configuration and background execution infrastructure to process-owned transfers.',
+    keywords: ['react native downloader migration', 'remove foreground service permission'],
     file: 'MIGRATION.md',
-  },
-  {
-    id: 'contributing',
-    title: 'Contributing',
-    sidebarLabel: 'Contributing',
-    description: 'Set up the repository for local development, run the tests, and open a pull request.',
-    keywords: ['contribute react native background downloader'],
-    sections: ['🤝 Contributing', '👥 Authors', '📄 License'],
   },
 ]
 
@@ -267,8 +206,8 @@ function rewriteLinks (markdown, pageId) {
   out = out.replace(/\]\(#([^)]+)\)/g, (match, anchor) => linkTo(key(anchor), pageId) ?? match)
 
   // Repository files that have no page of their own.
-  out = out.replace(/\]\(\.?\/?(LICENSE|CHANGELOG\.md)\)/g, `](${REPO}/blob/main/$1)`)
-  out = out.replace(/\]\(\.?\/?example\/?\)/g, `](${REPO}/tree/main/example)`)
+  out = out.replace(/\]\(\.?\/?(LICENSE|CHANGELOG\.md)\)/g, `](${REPO}/blob/anorak-main/$1)`)
+  out = out.replace(/\]\(\.?\/?example\/?\)/g, `](${REPO}/tree/anorak-main/example)`)
 
   return out
 }

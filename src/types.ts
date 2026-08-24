@@ -3,104 +3,6 @@ export type UnsafeObject = { [key: string]: string }
 
 export type Headers = Record<string, string | null>
 
-// External log callback for capturing logs in parent app
-export type LogCallback = (tag: string, message: string, ...args: unknown[]) => void
-
-/**
- * Configuration for notification text with pluralization support.
- * Use {count} placeholder for the number of downloads.
- */
-export interface NotificationTexts {
-  /** Title for individual download notification (default: "Download") */
-  downloadTitle?: string
-  /** Text shown when download is starting (default: "Starting download...") */
-  downloadStarting?: string
-  /** Text pattern for download progress. Use {progress} for percentage (default: "Downloading... {progress}%") */
-  downloadProgress?: string
-  /** Text shown when download is paused (default: "Paused") */
-  downloadPaused?: string
-  /** Text shown when download is finished (default: "Download complete") */
-  downloadFinished?: string
-  /** Label of the Cancel action on the progress notification (default: "Cancel").
-   * Android 14+ only, and only when `showCancelAction` is enabled */
-  downloadCancel?: string
-  /** Title for group summary notification (default: "Downloads") */
-  groupTitle?: string
-  /** Text pattern for group summary. Use {count} for number of downloads.
-   * Can be a string or function for pluralization (default: "{count} download(s) in progress") */
-  groupText?: string | ((count: number) => string)
-}
-
-/**
- * Mode for notification display when grouping is enabled.
- * - 'individual': Show all notifications (default, current behavior)
- * - 'summaryOnly': Show only summary notification, minimize individual ones
- */
-export type NotificationGroupingMode = 'individual' | 'summaryOnly'
-
-/**
- * Configuration for notifications grouping.
- */
-export interface NotificationsGroupingConfig {
-  /** Enable notification grouping (default: false) */
-  enabled: boolean
-  /** Mode for notification display (default: 'individual') */
-  mode?: NotificationGroupingMode
-  /** Custom notification texts with optional pluralization */
-  texts?: NotificationTexts
-}
-
-/**
- * iOS Data Protection level applied to the downloaded file (iOS only, ignored on Android).
- *
- * On iOS, files protected with `complete` become unreadable/unwritable while the device
- * is locked, which can make a background download fail to save when it finishes on a
- * locked device. The default `completeUntilFirstUserAuthentication` lets the file be
- * written while locked (after the first unlock since boot), which is what you almost
- * always want for background downloads.
- *
- * Maps to the NSFileProtection* constants.
- */
-export type IosDataProtection =
-  | 'complete'
-  | 'completeUnlessOpen'
-  | 'completeUntilFirstUserAuthentication'
-  | 'none'
-
-export interface Config {
-  headers?: Headers
-  progressInterval?: number
-  progressMinBytes?: number
-  isLogsEnabled?: boolean
-  logCallback?: LogCallback
-  maxParallelDownloads?: number
-  allowsCellularAccess?: boolean
-  /** Show download notifications (Android only, default: false). When false, creates minimal silent notifications (UIDT requires a notification) */
-  showNotificationsEnabled?: boolean
-  /**
-   * Post a "download complete" notification when a download finishes
-   * (Android 14+ only, default: false). Tapping it opens the saved file.
-   * Requires `showNotificationsEnabled`; ignored in `summaryOnly` grouping mode.
-   */
-  showCompletionNotification?: boolean
-  /**
-   * Add a Cancel button to the download notification (Android 14+ only, default: false).
-   * Tapping it stops the download and fires the task's `.error()` handler with
-   * `errorCode = -1`, so only enable it if your app handles that.
-   * Requires `showNotificationsEnabled`.
-   */
-  showCancelAction?: boolean
-  /** Configuration for notifications grouping on Android */
-  notificationsGrouping?: NotificationsGroupingConfig
-  /**
-   * Default iOS Data Protection level for downloaded files (iOS only).
-   * Default: 'completeUntilFirstUserAuthentication'. Can be overridden per task.
-   */
-  iosDataProtection?: IosDataProtection
-}
-
-export type SetConfig = (config: Partial<Config>) => void
-
 export type BeginHandlerParams = {
   expectedBytes: number
   headers: Headers
@@ -160,21 +62,6 @@ export type DownloadParams = {
   url: string
   destination: string
   headers?: Headers
-  isAllowedOverRoaming?: boolean
-  isAllowedOverMetered?: boolean
-  maxRedirects?: number
-  /** Group ID for notification grouping (only used when grouping is enabled) */
-  groupId?: string
-  /** Group name displayed in notification (only used when grouping is enabled) */
-  groupName?: string
-  /** Notification title for this download, overriding `groupName` and the
-   * configured `downloadTitle` text (Android 14+ only) */
-  notificationTitle?: string
-  /**
-   * iOS Data Protection level for this download's file (iOS only).
-   * Overrides the global `iosDataProtection` from setConfig.
-   */
-  iosDataProtection?: IosDataProtection
 }
 
 export interface DownloadTask {
@@ -184,8 +71,6 @@ export interface DownloadTask {
   errorCode: number
   bytesDownloaded: number
   bytesTotal: number
-  downloadParams?: DownloadParams
-
   begin: (handler: BeginHandler) => DownloadTask
   progress: (handler: ProgressHandler) => DownloadTask
   done: (handler: DoneHandler) => DownloadTask
@@ -196,7 +81,6 @@ export interface DownloadTask {
   doneHandler?: DoneHandler
   errorHandler?: ErrorHandler
 
-  setDownloadParams: (params: DownloadParams) => void
   start: () => void
   pause: () => Promise<void>
   resume: () => Promise<void>
@@ -213,8 +97,6 @@ export interface DownloadOption {
   destination: string
   headers?: Headers | undefined
   metadata?: object
-  isAllowedOverRoaming?: boolean
-  isAllowedOverMetered?: boolean
 }
 
 export type Download = (options: DownloadOption) => DownloadTask
@@ -283,8 +165,6 @@ export type UploadParams = {
   fieldName?: string
   mimeType?: string
   parameters?: Record<string, string>
-  isAllowedOverRoaming?: boolean
-  isAllowedOverMetered?: boolean
 }
 
 export interface UploadTask {
@@ -327,8 +207,6 @@ export interface UploadOption {
   fieldName?: string
   mimeType?: string
   parameters?: Record<string, string>
-  isAllowedOverRoaming?: boolean
-  isAllowedOverMetered?: boolean
 }
 
 export type Upload = (options: UploadOption) => UploadTask

@@ -1,9 +1,10 @@
 package com.eko
 
-import android.net.Network
+import android.system.Os
 import com.eko.utils.HeaderUtils
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -12,10 +13,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * A resumable downloader that supports pause/resume functionality using HTTP Range headers.
- * This is used as a fallback when the standard DownloadManager doesn't support pause/resume.
+ * A process-owned downloader with pause/resume support using HTTP Range headers.
  */
-class ResumableDownloader {
+class ResumableDownloader(
+  private val connectTimeoutMs: Int = DownloadConstants.CONNECT_TIMEOUT_MS,
+  private val readTimeoutMs: Int = DownloadConstants.READ_TIMEOUT_MS
+) {
 
   companion object {
     private const val TAG = "ResumableDownloader"
@@ -40,8 +43,9 @@ class ResumableDownloader {
 
   data class DownloadState(
     val id: String,
-    val url: String,
+    @Volatile var url: String,
     val destination: String,
+    val partialDestination: String,
     val headers: Map<String, String>,
     val isPaused: AtomicBoolean = AtomicBoolean(false),
     val isCancelled: AtomicBoolean = AtomicBoolean(false),
@@ -51,17 +55,19 @@ class ResumableDownloader {
     @Volatile var connection: HttpURLConnection? = null,
     @Volatile var inputStream: InputStream? = null,
     var hasReportedBegin: Boolean = false,
+    @Volatile var resumeValidator: ResumeValidator? = null,
+    val fileLock: Any = Any(),
     // Session counter to detect stale threads after pause/resume
     val sessionId: AtomicLong = AtomicLong(0),
-    // Whether this download may transfer over metered networks
-    val isAllowedOverMetered: Boolean = true,
-    // When set, the HTTP connection is opened on this specific network so an
-    // unmetered-only download can never leak onto a metered default network
-    @Volatile var network: Network? = null,
     // Kept so a download that had to wait for a concurrency slot can be started
     // later without the caller having to hand the listener over again
     @Volatile var listener: DownloadListener? = null
   )
+
+  sealed class ResumeValidator(val value: String) {
+    class ETag(value: String) : ResumeValidator(value)
+    class LastModified(value: String) : ResumeValidator(value)
+  }
 
   private val activeDownloads = ConcurrentHashMap<String, DownloadState>()
 
@@ -69,7 +75,7 @@ class ResumableDownloader {
   // the transfer holding its slot, so a restarted download's old thread can't
   // release the slot its replacement took. `waitingForSlot` is FIFO.
   private val transferLock = Any()
-  private val transferring = mutableMapOf<String, Long>()
+  private val transferring = mutableMapOf<String, DownloadState>()
   private val waitingForSlot = ArrayDeque<String>()
 
   interface DownloadListener {
@@ -81,11 +87,9 @@ class ResumableDownloader {
 
   /**
    * Start a new download or resume from a specific byte position.
-   * @param startByte The byte position to start from (for resuming paused DownloadManager downloads)
+   * @param startByte The byte position to start from.
    * @param totalBytes The total bytes if known (for resuming)
    */
-  // isAllowedOverMetered is deliberately not defaulted: a call site that forgets
-  // it must not compile, or the metered restriction silently reverts to allowed
   fun startDownload(
     id: String,
     url: String,
@@ -94,11 +98,9 @@ class ResumableDownloader {
     listener: DownloadListener,
     startByte: Long = 0,
     totalBytes: Long = -1,
-    isAllowedOverMetered: Boolean,
-    network: Network? = null
+    resumeValidator: ResumeValidator? = null
   ) {
-    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered)
-    state.network = network
+    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, resumeValidator)
     state.listener = listener
 
     beginOrQueueTransfer(state)
@@ -113,7 +115,7 @@ class ResumableDownloader {
     val sessionId = state.sessionId.get()
 
     synchronized(transferLock) {
-      if (transferring.size >= maxConcurrentTransfers) {
+      if (transferring.size >= maxConcurrentTransfers || transferring.containsKey(state.id)) {
         if (!waitingForSlot.contains(state.id)) {
           waitingForSlot.addLast(state.id)
         }
@@ -123,7 +125,7 @@ class ResumableDownloader {
         )
         return
       }
-      transferring[state.id] = sessionId
+      transferring[state.id] = state
     }
 
     startTransferThread(state, sessionId)
@@ -133,7 +135,7 @@ class ResumableDownloader {
     val listener = state.listener
     if (listener == null) {
       RNBackgroundDownloaderModuleImpl.logW(TAG, "No listener for ${state.id}, cannot start transfer")
-      releaseTransferSlot(state.id, sessionId)
+      releaseTransferSlot(state)
       return
     }
 
@@ -143,7 +145,7 @@ class ResumableDownloader {
       } finally {
         // The thread ends on every outcome - complete, error, pause, cancel and
         // stale-session exits - so this is the one place a slot is given back
-        releaseTransferSlot(state.id, sessionId)
+        releaseTransferSlot(state)
       }
     }
     state.thread = thread
@@ -155,13 +157,13 @@ class ResumableDownloader {
    * for one. Ignores a release from a superseded session: a restarted download
    * must not release the slot its replacement is holding.
    */
-  private fun releaseTransferSlot(id: String, sessionId: Long) {
+  private fun releaseTransferSlot(state: DownloadState) {
     var next: DownloadState? = null
     var nextSessionId = 0L
 
     synchronized(transferLock) {
-      if (transferring[id] != sessionId) return
-      transferring.remove(id)
+      if (transferring[state.id] !== state) return
+      transferring.remove(state.id)
 
       while (next == null && waitingForSlot.isNotEmpty()) {
         val candidateId = waitingForSlot.removeFirst()
@@ -171,7 +173,7 @@ class ResumableDownloader {
         if (transferring.containsKey(candidateId)) continue
 
         nextSessionId = candidate.sessionId.get()
-        transferring[candidateId] = nextSessionId
+        transferring[candidateId] = candidate
         next = candidate
       }
     }
@@ -185,28 +187,8 @@ class ResumableDownloader {
   }
 
   /**
-   * Register an unmetered-only download in a paused/waiting state WITHOUT
-   * starting the transfer. Used by the unmetered-network gate on Android < 14:
-   * the state is visible to pause/cancel/getState immediately, and the actual
-   * transfer is started later via resume() once a suitable network is available.
-   */
-  fun prepareWaitingDownload(
-    id: String,
-    url: String,
-    destination: String,
-    headers: Map<String, String>,
-    startByte: Long = 0,
-    totalBytes: Long = -1
-  ): DownloadState {
-    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, isAllowedOverMetered = false)
-    // Paused-like state so resume() can start the first transfer
-    state.isPaused.set(true)
-    return state
-  }
-
-  /**
-   * Cancel any existing download with the same ID, clean up a stale destination
-   * file, then create and register a fresh DownloadState (no thread started).
+   * Cancel any existing download with the same ID, then create and register a
+   * fresh DownloadState (no thread started).
    */
   private fun registerNewDownload(
     id: String,
@@ -215,46 +197,18 @@ class ResumableDownloader {
     headers: Map<String, String>,
     startByte: Long,
     totalBytes: Long,
-    isAllowedOverMetered: Boolean
+    resumeValidator: ResumeValidator?
   ): DownloadState {
-    // Cancel any existing download with the same ID first
-    val existingState = activeDownloads[id]
-    if (existingState != null) {
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling existing download before starting new one: $id")
-      existingState.isCancelled.set(true)
-      existingState.sessionId.incrementAndGet()
-      try {
-        existingState.inputStream?.close()
-        existingState.connection?.disconnect()
-      } catch (e: Exception) {
-        RNBackgroundDownloaderModuleImpl.logW(TAG, "Error cleaning up existing download: ${e.message}")
-      }
-      existingState.thread?.interrupt()
-      activeDownloads.remove(id)
-      // The replacement re-queues itself; the old entry would point at a state
-      // that is no longer registered
-      dropFromWaitingQueue(id)
-    }
-
-    // Download directly to destination file
-    val destFile = File(destination)
-
-    // Clean up any existing destination file if starting fresh (startByte == 0)
-    if (startByte == 0L && destFile.exists()) {
-      if (!destFile.delete()) {
-        RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete existing destination file: $destination")
-      } else {
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted existing destination file: $destination")
-      }
-    }
+    val partialFile = File("$destination.part")
 
     val state = DownloadState(
       id = id,
       url = url,
       destination = destination,
+      partialDestination = partialFile.absolutePath,
       headers = headers,
       bytesTotal = totalBytes,
-      isAllowedOverMetered = isAllowedOverMetered
+      resumeValidator = resumeValidator
     )
 
     // Set initial bytes downloaded (only for explicit resume with startByte > 0)
@@ -262,17 +216,36 @@ class ResumableDownloader {
       state.bytesDownloaded.set(startByte)
       state.hasReportedBegin = true // Don't report begin again for resumed downloads
 
-      // Ensure parent directories exist
-      val parentDir = destFile.parentFile
+      val parentDir = partialFile.parentFile
       if (parentDir != null && !parentDir.exists()) {
         if (!parentDir.mkdirs()) {
           RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories: ${parentDir.absolutePath}")
         }
       }
-      // We'll append to destination file at the start position
     }
 
-    activeDownloads[id] = state
+    val existingState = synchronized(transferLock) {
+      val existing = activeDownloads[id]
+      if (existing != null) {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Cancelling existing download before starting new one: $id")
+        existing.isCancelled.set(true)
+        existing.sessionId.incrementAndGet()
+        waitingForSlot.remove(id)
+      }
+      activeDownloads[id] = state
+      existing
+    }
+
+    if (existingState != null) {
+      try {
+        existingState.inputStream?.close()
+        existingState.connection?.disconnect()
+      } catch (e: Exception) {
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "Error cleaning up existing download: ${e.message}")
+      }
+      existingState.thread?.interrupt()
+    }
+
     return state
   }
 
@@ -358,15 +331,7 @@ class ResumableDownloader {
     // Interrupt the download thread to stop blocking I/O operations
     state.thread?.interrupt()
 
-    // Clean up partially downloaded destination file
-    val destFile = File(state.destination)
-    if (destFile.exists()) {
-      if (!destFile.delete()) {
-        RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partially downloaded file: ${state.destination}")
-      } else {
-        RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partially downloaded file: ${state.destination}")
-      }
-    }
+    deletePartialFile(state)
 
     // Remove from active downloads after setting cancelled flag
     activeDownloads.remove(id)
@@ -378,8 +343,6 @@ class ResumableDownloader {
 
   /**
    * Returns a snapshot of all currently tracked download states.
-   * Used by getExistingDownloadTasks to surface in-progress resumable downloads
-   * (which are not visible to DownloadManager).
    */
   fun getActiveDownloads(): Map<String, DownloadState> = activeDownloads.toMap()
 
@@ -390,7 +353,7 @@ class ResumableDownloader {
   fun getBytesTotal(id: String): Long = activeDownloads[id]?.bytesTotal ?: -1
 
   private fun downloadWithResume(state: DownloadState, listener: DownloadListener, expectedSessionId: Long) {
-    val result = executeDownload(state, listener, expectedSessionId)
+    val result = executeDownload(state, listener, expectedSessionId, 0)
 
     // Handle the result by notifying the listener
     when (result) {
@@ -410,7 +373,8 @@ class ResumableDownloader {
         RNBackgroundDownloaderModuleImpl.logD(TAG, "Download session invalidated: ${result.id}")
       }
       is DownloadResult.Error -> {
-        // Error already reported to listener in executeDownload
+        deletePartialFile(state)
+        activeDownloads.remove(result.id, state)
       }
     }
   }
@@ -419,7 +383,12 @@ class ResumableDownloader {
    * Execute the download and return a DownloadResult.
    * This method handles all download logic and returns a type-safe result.
    */
-  private fun executeDownload(state: DownloadState, listener: DownloadListener, expectedSessionId: Long): DownloadResult {
+  private fun executeDownload(
+    state: DownloadState,
+    listener: DownloadListener,
+    expectedSessionId: Long,
+    redirectCount: Int
+  ): DownloadResult {
     var connection: HttpURLConnection? = null
     var inputStream: InputStream? = null
     var outputStream: FileOutputStream? = null
@@ -436,15 +405,13 @@ class ResumableDownloader {
       }
 
       val url = URL(state.url)
-      // When the download is bound to a specific network (unmetered-network gate),
-      // open the connection on that network so bytes can't leak onto the metered
-      // default network. Otherwise use the default network.
-      connection = (state.network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
+      connection = url.openConnection() as HttpURLConnection
       // Store connection reference so it can be disconnected on cancel
       state.connection = connection
-      connection.connectTimeout = DownloadConstants.CONNECT_TIMEOUT_MS
-      connection.readTimeout = DownloadConstants.READ_TIMEOUT_MS
+      connection.connectTimeout = connectTimeoutMs
+      connection.readTimeout = readTimeoutMs
       connection.requestMethod = "GET"
+      connection.instanceFollowRedirects = false
 
       // Check again after connection setup
       if (state.sessionId.get() != expectedSessionId) {
@@ -461,11 +428,21 @@ class ResumableDownloader {
       for ((key, value) in state.headers) {
         connection.setRequestProperty(key, value)
       }
+      connection.setRequestProperty("Connection", "keep-alive")
+      connection.setRequestProperty("Keep-Alive", DownloadConstants.KEEP_ALIVE_HEADER_VALUE)
+      if (!HeaderUtils.hasUserAgent(state.headers))
+        connection.setRequestProperty("User-Agent", DownloadConstants.USER_AGENT)
 
-      // Add Range header for resuming
-      val startByte = state.bytesDownloaded.get()
+      var startByte = state.bytesDownloaded.get()
+      if (startByte > 0 && state.resumeValidator == null) {
+        RNBackgroundDownloaderModuleImpl.logW(TAG, "No entity validator for ${state.id}, restarting from the beginning")
+        resetPartialDownload(state)
+        startByte = 0
+      }
+
       if (startByte > 0) {
         connection.setRequestProperty("Range", "bytes=$startByte-")
+        connection.setRequestProperty("If-Range", state.resumeValidator!!.value)
         RNBackgroundDownloaderModuleImpl.logD(TAG, "Resuming from byte: $startByte")
       }
 
@@ -474,14 +451,13 @@ class ResumableDownloader {
       // Handle response
       when (responseCode) {
         HttpURLConnection.HTTP_OK -> {
-          // Full content - server doesn't support Range or this is a fresh download
-          state.bytesTotal = connection.contentLengthLong
-
-          // If we were trying to resume but server sent full content, reset
           if (startByte > 0) {
             RNBackgroundDownloaderModuleImpl.logW(TAG, "Server doesn't support Range headers, starting from beginning")
-            state.bytesDownloaded.set(0)
+            resetPartialDownload(state)
           }
+
+          state.bytesTotal = connection.contentLengthLong
+          state.resumeValidator = responseValidator(connection)
 
           // Collect headers
           val responseHeaders = HeaderUtils.extractResponseHeaders(connection)
@@ -492,15 +468,30 @@ class ResumableDownloader {
           }
         }
         HttpURLConnection.HTTP_PARTIAL -> {
-          // Partial content - resuming supported
           val contentRange = connection.getHeaderField("Content-Range")
-          if (contentRange != null) {
-            // Format: bytes start-end/total
-            val total = contentRange.substringAfter("/").toLongOrNull()
-            if (total != null) {
-              state.bytesTotal = total
+          val rangeStart = contentRange
+            ?.substringAfter("bytes ", "")
+            ?.substringBefore("-")
+            ?.toLongOrNull()
+          val responseValidator = responseValidator(connection)
+          val validResume = rangeStart == startByte &&
+            (startByte == 0L || validatorsMatch(state.resumeValidator, responseValidator))
+
+          if (!validResume) {
+            if (startByte > 0) {
+              RNBackgroundDownloaderModuleImpl.logW(TAG, "Server returned an unsafe resume response for ${state.id}, restarting from the beginning")
+              connection.disconnect()
+              resetPartialDownload(state)
+              return executeDownload(state, listener, expectedSessionId, redirectCount)
             }
+            val error = DownloadResult.httpError(state.id, responseCode, "Partial response did not start at byte zero")
+            listener.onError(state.id, error.message, error.errorCode)
+            return error
           }
+
+          state.resumeValidator = responseValidator
+          val total = contentRange?.substringAfter("/")?.toLongOrNull()
+          if (total != null) state.bytesTotal = total
 
           if (state.bytesTotal <= 0) {
             state.bytesTotal = startByte + connection.contentLengthLong
@@ -519,29 +510,39 @@ class ResumableDownloader {
         HttpURLConnection.HTTP_MOVED_TEMP,
         HttpURLConnection.HTTP_SEE_OTHER,
         307, 308 -> {
-          // Handle redirect
-          val newUrl = connection.getHeaderField("Location")
-          if (newUrl != null) {
-            connection.disconnect()
-            // Create new state with updated URL
-            // Note: We preserve bytesDownloaded since the redirect should point to the same resource.
-            // If the new server doesn't support Range headers, the HTTP_OK case above will reset it.
-            val newState = state.copyWithUrl(newUrl)
-            activeDownloads[state.id] = newState
-            return executeDownload(newState, listener, expectedSessionId)
+          if (redirectCount >= 10) {
+            val error = DownloadResult.httpError(state.id, responseCode, "Too many redirects")
+            listener.onError(state.id, error.message, error.errorCode)
+            return error
           }
+          val location = connection.getHeaderField("Location")
+          if (location.isNullOrBlank()) {
+            val error = DownloadResult.httpError(state.id, responseCode, "Redirect response is missing Location")
+            listener.onError(state.id, error.message, error.errorCode)
+            return error
+          }
+          connection.disconnect()
+          state.url = URL(url, location).toString()
+          return executeDownload(state, listener, expectedSessionId, redirectCount + 1)
         }
         416 -> {
           // Range Not Satisfiable - file might be complete or server doesn't support ranges
           RNBackgroundDownloaderModuleImpl.logW(TAG, "Range not satisfiable for ${state.id}, checking if complete")
 
           // The download might already be complete
-          val destFile = File(state.destination)
-          if (destFile.exists() && state.bytesTotal > 0 && destFile.length() >= state.bytesTotal) {
-            // File is complete
-            activeDownloads.remove(state.id)
+          val partialFile = File(state.partialDestination)
+          val validatorMatches = validatorsMatch(state.resumeValidator, responseValidator(connection))
+          if (partialFile.exists() && state.bytesTotal > 0 && partialFile.length() == state.bytesTotal && validatorMatches) {
+            if (!commitCompletedDownload(state, expectedSessionId))
+              return DownloadResult.SessionInvalidated(state.id)
             listener.onComplete(state.id, state.destination, state.bytesTotal, state.bytesTotal)
             return DownloadResult.Success(state.id, state.destination, state.bytesTotal, state.bytesTotal)
+          }
+
+          if (startByte > 0) {
+            connection.disconnect()
+            resetPartialDownload(state)
+            return executeDownload(state, listener, expectedSessionId, redirectCount)
           }
 
           val error = DownloadResult.httpError(state.id, responseCode, "Range not satisfiable")
@@ -568,10 +569,9 @@ class ResumableDownloader {
         return DownloadResult.Cancelled(state.id)
       }
 
-      val destFile = File(state.destination)
+      val partialFile = File(state.partialDestination)
 
-      // Create parent directories if needed
-      val parentDir = destFile.parentFile
+      val parentDir = partialFile.parentFile
       if (parentDir != null && !parentDir.exists()) {
         if (!parentDir.mkdirs()) {
           RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to create parent directories: ${parentDir.absolutePath}")
@@ -580,7 +580,14 @@ class ResumableDownloader {
 
       // Open in append mode if resuming
       val shouldAppend = startByte > 0 && responseCode == HttpURLConnection.HTTP_PARTIAL
-      outputStream = FileOutputStream(destFile, shouldAppend)
+      val destinationStream = synchronized(state.fileLock) {
+        if (state.sessionId.get() != expectedSessionId)
+          return DownloadResult.SessionInvalidated(state.id)
+        if (state.isCancelled.get())
+          return DownloadResult.Cancelled(state.id)
+        FileOutputStream(partialFile, shouldAppend)
+      }
+      outputStream = destinationStream
 
       val buffer = ByteArray(DownloadConstants.BUFFER_SIZE)
       var bytesRead: Int
@@ -597,7 +604,7 @@ class ResumableDownloader {
         }
         if (state.isPaused.get()) {
           RNBackgroundDownloaderModuleImpl.logD(TAG, "Download paused: ${state.id}")
-          outputStream.flush()
+          destinationStream.flush()
           return DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
         }
 
@@ -615,7 +622,7 @@ class ResumableDownloader {
           return DownloadResult.Cancelled(state.id)
         }
 
-        outputStream.write(buffer, 0, bytesRead)
+        destinationStream.write(buffer, 0, bytesRead)
         val newTotal = state.bytesDownloaded.addAndGet(bytesRead.toLong())
 
         // Only report progress if session is still valid
@@ -634,13 +641,25 @@ class ResumableDownloader {
         return DownloadResult.Cancelled(state.id)
       }
 
-      outputStream.flush()
+      destinationStream.flush()
 
-      // Download complete - file is already at destination
       val bytesDownloaded = state.bytesDownloaded.get()
       val bytesTotal = state.bytesTotal
+      val partialBytes = partialFile.length()
+      if (partialBytes != bytesDownloaded || (bytesTotal >= 0 && bytesDownloaded != bytesTotal)) {
+        val error = DownloadResult.Error(
+          state.id,
+          "Download ended with $partialBytes bytes on disk after receiving $bytesDownloaded of $bytesTotal bytes"
+        )
+        listener.onError(state.id, error.message, error.errorCode)
+        return error
+      }
 
-      activeDownloads.remove(state.id)
+      destinationStream.close()
+      outputStream = null
+      if (!commitCompletedDownload(state, expectedSessionId))
+        return DownloadResult.SessionInvalidated(state.id)
+
       listener.onComplete(state.id, state.destination, bytesDownloaded, bytesTotal)
       return DownloadResult.Success(state.id, state.destination, bytesDownloaded, bytesTotal)
 
@@ -651,7 +670,9 @@ class ResumableDownloader {
         state.sessionId.get() != expectedSessionId -> DownloadResult.SessionInvalidated(state.id)
         state.isCancelled.get() -> DownloadResult.Cancelled(state.id)
         state.isPaused.get() -> DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
-        else -> DownloadResult.SessionInvalidated(state.id) // Treat unexpected interrupt as session invalidation
+        else -> DownloadResult.fromException(state.id, e).also {
+          listener.onError(state.id, it.message, it.errorCode)
+        }
       }
     } catch (e: java.io.InterruptedIOException) {
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Download I/O interrupted: ${state.id}")
@@ -660,7 +681,9 @@ class ResumableDownloader {
         state.sessionId.get() != expectedSessionId -> DownloadResult.SessionInvalidated(state.id)
         state.isCancelled.get() -> DownloadResult.Cancelled(state.id)
         state.isPaused.get() -> DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
-        else -> DownloadResult.SessionInvalidated(state.id)
+        else -> DownloadResult.fromException(state.id, e).also {
+          listener.onError(state.id, it.message, it.errorCode)
+        }
       }
     } catch (e: Exception) {
       // Determine result based on state - expected exceptions vs real errors
@@ -696,23 +719,62 @@ class ResumableDownloader {
     }
   }
 
-  private fun DownloadState.copyWithUrl(url: String): DownloadState {
-    return DownloadState(
-      id = this.id,
-      url = url,
-      destination = this.destination,
-      headers = this.headers,
-      isPaused = this.isPaused,
-      isCancelled = this.isCancelled,
-      bytesDownloaded = this.bytesDownloaded,
-      bytesTotal = this.bytesTotal,
-      thread = this.thread,
-      connection = this.connection,
-      inputStream = this.inputStream,
-      hasReportedBegin = this.hasReportedBegin,
-      sessionId = this.sessionId,
-      isAllowedOverMetered = this.isAllowedOverMetered,
-      network = this.network
-    )
+  private fun promotePartialFile(state: DownloadState) = synchronized(state.fileLock) {
+    val partialFile = File(state.partialDestination)
+    if (!partialFile.exists()) throw IOException("Partial download file is missing")
+
+    val destinationFile = File(state.destination)
+    destinationFile.parentFile?.let { parent ->
+      if (!parent.exists() && !parent.mkdirs())
+        throw IOException("Could not create destination directory: ${parent.absolutePath}")
+    }
+
+    try {
+      Os.rename(partialFile.absolutePath, destinationFile.absolutePath)
+    } catch (error: Exception) {
+      throw IOException("Could not replace destination file", error)
+    }
+
+    if (partialFile.exists() && !partialFile.renameTo(destinationFile))
+      throw IOException("Could not replace destination file")
+  }
+
+  private fun commitCompletedDownload(state: DownloadState, expectedSessionId: Long): Boolean =
+    synchronized(transferLock) {
+      if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || activeDownloads[state.id] !== state)
+        return@synchronized false
+
+      promotePartialFile(state)
+      activeDownloads.remove(state.id, state)
+      true
+    }
+
+  private fun responseValidator(connection: HttpURLConnection): ResumeValidator? {
+    val etag = connection.getHeaderField("ETag")?.trim()
+    if (!etag.isNullOrEmpty() && !etag.startsWith("W/")) return ResumeValidator.ETag(etag)
+
+    val lastModified = connection.getHeaderField("Last-Modified")?.trim()
+    return lastModified?.takeIf(String::isNotEmpty)?.let { ResumeValidator.LastModified(it) }
+  }
+
+  private fun validatorsMatch(expected: ResumeValidator?, actual: ResumeValidator?): Boolean =
+    expected != null && actual != null && expected::class == actual::class && expected.value == actual.value
+
+  private fun resetPartialDownload(state: DownloadState) = synchronized(state.fileLock) {
+    state.bytesDownloaded.set(0)
+    state.bytesTotal = -1
+    state.resumeValidator = null
+    val partialFile = File(state.partialDestination)
+    if (partialFile.exists() && !partialFile.delete())
+      throw IOException("Could not discard unsafe partial download")
+  }
+
+  private fun deletePartialFile(state: DownloadState) = synchronized(state.fileLock) {
+    val partialFile = File(state.partialDestination)
+    if (!partialFile.exists()) return@synchronized
+    if (partialFile.delete())
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Deleted partial file: ${state.partialDestination}")
+    else
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "Failed to delete partial file: ${state.partialDestination}")
   }
 }
