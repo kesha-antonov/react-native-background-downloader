@@ -76,11 +76,8 @@ jobs:
           path: android/build/reports/tests/testDebugUnitTest
 
   ios:
-    name: iOS (${{ matrix.architecture }})
+    name: iOS
     runs-on: macos-latest
-    strategy:
-      matrix:
-        architecture: [new, old]
     steps:
       - uses: actions/checkout@v4
 
@@ -106,15 +103,8 @@ jobs:
         run: pod install
         working-directory: example/ios
         env:
-          RCT_NEW_ARCH_ENABLED: ${{ matrix.architecture == 'new' && '1' || '0' }}
-          RNBD_IOS_OLD_ARCH: ${{ matrix.architecture == 'old' && '1' || '0' }}
+          RCT_NEW_ARCH_ENABLED: '1'
 
       - name: Build the example
-        if: matrix.architecture == 'new'
         run: xcodebuild -workspace RNBDExample.xcworkspace -scheme RNBDExample -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-        working-directory: example/ios
-
-      - name: Build the library pod
-        if: matrix.architecture == 'old'
-        run: xcodebuild -workspace RNBDExample.xcworkspace -scheme react-native-background-downloader -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
         working-directory: example/ios
