@@ -11,6 +11,7 @@
         self.destination = dictionary[@"destination"];
         self.metadata = dictionary[@"metadata"] ?: @"{}";
         self.headers = dictionary[@"headers"] ?: @{};
+        self.expectedSha256 = dictionary[@"expectedSha256"];
         self.state = NSURLSessionTaskStateRunning;
         self.bytesTotal = -1;
     }

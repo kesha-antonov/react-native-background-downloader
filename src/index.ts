@@ -527,6 +527,9 @@ export function createDownloadTask ({ metadata, ...rest }: TaskInfo & DownloadPa
   if (!rest.id || !rest.url || !rest.destination)
     throw new Error('[RNBackgroundDownloader] id, url and destination are required')
 
+  if (rest.expectedSha256 !== undefined && !/^[0-9a-f]{64}$/.test(rest.expectedSha256))
+    throw new Error('[RNBackgroundDownloader] expectedSha256 must be 64 lowercase hexadecimal characters')
+
   rest.destination = rest.destination.replace('file://', '')
 
   const task = new DownloadTask({

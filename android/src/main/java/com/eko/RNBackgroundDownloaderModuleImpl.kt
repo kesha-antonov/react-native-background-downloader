@@ -202,11 +202,19 @@ class RNBackgroundDownloaderModuleImpl private constructor(initialContext: Conte
       url = requireString(options, "url"),
       destination = requireString(options, "destination"),
       metadata = options.optionalString("metadata") ?: "{}",
-      headers = HeaderUtils.toMap(options.optionalMap("headers"))
+      headers = HeaderUtils.toMap(options.optionalMap("headers")),
+      expectedSha256 = options.optionalString("expectedSha256")
     )
     downloadConfigs[id] = config
     downloadProgressReporter.initializeDownload(id)
-    downloader.startDownload(config.id, config.url, config.destination, config.headers, downloadListener(config))
+    downloader.startDownload(
+      config.id,
+      config.url,
+      config.destination,
+      config.headers,
+      downloadListener(config),
+      expectedSha256 = config.expectedSha256
+    )
   }
 
   fun pauseTask(id: String) {

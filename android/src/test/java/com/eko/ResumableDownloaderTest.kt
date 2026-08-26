@@ -58,6 +58,50 @@ class ResumableDownloaderTest {
     }
 
     @Test
+    fun `matching SHA-256 promotes the completed download`() {
+        server.enqueue(MockResponse().setBody("complete payload"))
+        val destination = tempFolder.newFile("integrity-success").apply { writeText("previous payload") }
+        val terminal = CountDownLatch(1)
+
+        downloader.startDownload(
+            "integrity-success",
+            server.url("/file").toString(),
+            destination.absolutePath,
+            emptyMap(),
+            listener(terminal),
+            expectedSha256 = "5c9da7276c55d7d713bc1fdcc69072cecd1c7b4fa5cd081581c65c724940d1a9"
+        )
+
+        assertTrue(terminal.await(5, TimeUnit.SECONDS))
+        assertEquals("complete payload", destination.readText())
+        assertFalse(File("${destination.absolutePath}.part").exists())
+        assertNull(downloader.getState("integrity-success"))
+    }
+
+    @Test
+    fun `mismatched SHA-256 preserves the destination and removes the partial file`() {
+        server.enqueue(MockResponse().setBody("complete payload"))
+        val destination = tempFolder.newFile("integrity-failure").apply { writeText("previous payload") }
+        val terminal = CountDownLatch(1)
+        var errorCode = 0
+
+        downloader.startDownload(
+            "integrity-failure",
+            server.url("/file").toString(),
+            destination.absolutePath,
+            emptyMap(),
+            listener(terminal, onError = { errorCode = it }),
+            expectedSha256 = "8810ad581e59f2bc3928b261707a71308f7e139eb04820366dc4d5c18d980225"
+        )
+
+        assertTrue(terminal.await(5, TimeUnit.SECONDS))
+        assertEquals(-1, errorCode)
+        assertEquals("previous payload", destination.readText())
+        assertFalse(File("${destination.absolutePath}.part").exists())
+        awaitUntil { downloader.getState("integrity-failure") == null }
+    }
+
+    @Test
     fun `HTTP error reports its status and releases its state`() {
         server.enqueue(MockResponse().setResponseCode(503).setBody("unavailable"))
         val terminal = CountDownLatch(1)

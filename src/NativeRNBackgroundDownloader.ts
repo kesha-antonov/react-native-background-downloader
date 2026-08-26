@@ -78,6 +78,7 @@ export interface Spec extends TurboModule {
     destination: string
     headers?: UnsafeObject
     metadata?: string
+    expectedSha256?: string
   }): void
 
   pauseTask(id: string): Promise<void>

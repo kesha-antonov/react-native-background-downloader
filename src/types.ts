@@ -62,6 +62,7 @@ export type DownloadParams = {
   url: string
   destination: string
   headers?: Headers
+  expectedSha256?: string
 }
 
 export interface DownloadTask {

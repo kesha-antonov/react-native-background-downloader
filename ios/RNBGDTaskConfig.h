@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *destination;
 @property (nonatomic, copy) NSString *metadata;
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *headers;
+@property (nonatomic, copy, nullable) NSString *expectedSha256;
 @property (nonatomic, assign) BOOL reportedBegin;
 @property (nonatomic, assign) int64_t bytesDownloaded;
 @property (nonatomic, assign) int64_t bytesTotal;

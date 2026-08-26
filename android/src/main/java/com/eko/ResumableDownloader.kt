@@ -3,11 +3,13 @@ package com.eko
 import android.system.Os
 import com.eko.utils.HeaderUtils
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -47,6 +49,7 @@ class ResumableDownloader(
     val destination: String,
     val partialDestination: String,
     val headers: Map<String, String>,
+    val expectedSha256: String?,
     val isPaused: AtomicBoolean = AtomicBoolean(false),
     val isCancelled: AtomicBoolean = AtomicBoolean(false),
     val bytesDownloaded: AtomicLong = AtomicLong(0),
@@ -98,9 +101,19 @@ class ResumableDownloader(
     listener: DownloadListener,
     startByte: Long = 0,
     totalBytes: Long = -1,
-    resumeValidator: ResumeValidator? = null
+    resumeValidator: ResumeValidator? = null,
+    expectedSha256: String? = null
   ) {
-    val state = registerNewDownload(id, url, destination, headers, startByte, totalBytes, resumeValidator)
+    val state = registerNewDownload(
+      id,
+      url,
+      destination,
+      headers,
+      startByte,
+      totalBytes,
+      resumeValidator,
+      expectedSha256
+    )
     state.listener = listener
 
     beginOrQueueTransfer(state)
@@ -197,7 +210,8 @@ class ResumableDownloader(
     headers: Map<String, String>,
     startByte: Long,
     totalBytes: Long,
-    resumeValidator: ResumeValidator?
+    resumeValidator: ResumeValidator?,
+    expectedSha256: String?
   ): DownloadState {
     val partialFile = File("$destination.part")
 
@@ -207,6 +221,7 @@ class ResumableDownloader(
       destination = destination,
       partialDestination = partialFile.absolutePath,
       headers = headers,
+      expectedSha256 = expectedSha256,
       bytesTotal = totalBytes,
       resumeValidator = resumeValidator
     )
@@ -533,6 +548,7 @@ class ResumableDownloader(
           val partialFile = File(state.partialDestination)
           val validatorMatches = validatorsMatch(state.resumeValidator, responseValidator(connection))
           if (partialFile.exists() && state.bytesTotal > 0 && partialFile.length() == state.bytesTotal && validatorMatches) {
+            verifyExpectedSha256(state, partialFile)
             if (!commitCompletedDownload(state, expectedSessionId))
               return DownloadResult.SessionInvalidated(state.id)
             listener.onComplete(state.id, state.destination, state.bytesTotal, state.bytesTotal)
@@ -657,6 +673,7 @@ class ResumableDownloader(
 
       destinationStream.close()
       outputStream = null
+      verifyExpectedSha256(state, partialFile)
       if (!commitCompletedDownload(state, expectedSessionId))
         return DownloadResult.SessionInvalidated(state.id)
 
@@ -755,6 +772,22 @@ class ResumableDownloader(
 
     val lastModified = connection.getHeaderField("Last-Modified")?.trim()
     return lastModified?.takeIf(String::isNotEmpty)?.let { ResumeValidator.LastModified(it) }
+  }
+
+  private fun verifyExpectedSha256(state: DownloadState, file: File) {
+    val expected = state.expectedSha256 ?: return
+    val digest = MessageDigest.getInstance("SHA-256")
+    FileInputStream(file).use { input ->
+      val buffer = ByteArray(64 * 1024)
+      while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        digest.update(buffer, 0, count)
+      }
+    }
+    val actual = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    if (actual != expected)
+      throw IOException("SHA-256 mismatch: expected $expected, received $actual")
   }
 
   private fun validatorsMatch(expected: ResumeValidator?, actual: ResumeValidator?): Boolean =

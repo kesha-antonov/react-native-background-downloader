@@ -6,6 +6,7 @@ data class RNBGDTaskConfig(
   val destination: String,
   val metadata: String = "{}",
   val headers: Map<String, String> = emptyMap(),
+  val expectedSha256: String? = null,
   var state: Int = DownloadConstants.TASK_RUNNING,
   var errorCode: Int = 0
 )

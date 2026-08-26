@@ -1,6 +1,6 @@
 {
   "name": "@anorak-games/react-native-background-downloader",
-  "version": "4.6.1-anorak.3",
+  "version": "4.6.1-anorak.4",
   "description": "Reliable process-owned native file downloads and uploads for React Native and Expo, with pause/resume, progress events, TurboModules, and TypeScript.",
   "keywords": [
     "react-native",

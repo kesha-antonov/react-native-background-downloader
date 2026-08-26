@@ -48,6 +48,10 @@ task
 task.start()
 ```
 
+Set `expectedSha256` to a lowercase SHA-256 hex digest to verify the completed temporary file
+before it replaces the destination. A mismatch calls the error handler and leaves the destination
+unchanged.
+
 `pause()`, `resume()`, and `stop()` return promises.
 
 ## Recover after an OTA update

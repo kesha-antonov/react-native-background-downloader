@@ -31,6 +31,35 @@ test('start download', () => {
   expect(RNBackgroundDownloaderNative.download).toHaveBeenCalled()
 })
 
+test('passes an expected SHA-256 digest to native', () => {
+  const expectedSha256 = 'a'.repeat(64)
+  createDownloadTask({
+    id: 'testIntegrity',
+    url: 'test',
+    destination: 'test',
+    expectedSha256,
+  }).start()
+
+  expect(RNBackgroundDownloaderNative.download).toHaveBeenLastCalledWith(
+    expect.objectContaining({ expectedSha256 })
+  )
+})
+
+test('rejects malformed expected SHA-256 digests', () => {
+  expect(() => createDownloadTask({
+    id: 'testInvalidIntegrity',
+    url: 'test',
+    destination: 'test',
+    expectedSha256: 'ABC',
+  })).toThrow('expectedSha256 must be 64 lowercase hexadecimal characters')
+  expect(() => createDownloadTask({
+    id: 'testEmptyIntegrity',
+    url: 'test',
+    destination: 'test',
+    expectedSha256: '',
+  })).toThrow('expectedSha256 must be 64 lowercase hexadecimal characters')
+})
+
 test('begin event', () => {
   const mockedHeaders = { Etag: '123' }
   return new Promise(resolve => {

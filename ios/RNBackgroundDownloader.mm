@@ -1,5 +1,6 @@
 #import "RNBackgroundDownloader.h"
 #import "RNBGDTaskConfig.h"
+#import <CommonCrypto/CommonDigest.h>
 #import "RNBGDUploadTaskConfig.h"
 #import <React/RCTBridge.h>
 
@@ -13,6 +14,34 @@ static NSString *const IOSProgressMinBytesKey = @"RNBackgroundDownloaderProgress
 static const NSTimeInterval RequestTimeoutSeconds = 30;
 static const NSTimeInterval ResourceTimeoutSeconds = 60 * 60 * 24;
 static const float ProgressReportThreshold = 0.01f;
+
+static NSString *RNBGDSha256ForFile(NSURL *url, NSError **error)
+{
+    NSFileHandle *handle = [NSFileHandle fileHandleForReadingFromURL:url error:error];
+    if (!handle) return nil;
+
+    CC_SHA256_CTX context;
+    CC_SHA256_Init(&context);
+    while (true) {
+        @autoreleasepool {
+            NSData *data = [handle readDataUpToLength:64 * 1024 error:error];
+            if (!data) {
+                [handle closeFile];
+                return nil;
+            }
+            if (data.length == 0) break;
+            CC_SHA256_Update(&context, data.bytes, (CC_LONG)data.length);
+        }
+    }
+    [handle closeFile];
+
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(digest, &context);
+    NSMutableString *result = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (NSUInteger index = 0; index < CC_SHA256_DIGEST_LENGTH; index++)
+        [result appendFormat:@"%02x", digest[index]];
+    return result;
+}
 
 @interface RNBackgroundDownloader ()
 + (RNBackgroundDownloader *)sharedCoordinator;
@@ -365,6 +394,7 @@ RCT_EXPORT_MODULE();
                  destination:(NSString *)destination
                     metadata:(NSString *)metadata
                      headers:(NSDictionary *)headers
+              expectedSha256:(nullable NSString *)expectedSha256
 {
     if (!identifier || !url || !destination) {
         [self emitDownloadFailure:identifier error:@"id, url and destination are required" code:NSURLErrorBadURL metadata:metadata];
@@ -388,13 +418,15 @@ RCT_EXPORT_MODULE();
         for (NSString *key in headers ?: @{}) [request setValue:headers[key] forHTTPHeaderField:key];
 
         NSURLSessionDownloadTask *task = [urlSession downloadTaskWithRequest:request];
-        RNBGDTaskConfig *config = [[RNBGDTaskConfig alloc] initWithDictionary:@{
+        NSMutableDictionary *configDictionary = [@{
             @"id": identifier,
             @"url": url,
             @"destination": destination,
             @"metadata": metadata ?: @"{}",
             @"headers": headers ?: @{}
-        }];
+        } mutableCopy];
+        if (expectedSha256) configDictionary[@"expectedSha256"] = expectedSha256;
+        RNBGDTaskConfig *config = [[RNBGDTaskConfig alloc] initWithDictionary:configDictionary];
         downloadConfigsByTask[@(task.taskIdentifier)] = config;
         downloadConfigsById[identifier] = config;
         downloadTasksById[identifier] = task;
@@ -413,7 +445,8 @@ RCT_EXPORT_MODULE();
                                 url:options.url()
                         destination:options.destination()
                            metadata:options.metadata() ? options.metadata() : @"{}"
-                            headers:options.headers() ? (NSDictionary *)options.headers() : @{}];
+                            headers:options.headers() ? (NSDictionary *)options.headers() : @{}
+                     expectedSha256:options.expectedSha256() ? options.expectedSha256() : nil];
 }
 
 - (void)pauseTask:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
@@ -546,6 +579,14 @@ RCT_EXPORT_MODULE();
             NSInteger status = ((NSHTTPURLResponse *)task.response).statusCode;
             if (status < 200 || status >= 300)
                 error = [NSError errorWithDomain:NSURLErrorDomain code:status userInfo:@{ NSLocalizedDescriptionKey: [NSHTTPURLResponse localizedStringForStatusCode:status] }];
+        }
+
+        if (!error && config.expectedSha256) {
+            NSString *actualSha256 = RNBGDSha256ForFile(location, &error);
+            if (!error && ![actualSha256 isEqualToString:config.expectedSha256]) {
+                NSString *message = [NSString stringWithFormat:@"SHA-256 mismatch: expected %@, received %@", config.expectedSha256, actualSha256];
+                error = [NSError errorWithDomain:@"RNBackgroundDownloader" code:-1 userInfo:@{ NSLocalizedDescriptionKey: message }];
+            }
         }
 
         if (!error) {
