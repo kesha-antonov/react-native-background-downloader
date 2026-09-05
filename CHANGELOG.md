@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.6.2
+
+### 🐛 Bug Fixes
+
+- **Android: the library could not be built at all under AGP 9 (`Cannot add extension with name 'kotlin'`) ([#178](https://github.com/kesha-antonov/react-native-background-downloader/pull/178)):** Android Gradle Plugin 9 ships built-in Kotlin support and turns it on by default, so AGP registers the `kotlin` extension itself. `android/build.gradle` applied `kotlin-android` unconditionally on top of that, and the two collide - configuration fails before a single file is compiled, with either "Cannot add extension with name 'kotlin', as there is an extension already registered with that name" or "The 'kotlin-android' plugin is no longer required for Kotlin support since AGP 9.0". There was no consumer-side workaround short of patching the file, since setting `android.builtInKotlin=false` project-wide just to build one dependency is not a reasonable ask - and that escape hatch is removed in AGP 10 anyway. The plugin is now applied only when nothing has registered the `kotlin` extension yet, which tests the condition that actually fails rather than an AGP version number: AGP 8 applies it exactly as before, AGP 9 with `android.builtInKotlin=false` still applies it, and AGP 10 needs no special case. Nothing changes on any currently supported toolchain - verified against the example app on AGP 8.11.0, where the extension is absent, `kotlin-android` is applied as before, and `compileDebugKotlin` and the Android unit tests run unchanged. Thanks to [@gabrieldonadel](https://github.com/gabrieldonadel), who found this in a sweep of 1000 React Native libraries against the AGP 9 defaults, where 269 of the 281 failures were this one collision
+
 ## v4.6.1
 
 ### 🐛 Bug Fixes
