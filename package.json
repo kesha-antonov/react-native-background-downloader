@@ -1,6 +1,6 @@
 {
   "name": "@kesha-antonov/react-native-background-downloader",
-  "version": "4.6.1",
+  "version": "4.6.2",
   "description": "Background file downloads and uploads for React Native and Expo. Large files keep transferring on iOS and Android while your app is in the background or terminated. Pause/resume, progress events, TurboModules, TypeScript.",
   "keywords": [
     "react-native",
