@@ -32,7 +32,7 @@
 <h3 align="center">Support my work</h3>
 
 <p align="center">
-  <a href="https://cryptoc-app.web.app/"><img src="https://cryptoc-app.web.app/img/icon.png" width="88" height="88" alt="cryptoc app icon" /></a>
+  <a href="https://cryptoc-app.web.app/"><img src="https://cryptoc-app.web.app/img/icon.png?v=2" width="88" height="88" alt="cryptoc app icon" /></a>
 </p>
 
 <p align="center">
