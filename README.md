@@ -60,6 +60,8 @@
 </tr>
 </table>
 
+<hr />
+
 <p align="center">
   <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
 </p>
