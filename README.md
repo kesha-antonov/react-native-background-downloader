@@ -66,8 +66,6 @@
 
 <hr />
 
----
-
 ## ✨ Features
 
 - 📥 **Background Downloads** - Downloads continue even when app is in background or terminated by the OS
