@@ -27,9 +27,24 @@
   <a href="https://kesha-antonov.github.io/react-native-background-downloader/troubleshooting">Troubleshooting</a>
 </p>
 
+<hr />
+
+<h3 align="center">Support my work</h3>
+
 <p align="center">
-  <sub>Maintained by <a href="https://github.com/kesha-antonov">Kesha Antonov</a>, who also builds <a href="https://cryptoc-app.web.app/"><strong>cryptoc</strong></a> - a crypto portfolio app with home screen and Watch widgets.</sub>
+  <a href="https://cryptoc-app.web.app/"><img src="https://cryptoc-app.web.app/img/icon.png" width="88" height="88" alt="cryptoc app icon" /></a>
 </p>
+
+<p align="center">
+  <strong>cryptoc</strong> - your crypto portfolio on the home screen, lock screen and Apple&nbsp;Watch.<br />
+  No account, no exchange API keys, no ads. Downloading it is what pays for the time that goes into these libraries.
+</p>
+
+<p align="center">
+  <a href="https://apps.apple.com/app/cryptoc/id1333169178"><img height="40" src="https://cryptoc-app.web.app/img/appstore.svg" alt="Download on the App Store" /></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=co.ssoul.CryptoC"><img height="59" src="https://cryptoc-app.web.app/img/googleplay.png" alt="Get it on Google Play" /></a>
+</p>
+
+<hr />
 
 <p align="center">
   <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
