@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.6.3
+
+No runtime changes - `src/` and the Expo config plugin are identical to v4.6.2.
+
+### 📦 Other Changes
+
+- **Releases publish from CI through npm trusted publishing.** The tarball now carries provenance - a signed, verifiable link back to the workflow run that built it - and there is no npm token stored in the repository to leak or rotate
+- Documentation site and README refreshed
+
 ## v4.6.2
 
 ### 🐛 Bug Fixes
