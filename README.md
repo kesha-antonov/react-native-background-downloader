@@ -31,6 +31,7 @@
   <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
 </p>
 
+<!-- cryptoc-promo:start -->
 <hr />
 
 <table align="center">
@@ -65,6 +66,7 @@
 </table>
 
 <hr />
+<!-- cryptoc-promo:end -->
 
 ## ✨ Features
 
