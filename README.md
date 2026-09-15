@@ -28,6 +28,10 @@
 </p>
 
 <p align="center">
+  <sub>Maintained by <a href="https://github.com/kesha-antonov">Kesha Antonov</a>, who also builds <a href="https://cryptoc-app.web.app/"><strong>cryptoc</strong></a> - a crypto portfolio app with home screen and Watch widgets.</sub>
+</p>
+
+<p align="center">
   <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
 </p>
 
@@ -1123,6 +1127,8 @@ yarn ios  # or yarn android
 Maintained by [Kesha Antonov](https://github.com/kesha-antonov)
 
 Based on [react-native-background-downloader](https://github.com/ekolabs/react-native-background-downloader) by [Elad Gil](https://github.com/ptelad) (unmaintained since 2019)
+
+I also build **[cryptoc](https://cryptoc-app.web.app/)** - a crypto portfolio app with home screen, lock screen and Watch widgets, no account and no exchange API keys.
 
 > Please note that this project is maintained in free time. If you find it helpful, please consider [becoming a sponsor](https://github.com/sponsors/kesha-antonov).
 
