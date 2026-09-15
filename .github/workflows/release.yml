@@ -30,19 +30,19 @@ jobs:
 
       - run: yarn install --immutable
 
-      - run: yarn lint
+      # app.plugin.js requires plugin/build/index.js, which does not exist on a
+      # clean checkout, so the plugin has to be built before anything loads it.
+      - name: Build the Expo config plugin
+        run: yarn build-plugin
+
+      - name: Build
+        run: yarn build
 
       - run: yarn typecheck
 
       - run: yarn test
 
-      - name: Build
-        run: yarn build
-
-      # The Expo config plugin is a second build output and is published
-      # alongside lib/, so it has to exist before npm packs the tarball.
-      - name: Build the Expo config plugin
-        run: yarn build-plugin
+      - run: yarn lint
 
       # Authenticated by npm trusted publishing: the id-token permission above
       # lets npm exchange this run's OIDC token for a short-lived credential,
