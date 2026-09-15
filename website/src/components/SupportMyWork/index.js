@@ -5,7 +5,7 @@ const SITE = 'https://cryptoc-app.web.app'
 const IOS = 'https://apps.apple.com/app/cryptoc/id1333169178'
 const PLAY = 'https://play.google.com/store/apps/details?id=co.ssoul.CryptoC'
 
-export default function SupportMyWork() {
+export default function SupportMyWork () {
   return (
     <aside className={styles.band}>
       <div className={styles.inner}>
