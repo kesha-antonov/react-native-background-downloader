@@ -5,6 +5,7 @@ import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, Up
 import { config, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import { log } from './logger'
 import { getNotificationTextsForNative } from './notifications'
+import { tasksMap, uploadTasksMap } from './tasks'
 import type { Spec } from './NativeRNBackgroundDownloader'
 
 type RNBackgroundDownloaderModule = Spec & {
@@ -69,8 +70,6 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
 }
 
 const MIN_PROGRESS_INTERVAL = 250
-const tasksMap = new Map<string, DownloadTask>()
-const uploadTasksMap = new Map<string, UploadTask>()
 
 interface DownloadBeginEvent {
   id: string

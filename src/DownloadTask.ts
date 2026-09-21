@@ -18,6 +18,7 @@ import {
 } from './types'
 import { config } from './config'
 import { log } from './logger'
+import { tasksMap } from './tasks'
 
 // Import shared native module getter to avoid duplicating TurboModule lookup
 // This is lazily imported to avoid circular dependency issues at module load time
@@ -203,6 +204,9 @@ export class DownloadTask {
 
     this.state = 'STOPPED'
     await getNativeModule().stopTask(this.id)
+    // No event follows a stop, so nothing else would release the task
+    if (tasksMap.get(this.id) === this)
+      tasksMap.delete(this.id)
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {
