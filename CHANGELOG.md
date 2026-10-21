@@ -1,5 +1,11 @@
 # Changelog
 
+## v4.6.4
+
+### 🐛 Bug Fixes
+
+- **A stopped task was never released from memory ([#180](https://github.com/kesha-antonov/react-native-background-downloader/pull/180)):** tasks leave the internal task map only on a `done` or `error` event, and neither arrives after `stop()` - the native side drops the task's state first. Every task stopped mid-download stayed in memory with its callbacks until the app restarted. A task now removes itself once the native stop resolves, and `UploadTask.stop()` does the same. Thanks to [@rostwolke](https://github.com/rostwolke)
+
 ## v4.6.3
 
 No runtime changes - `src/` and the Expo config plugin are identical to v4.6.2.
