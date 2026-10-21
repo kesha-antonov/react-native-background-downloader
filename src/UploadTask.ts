@@ -18,6 +18,7 @@ import {
 } from './types'
 import { config } from './config'
 import { log } from './logger'
+import { uploadTasksMap } from './tasks'
 
 // Import shared native module getter to avoid duplicating TurboModule lookup
 // This is lazily imported to avoid circular dependency issues at module load time
@@ -194,10 +195,14 @@ export class UploadTask {
 
     this.state = 'STOPPED'
     const nativeModule = getNativeModule()
-    if (nativeModule.stopUploadTask)
+    if (nativeModule.stopUploadTask) {
       await nativeModule.stopUploadTask(this.id)
-    else
+      // No event follows a stop, so nothing else would release the task
+      if (uploadTasksMap.get(this.id) === this)
+        uploadTasksMap.delete(this.id)
+    } else {
       log('UploadTask: stop not supported - native implementation missing')
+    }
   }
 
   tryParseJson (metadata?: string | Metadata | object): Metadata | null {

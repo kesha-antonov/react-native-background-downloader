@@ -346,6 +346,26 @@ test('stop', () => {
   expect(RNBackgroundDownloaderNative.stopTask).toHaveBeenCalled()
 })
 
+test('a stopped task is released', async () => {
+  const done = jest.fn()
+  const stopDT = createDownloadTask({
+    id: 'testStopRelease',
+    url: 'test',
+    destination: 'test',
+  }).done(done)
+  stopDT.start()
+
+  await stopDT.stop()
+  // The library no longer holds the task, so a late event for its id reaches nothing
+  emitEvent('downloadComplete', {
+    id: 'testStopRelease',
+    location: 'test',
+    bytesDownloaded: 1,
+    bytesTotal: 1,
+  })
+  expect(done).not.toHaveBeenCalled()
+})
+
 test('getExistingDownloadTasks', () => {
   return getExistingDownloadTasks()
     .then(foundDownloads => {
