@@ -528,6 +528,7 @@ RCT_EXPORT_METHOD(setAllowsCellularAccess:(BOOL)allows) {
     NSString *metadata = options.metadata() ? options.metadata() : @"";
     NSDictionary *headers = options.headers() ? (NSDictionary *)options.headers() : nil;
     NSString *dataProtection = options.iosDataProtection() ? options.iosDataProtection() : nil;
+    BOOL allowsCellularAccess = options.isAllowedOverMetered();
 
     if (options.progressInterval().has_value()) {
         progressInterval = options.progressInterval().value() / 1000.0;
@@ -549,6 +550,8 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     NSString *metadata = options[@"metadata"] ?: @"";
     NSDictionary *headers = options[@"headers"];
     NSString *dataProtection = options[@"iosDataProtection"];
+    NSNumber *isAllowedOverMetered = options[@"isAllowedOverMetered"];
+    BOOL allowsCellularAccess = isAllowedOverMetered == nil || [isAllowedOverMetered boolValue];
 
     NSNumber *progressIntervalScope = options[@"progressInterval"];
     if (progressIntervalScope) {
@@ -577,6 +580,10 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:url]];
+    // NOTE: iOS may not allow a request to restrict cellular access further
+    // than its session allows.
+    // https://developer.apple.com/documentation/foundation/nsmutableurlrequest/allowscellularaccess
+    request.allowsCellularAccess = allowsCellularAccess;
     // Query in the getExistingDownloadTasks function.
     [request setValue:identifier forHTTPHeaderField:@"configId"];
     if (headers != nil) {
@@ -819,6 +826,10 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                     if (taskConfig != nil && taskConfig.bytesDownloaded > 0) {
                         DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] using updated headers with Range for %@", identifier);
                         NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
+                        // Keep the original request's cellular access
+                        if (task.originalRequest != nil) {
+                            request.allowsCellularAccess = task.originalRequest.allowsCellularAccess;
+                        }
                         [request setValue:identifier forHTTPHeaderField:@"configId"];
                         for (NSString *headerKey in updatedHeaders) {
                             [request setValue:[updatedHeaders valueForKey:headerKey] forHTTPHeaderField:headerKey];
@@ -1563,6 +1574,10 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
             // Build a fresh request replicating original headers
             NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
+            // Keep the original request's cellular access
+            if (task.originalRequest != nil) {
+                request.allowsCellularAccess = task.originalRequest.allowsCellularAccess;
+            }
             // Reapply original request headers if available (including our internal identifier header)
             NSDictionary *originalHeaders = task.originalRequest.allHTTPHeaderFields;
             if (originalHeaders != nil) {
