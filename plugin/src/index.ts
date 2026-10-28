@@ -165,33 +165,43 @@ function addObjCSupport (appDelegateContents: string): string {
   return appDelegateContents
 }
 
-function addSwiftSupport (appDelegateContents: string): string {
+export function addSwiftSupport (appDelegateContents: string): string {
   // For Swift, we need to add the method to the AppDelegate class
   // The import should be handled by the bridging header
 
+  // Remove the method if an older version of this plugin added it outside the AppDelegate class
+  appDelegateContents = appDelegateContents.replace(
+    /\n[ \t]*(?:public\s+)?(?:override\s+)?func application\(\s*_ application: UIApplication,\s*handleEventsForBackgroundURLSession[\s\S]*?\n[ \t]*\}\n/g,
+    (method) => method.includes('RNBackgroundDownloader') ? '' : method
+  )
+
   // Add the handleEventsForBackgroundURLSession method if not already present
   if (!appDelegateContents.includes('handleEventsForBackgroundURLSession')) {
+    // ExpoAppDelegate already implements the method, so it must be overridden and other sessions passed to it
+    const isExpo = /\bExpoAppDelegate\b/.test(appDelegateContents)
+    const passOtherSessions = `
+    guard identifier.hasSuffix(".backgrounddownloadtask") else {
+      return super.application(application, handleEventsForBackgroundURLSession: identifier, completionHandler: completionHandler)
+    }`
     const methodToAdd = `
-  func application(
+  ${isExpo ? 'public override func' : 'func'} application(
     _ application: UIApplication,
     handleEventsForBackgroundURLSession identifier: String,
     completionHandler: @escaping () -> Void
-  ) {
+  ) {${isExpo ? passOtherSessions : ''}
     RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
   }
 `
 
     // Find the end of the AppDelegate class but before the closing brace
-    const classEndRegex = /^}$/gm
-    const matches = [...appDelegateContents.matchAll(classEndRegex)]
+    const classMatch = /^.*\bclass\s+AppDelegate\b.*$/m.exec(appDelegateContents)
+    const classEndMatch = classMatch ? /^}$/m.exec(appDelegateContents.slice(classMatch.index)) : null
 
-    if (matches.length > 0) {
-      // Insert before the last closing brace (assuming it's the AppDelegate class)
-      const lastMatch = matches[matches.length - 1]
-      const insertPosition = lastMatch.index!
+    if (classMatch && classEndMatch) {
+      const insertPosition = classMatch.index + classEndMatch.index
 
       appDelegateContents = appDelegateContents.slice(0, insertPosition) +
-        methodToAdd + '\n' +
+        methodToAdd +
         appDelegateContents.slice(insertPosition)
     }
   }
