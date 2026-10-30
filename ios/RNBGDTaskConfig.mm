@@ -23,6 +23,7 @@
         self.state = NSURLSessionTaskStateRunning;
         self.errorCode = 0;
         self.hasResumeData = NO;
+        self.allowsCellularAccess = YES;
     }
 
     return self;
@@ -41,6 +42,7 @@
     [aCoder encodeInteger:self.state forKey:@"state"];
     [aCoder encodeInteger:self.errorCode forKey:@"errorCode"];
     [aCoder encodeBool:self.hasResumeData forKey:@"hasResumeData"];
+    [aCoder encodeBool:self.allowsCellularAccess forKey:@"allowsCellularAccess"];
 }
 
 - (nullable instancetype)initWithCoder:(nonnull NSCoder *)aDecoder
@@ -61,6 +63,10 @@
         self.state = [aDecoder decodeIntegerForKey:@"state"];
         self.errorCode = [aDecoder decodeIntegerForKey:@"errorCode"];
         self.hasResumeData = [aDecoder decodeBoolForKey:@"hasResumeData"];
+        // Configs saved before this field existed had no per-download restriction
+        self.allowsCellularAccess = [aDecoder containsValueForKey:@"allowsCellularAccess"]
+            ? [aDecoder decodeBoolForKey:@"allowsCellularAccess"]
+            : YES;
     }
 
     return self;

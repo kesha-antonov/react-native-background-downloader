@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### ✨ Features
+
+- **iOS: per-download `isAllowedOverMetered` ([#182](https://github.com/kesha-antonov/react-native-background-downloader/pull/182)):** the option was Android-only and silently ignored on iOS. It now sets the request's `allowsCellularAccess`, and the value is saved with the task so requests rebuilt on resume or retry keep it, including after an app relaunch. Apps that already pass `isAllowedOverMetered: false` will now wait for Wi-Fi on iOS too. iOS can only reliably narrow the global `setConfig` cellular setting, not widen it. Thanks to [@elliotdickison](https://github.com/elliotdickison)
+
+### 🐛 Bug Fixes
+
+- **Expo: `handleEventsForBackgroundURLSession` was added to the wrong class ([#181](https://github.com/kesha-antonov/react-native-background-downloader/pull/181)):** with the Expo SDK 53+ template the config plugin inserted the method into `ReactNativeDelegate`, the last class in `AppDelegate.swift`, so iOS never called it. It now goes into `AppDelegate` as an override that hands other sessions to `ExpoAppDelegate`, and a copy left in the wrong place by an older version is moved. Thanks to [@elliotdickison](https://github.com/elliotdickison)
+
 ## v4.6.4
 
 ### 🐛 Bug Fixes
