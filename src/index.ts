@@ -2,7 +2,7 @@ import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, Nativ
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
 import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
-import { config, DEFAULT_PROGRESS_INTERVAL, DEFAULT_PROGRESS_MIN_BYTES, DEFAULT_NOTIFICATION_TEXTS } from './config'
+import { config, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import { log } from './logger'
 import { getNotificationTextsForNative } from './notifications'
 import { tasksMap, uploadTasksMap } from './tasks'
@@ -153,7 +153,7 @@ function initializeEventListeners () {
 
   if (isIOSNewArchitecture && turboModule) {
     // iOS new architecture: use EventEmitter from TurboModule spec
-    turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
+    eventSubscriptions.push(turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
       const { id, ...rest } = data
       log('downloadBegin', id, rest)
       const task = tasksMap.get(id)
@@ -162,9 +162,9 @@ function initializeEventListeners () {
         return
       }
       task.onBegin(rest)
-    })
+    }))
 
-    turboModule.onDownloadProgress((events: DownloadProgressEvent[]) => {
+    eventSubscriptions.push(turboModule.onDownloadProgress((events: DownloadProgressEvent[]) => {
       log('downloadProgress', events)
       for (const event of events) {
         const { id, ...rest } = event
@@ -172,9 +172,9 @@ function initializeEventListeners () {
         if (task)
           task.onProgress(rest)
       }
-    })
+    }))
 
-    turboModule.onDownloadComplete((data: DownloadCompleteEvent) => {
+    eventSubscriptions.push(turboModule.onDownloadComplete((data: DownloadCompleteEvent) => {
       const { id, ...rest } = data
       log('downloadComplete', id, rest)
       const task = tasksMap.get(id)
@@ -183,9 +183,9 @@ function initializeEventListeners () {
       else
         task.onDone(rest)
       tasksMap.delete(id)
-    })
+    }))
 
-    turboModule.onDownloadFailed((data: DownloadFailedEvent) => {
+    eventSubscriptions.push(turboModule.onDownloadFailed((data: DownloadFailedEvent) => {
       const { id, ...rest } = data
       log('downloadFailed', id, rest)
       const task = tasksMap.get(id)
@@ -194,11 +194,11 @@ function initializeEventListeners () {
       else
         task.onError(rest)
       tasksMap.delete(id)
-    })
+    }))
 
     // Upload events for new architecture (optional - may not exist in all versions)
     if (typeof turboModule.onUploadBegin === 'function') {
-      turboModule.onUploadBegin?.((data: UploadBeginEvent) => {
+      eventSubscriptions.push(turboModule.onUploadBegin!((data: UploadBeginEvent) => {
         const { id, ...rest } = data
         log('uploadBegin', id, rest)
         const task = uploadTasksMap.get(id)
@@ -207,9 +207,9 @@ function initializeEventListeners () {
           return
         }
         task.onBegin(rest)
-      })
+      }))
 
-      turboModule.onUploadProgress?.((events: UploadProgressEvent[]) => {
+      eventSubscriptions.push(turboModule.onUploadProgress!((events: UploadProgressEvent[]) => {
         log('uploadProgress', events)
         for (const event of events) {
           const { id, ...rest } = event
@@ -217,9 +217,9 @@ function initializeEventListeners () {
           if (task)
             task.onProgress(rest)
         }
-      })
+      }))
 
-      turboModule.onUploadComplete?.((data: UploadCompleteEvent) => {
+      eventSubscriptions.push(turboModule.onUploadComplete!((data: UploadCompleteEvent) => {
         const { id, ...rest } = data
         log('uploadComplete', id, rest)
         const task = uploadTasksMap.get(id)
@@ -228,9 +228,9 @@ function initializeEventListeners () {
         else
           task.onDone(rest)
         uploadTasksMap.delete(id)
-      })
+      }))
 
-      turboModule.onUploadFailed?.((data: UploadFailedEvent) => {
+      eventSubscriptions.push(turboModule.onUploadFailed!((data: UploadFailedEvent) => {
         const { id, ...rest } = data
         log('uploadFailed', id, rest)
         const task = uploadTasksMap.get(id)
@@ -239,7 +239,7 @@ function initializeEventListeners () {
         else
           task.onError(rest)
         uploadTasksMap.delete(id)
-      })
+      }))
     }
   } else {
     // Old architecture: use NativeEventEmitter with the native module
@@ -363,11 +363,12 @@ function initializeEventListeners () {
 // Event listeners are now initialized lazily when ensureNativeModuleInitialized() is called
 // This ensures the bridge is ready before any native module access
 
+// Only the options passed are changed; the rest keep their current values
 export function setConfig ({
-  headers = {},
-  progressInterval = DEFAULT_PROGRESS_INTERVAL,
-  progressMinBytes = DEFAULT_PROGRESS_MIN_BYTES,
-  isLogsEnabled = false,
+  headers,
+  progressInterval,
+  progressMinBytes,
+  isLogsEnabled,
   logCallback,
   maxParallelDownloads,
   allowsCellularAccess,
@@ -377,20 +378,23 @@ export function setConfig ({
   notificationsGrouping,
   iosDataProtection,
 }: Config) {
-  config.headers = headers
+  if (headers !== undefined)
+    config.headers = headers
 
   if (iosDataProtection !== undefined)
     config.iosDataProtection = iosDataProtection
 
-  if (progressInterval >= MIN_PROGRESS_INTERVAL)
-    config.progressInterval = progressInterval
-  else
-    console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= ${MIN_PROGRESS_INTERVAL}. You passed ${progressInterval}`)
+  if (progressInterval !== undefined)
+    if (progressInterval >= MIN_PROGRESS_INTERVAL)
+      config.progressInterval = progressInterval
+    else
+      console.warn(`[RNBackgroundDownloader] progressInterval must be a number >= ${MIN_PROGRESS_INTERVAL}. You passed ${progressInterval}`)
 
-  if (progressMinBytes >= 0)
-    config.progressMinBytes = progressMinBytes
-  else
-    console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
+  if (progressMinBytes !== undefined)
+    if (progressMinBytes >= 0)
+      config.progressMinBytes = progressMinBytes
+    else
+      console.warn(`[RNBackgroundDownloader] progressMinBytes must be a number >= 0. You passed ${progressMinBytes}`)
 
   if (maxParallelDownloads !== undefined)
     if (maxParallelDownloads >= 1)
@@ -423,8 +427,10 @@ export function setConfig ({
       },
     }
 
-  config.isLogsEnabled = isLogsEnabled
-  config.logCallback = logCallback
+  if (isLogsEnabled !== undefined)
+    config.isLogsEnabled = isLogsEnabled
+  if (logCallback !== undefined)
+    config.logCallback = logCallback
 
   // Notify native side about configuration changes
   try {
@@ -441,7 +447,7 @@ export function setConfig ({
         texts: Record<string, string>
       }) => void
     }
-    if (nativeModule.setLogsEnabled)
+    if (nativeModule.setLogsEnabled && isLogsEnabled !== undefined)
       nativeModule.setLogsEnabled(isLogsEnabled)
     // Only call native methods if config was successfully updated
     if (nativeModule.setMaxParallelDownloads && maxParallelDownloads !== undefined && maxParallelDownloads >= 1)
@@ -498,7 +504,8 @@ export const getExistingDownloadTasks = async (): Promise<DownloadTask[]> => {
         if (taskInfo.errorCode === -999) {
           task.state = 'PAUSED'
         } else {
-          task.stop()
+          // Not awaited: the task is dropped either way, so a failed stop isn't actionable
+          task.stop().catch(() => {})
           return undefined
         }
         break
@@ -536,6 +543,9 @@ export function createDownloadTask ({
   // Follows setConfig({ allowsCellularAccess }) unless the task sets its own
   isAllowedOverMetered = config.allowsCellularAccess,
   metadata,
+  groupId,
+  groupName,
+  notificationTitle,
   ...rest
 }: TaskInfo & DownloadParams) {
   // Ensure native module and event listeners are initialized before creating tasks
@@ -548,9 +558,14 @@ export function createDownloadTask ({
 
   rest.destination = rest.destination.replace('file://', '')
 
+  // Native reads the notification fields from metadata only
+  const notificationFields = Object.fromEntries(
+    Object.entries({ groupId, groupName, notificationTitle }).filter(([, value]) => value !== undefined)
+  )
+
   const task = new DownloadTask({
     id: rest.id,
-    metadata,
+    metadata: Object.keys(notificationFields).length > 0 ? { ...metadata, ...notificationFields } : metadata,
   })
 
   task.setDownloadParams({

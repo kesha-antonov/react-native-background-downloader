@@ -35,7 +35,7 @@ const withRNBackgroundDownloader: ConfigPlugin<PluginOptions | void> = (config, 
 
   // Handle iOS AppDelegate modifications
   config = withAppDelegate(config, (config) => {
-    if (config.modResults.language === 'objc') {
+    if (config.modResults.language === 'objc' || config.modResults.language === 'objcpp') {
       // For Objective-C AppDelegate.m (React Native < 0.77)
       config.modResults.contents = addObjCSupport(config.modResults.contents)
     } else {
