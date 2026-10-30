@@ -13,6 +13,7 @@
 #define ID_TO_UPLOAD_CONFIG_MAP_KEY @"com.eko.bguploadidmap"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
 #define PROGRESS_MIN_BYTES_KEY @"progressMinBytes"
+#define MAX_PARALLEL_DOWNLOADS_KEY @"maxParallelDownloads"
 // Persisted map of downloads whose finished file could not be moved to its destination
 // yet because the device was locked (Data Protection). The move is retried when protected
 // data becomes available / on next launch. See issue #101.
@@ -217,7 +218,9 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
         sessionConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:sessionIdentifier];
-        sessionConfig.HTTPMaximumConnectionsPerHost = kMaxConnectionsPerHost;
+        // Saved by setMaxParallelDownloads, so the session is created with it on launch
+        NSInteger savedMaxConnections = (NSInteger)[mmkv getInt64ForKey:MAX_PARALLEL_DOWNLOADS_KEY];
+        sessionConfig.HTTPMaximumConnectionsPerHost = savedMaxConnections >= 1 ? savedMaxConnections : kMaxConnectionsPerHost;
         sessionConfig.timeoutIntervalForRequest = kRequestTimeoutSeconds;
         sessionConfig.timeoutIntervalForResource = kResourceTimeoutSeconds;
         sessionConfig.discretionary = NO;
@@ -353,12 +356,16 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
 - (void)unregisterSession {
     DLog(nil, @"[RNBackgroundDownloader] - [unregisterSession]");
-    if (urlSession) {
-        [urlSession invalidateAndCancel];
-        urlSession = nil;
+    // Called from the main thread on JS reload too, while the session's queue may be
+    // draining pendingDownloads under this lock
+    @synchronized (sharedLock) {
+        if (urlSession) {
+            [urlSession invalidateAndCancel];
+            urlSession = nil;
+        }
+        isSessionActivated = NO;
+        [pendingDownloads removeAllObjects];
     }
-    isSessionActivated = NO;
-    [pendingDownloads removeAllObjects];
 }
 
 - (void)registerBridgeListener {
@@ -470,14 +477,29 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
     // See https://github.com/kesha-antonov/react-native-background-downloader/issues/161
     @try {
         @synchronized (sharedLock) {
-            if (max >= 1) {
-                sessionConfig.HTTPMaximumConnectionsPerHost = max;
-                // Recreate session with new config if it's already initialized
-                if (urlSession != nil) {
-                    [self unregisterSession];
-                    [self lazyRegisterSession];
-                }
+            if (max < 1 || max == sessionConfig.HTTPMaximumConnectionsPerHost) {
+                return;
             }
+            sessionConfig.HTTPMaximumConnectionsPerHost = max;
+            [mmkv setInt64:max forKey:MAX_PARALLEL_DOWNLOADS_KEY];
+            if (urlSession == nil) {
+                return;
+            }
+            // A live session can't change its config, and recreating it cancels every
+            // transfer in it. So recreate it only when it has nothing running; otherwise
+            // the saved value applies from the next launch.
+            NSURLSession *session = urlSession;
+            [session getTasksWithCompletionHandler:^(NSArray *dataTasks, NSArray *uploadTasks, NSArray *downloadTasks) {
+                @synchronized (self->sharedLock) {
+                    BOOL idle = dataTasks.count == 0 && uploadTasks.count == 0 && downloadTasks.count == 0
+                        && self->pendingDownloads.count == 0
+                        && self->idToTaskMap.count == 0 && self->idToUploadTaskMap.count == 0;
+                    if (self->urlSession == session && idle) {
+                        [self unregisterSession];
+                        [self lazyRegisterSession];
+                    }
+                }
+            }];
         }
     } @catch (NSException *exception) {
         DLog(nil, @"[RNBackgroundDownloader] - [setMaxParallelDownloads] error: %@", exception.reason);
@@ -491,6 +513,13 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
 #else
 RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
     [self _setMaxParallelDownloadsInternal:max];
+}
+#endif
+
+#ifdef RCT_NEW_ARCH_ENABLED
+// Notification grouping is Android-only (JS only calls this on Android), but codegen
+// makes the optional spec method required here
+- (void)setNotificationGroupingConfig:(JS::NativeRNBackgroundDownloader::SpecSetNotificationGroupingConfigConfig &)config {
 }
 #endif
 
@@ -564,11 +593,13 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     DLog(identifier, @"[RNBackgroundDownloader] - [download] url %@ destination %@ progressInterval %f", url, destination, progressInterval);
     if (identifier == nil || url == nil || destination == nil) {
         DLog(identifier, @"[RNBackgroundDownloader] - [Error] id, url and destination must be set");
+        [self emitDownloadFailed:identifier error:@"id, url and destination must be set" errorCode:-1];
         return;
     }
 
     if (destinationRelative == nil) {
         DLog(identifier, @"[RNBackgroundDownloader] - [Error] destination is not valid");
+        [self emitDownloadFailed:identifier error:@"destination is not valid" errorCode:-1];
         return;
     }
 
@@ -616,6 +647,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     } @catch (NSException *exception) {
         DLog(identifier, @"[RNBackgroundDownloader] - [download] error: %@", exception.reason);
         [self sendDebugLog:[NSString stringWithFormat:@"download: ERROR - %@", exception.reason] taskId:identifier];
+        [self emitDownloadFailed:identifier error:exception.reason errorCode:-1];
     }
 }
 
@@ -629,6 +661,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         if (task == nil) {
             DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create download task");
             [self sendDebugLog:@"executeDownloadWithRequest: ERROR - failed to create download task" taskId:identifier];
+            [self emitDownloadFailed:identifier error:@"failed to create download task" errorCode:-1];
             return;
         }
 
@@ -714,6 +747,24 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
     }
 }
 
+// Emits downloadFailed so the JS task errors out instead of hanging when download
+// setup fails before a task exists (bad params, bad destination, task creation failure).
+- (void)emitDownloadFailed:(NSString *)identifier error:(NSString *)error errorCode:(NSInteger)errorCode {
+    if (identifier == nil) {
+        return;
+    }
+    NSDictionary *body = @{
+        @"id": identifier,
+        @"error": error ?: @"unknown error",
+        @"errorCode": @(errorCode)
+    };
+#ifdef RCT_NEW_ARCH_ENABLED
+    [self safeEmitEvent:@"onDownloadFailed" value:body];
+#else
+    [self sendEventWithName:@"downloadFailed" body:body];
+#endif
+}
+
 // Emits uploadFailed so the JS task errors out instead of hanging when upload
 // setup fails before a task exists (bad params, unreadable file, task creation failure).
 - (void)emitUploadFailed:(NSString *)identifier error:(NSString *)error errorCode:(NSInteger)errorCode {
@@ -785,6 +836,21 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
 }
 #endif
 
+// A request that downloads the whole file again: the task's own cellular setting and
+// the given headers, minus any Range
+- (NSMutableURLRequest *)freshRequestForConfig:(RNBGDTaskConfig *)taskConfig headers:(NSDictionary *)headers {
+    NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
+    request.allowsCellularAccess = taskConfig.allowsCellularAccess;
+    for (NSString *headerKey in headers) {
+        if ([headerKey caseInsensitiveCompare:@"Range"] == NSOrderedSame) {
+            continue;
+        }
+        [request setValue:[headers valueForKey:headerKey] forHTTPHeaderField:headerKey];
+    }
+    [request setValue:taskConfig.id forHTTPHeaderField:@"configId"];
+    return request;
+}
+
 - (void)resumeTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask]");
     @try {
@@ -817,21 +883,14 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                 // This is needed when auth tokens change while paused
                 if (updatedHeaders != nil && [updatedHeaders count] > 0) {
                     RNBGDTaskConfig *taskConfig = [self findConfigById:identifier];
-                    if (taskConfig != nil && taskConfig.bytesDownloaded > 0) {
-                        DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] using updated headers with Range for %@", identifier);
-                        NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
-                        // Keep the original request's cellular access
-                        request.allowsCellularAccess = taskConfig.allowsCellularAccess;
-                        [request setValue:identifier forHTTPHeaderField:@"configId"];
-                        for (NSString *headerKey in updatedHeaders) {
-                            [request setValue:[updatedHeaders valueForKey:headerKey] forHTTPHeaderField:headerKey];
-                        }
-                        // Add Range header to resume from where we left off
-                        NSString *rangeValue = [NSString stringWithFormat:@"bytes=%lld-", taskConfig.bytesDownloaded];
-                        [request setValue:rangeValue forHTTPHeaderField:@"Range"];
-                        newTask = [urlSession downloadTaskWithRequest:request];
+                    if (taskConfig != nil) {
+                        // Resume data carries the old headers and can't be changed, and a fresh
+                        // task with a Range header saves only the remaining bytes as the whole
+                        // file. So download the file again with the new headers.
+                        DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] restarting with updated headers for %@", identifier);
+                        newTask = [self createDownloadTaskWithRequest:[self freshRequestForConfig:taskConfig headers:updatedHeaders] identifier:identifier];
+                        taskConfig.bytesDownloaded = 0;
                     } else {
-                        // No bytes downloaded, just use resume data (shouldn't normally happen)
                         newTask = [urlSession downloadTaskWithResumeData:resumeData];
                     }
                     // Clear updated headers after use
@@ -871,6 +930,8 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                     // Delete the resume data file after successful resume
                     [self deleteResumeDataForTaskId:identifier];
                     [newTask resume];
+                } else {
+                    [self emitDownloadFailed:identifier error:@"failed to create download task" errorCode:-1];
                 }
             } else if (task != nil && task.state == NSURLSessionTaskStateSuspended) {
                 // Task was suspended normally, just resume it
@@ -882,7 +943,33 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                 }
                 [task resume];
             } else {
-                DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] no task or resume data found for %@", identifier);
+                // Paused without resume data (the server doesn't support resuming), or the
+                // paused task is gone: download the file again instead of staying paused forever
+                RNBGDTaskConfig *taskConfig = [self findConfigById:identifier];
+                if (taskConfig != nil) {
+                    DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] no resume data, restarting %@", identifier);
+                    NSDictionary *headers = updatedHeaders ?: task.originalRequest.allHTTPHeaderFields;
+                    NSURLSessionDownloadTask *newTask = [self createDownloadTaskWithRequest:[self freshRequestForConfig:taskConfig headers:headers] identifier:identifier];
+                    [idToUpdatedHeadersMap removeObjectForKey:identifier];
+                    if (newTask != nil) {
+                        NSNumber *oldKey = [self findTaskKeyById:identifier];
+                        if (oldKey != nil) {
+                            [taskToConfigMap removeObjectForKey:oldKey];
+                        }
+                        taskConfig.state = NSURLSessionTaskStateRunning;
+                        taskConfig.errorCode = 0;
+                        taskConfig.hasResumeData = NO;
+                        taskConfig.bytesDownloaded = 0;
+                        taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
+                        [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                        self->idToTaskMap[identifier] = newTask;
+                        [newTask resume];
+                    } else {
+                        [self emitDownloadFailed:identifier error:@"failed to create download task" errorCode:-1];
+                    }
+                } else {
+                    DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] no task or resume data found for %@", identifier);
+                }
             }
         }
         resolve(nil);
@@ -1038,6 +1125,10 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
                     if (taskConfig) {
                         NSURLSessionDownloadTask *mutableTask = task;
                         [self restoreTaskIfNeeded:&mutableTask];
+                        if (mutableTask != task) {
+                            // The replacement gets its own key below; drop the finished task's
+                            [self->taskToConfigMap removeObjectForKey:@(task.taskIdentifier)];
+                        }
                         [self updateTaskMappings:mutableTask config:taskConfig];
                         [foundTasks addObject:[self createTaskInfo:mutableTask config:taskConfig]];
                         [processedIds addObject:taskConfig.id];
@@ -1105,17 +1196,18 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 - (void)restoreTaskIfNeeded:(NSURLSessionDownloadTask *__strong *)taskPtr {
     NSURLSessionDownloadTask *task = *taskPtr;
 
-    BOOL isCompletedOrSuspended = (task.state == NSURLSessionTaskStateCompleted ||
-                                   task.state == NSURLSessionTaskStateSuspended);
+    // A suspended task can still be resumed as is (see -resumeTaskInternal:); only a
+    // finished, incomplete one needs a replacement
     BOOL needsMoreData = task.countOfBytesReceived < task.countOfBytesExpectedToReceive;
 
-    if (isCompletedOrSuspended && needsMoreData) {
+    if (task.state == NSURLSessionTaskStateCompleted && needsMoreData) {
         NSData *resumeData = task.error.userInfo[NSURLSessionDownloadTaskResumeData];
 
         if (task.error.code == -999 && resumeData) {
             *taskPtr = [urlSession downloadTaskWithResumeData:resumeData];
-        } else {
-            *taskPtr = [urlSession downloadTaskWithURL:task.currentRequest.URL];
+        } else if (task.originalRequest != nil) {
+            // The original request keeps the configId header, custom headers and cellular flag
+            *taskPtr = [urlSession downloadTaskWithRequest:task.originalRequest];
         }
     }
 }
@@ -1547,10 +1639,16 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         if (isPausedTask) {
             taskConfig.errorCode = error.code;
 
-            // Store resume data so we can resume the download later
+            // Store resume data so we can resume the download later. Persist it too, as
+            // -pauseTaskInternal: does: a cancel the app didn't ask for (e.g. the system
+            // cancelling the task) would otherwise lose it on the next launch
             if (taskConfig.id && resumeData) {
                 idToResumeDataMap[taskConfig.id] = resumeData;
+                [self saveResumeData:resumeData forTaskId:taskConfig.id];
+                taskConfig.hasResumeData = YES;
             }
+            taskConfig.state = NSURLSessionTaskStateCanceling;
+            [mmkv setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
             DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] task was paused, ignoring error for %@", taskConfig.id);
             return;
         }
@@ -1805,7 +1903,7 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
                 [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
 
                 // Write body to temp file for background upload
-                NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+                NSString *tempPath = [self multipartTempPathForUploadId:identifier];
                 if (![body writeToFile:tempPath atomically:YES]) {
                     DLog(identifier, @"[RNBackgroundDownloader] - [Error] Could not write multipart body to temp file");
                     [self emitUploadFailed:identifier error:@"Could not write multipart body to temp file" errorCode:NSURLErrorCannotWriteToFile];
@@ -1825,6 +1923,7 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
 
             if (uploadTask == nil) {
                 DLog(identifier, @"[RNBackgroundDownloader] - [Error] failed to create upload task");
+                [self removeMultipartTempFileForUploadId:identifier];
                 [self emitUploadFailed:identifier error:@"failed to create upload task" errorCode:-1];
                 return;
             }
@@ -1912,8 +2011,19 @@ RCT_EXPORT_METHOD(resumeUploadTask:(NSString *)id resolver:(RCTPromiseResolveBlo
             if (task != nil) {
                 [task cancel];
                 [self removeUploadTaskFromMap:task];
+            } else {
+                // A config restored after a relaunch with no live task: remove it, or it's
+                // listed by getExistingUploadTasks on every launch
+                for (NSNumber *key in [uploadTaskToConfigMap allKeys]) {
+                    RNBGDUploadTaskConfig *config = uploadTaskToConfigMap[key];
+                    if ([config.id isEqualToString:identifier]) {
+                        [uploadTaskToConfigMap removeObjectForKey:key];
+                    }
+                }
+                [mmkv setData:[self serializeUploadConfig:uploadTaskToConfigMap] forKey:ID_TO_UPLOAD_CONFIG_MAP_KEY];
             }
             [idsToUploadPauseSet removeObject:identifier];
+            [self removeMultipartTempFileForUploadId:identifier];
         }
         resolve(nil);
     } @catch (NSException *exception) {
@@ -2092,6 +2202,20 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
 }
 
 // Handle upload completion (override the existing method to also handle uploads)
+// Multipart bodies are written to a temp file named after the upload, so it can be
+// removed once the upload is over without persisting its path
+- (NSString *)multipartTempPathForUploadId:(NSString *)identifier {
+    NSString *safeId = [identifier stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+    return [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"RNBGD-upload-%@.multipart", safeId]];
+}
+
+- (void)removeMultipartTempFileForUploadId:(NSString *)identifier {
+    if (identifier == nil) {
+        return;
+    }
+    [[NSFileManager defaultManager] removeItemAtPath:[self multipartTempPathForUploadId:identifier] error:nil];
+}
+
 - (void)handleUploadCompletion:(NSURLSessionTask *)task error:(NSError *)error {
     @synchronized (sharedLock) {
         RNBGDUploadTaskConfig *taskConfig = [self uploadConfigForTask:task];
@@ -2105,7 +2229,12 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
                 DLog(taskConfig.id, @"[RNBackgroundDownloader] - upload was paused, ignoring error");
                 return;
             }
+        }
 
+        // The upload is over (failed or done); a paused one returned above and keeps its body
+        [self removeMultipartTempFileForUploadId:taskConfig.id];
+
+        if (error) {
             DLog(taskConfig.id, @"[RNBackgroundDownloader] - [handleUploadCompletion] error: %@", error);
 #ifdef RCT_NEW_ARCH_ENABLED
             [self safeEmitEvent:@"onUploadFailed" value:@{
