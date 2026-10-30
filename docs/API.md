@@ -71,7 +71,7 @@ Download a file to destination.
 | `headers`     | Record<string, string \| null> |           |    All    | Custom headers to add to the download request. These are merged with the headers given in `setConfig({ headers: { ... } })`. Headers with null values will be removed |
 | `maxRedirects` | Number |          |  Android  | Maximum number of redirects to follow before passing URL to DownloadManager. If not specified or 0, no redirect resolution is performed. Helps avoid ERROR_TOO_MANY_REDIRECTS for URLs with many redirects (e.g., podcast URLs) |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this download may proceed over a roaming connection. By default, roaming is allowed |
-| `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this download may proceed over a metered network connection. By default, metered networks are allowed |
+| `isAllowedOverMetered` | Boolean   |          |  All  | Whether this download may proceed over a metered (cellular) network connection. Defaults to the global `allowsCellularAccess` |
 
 ### Returns
 
@@ -109,7 +109,7 @@ Upload a file to a server.
 | `mimeType`    | String |          |    All    | MIME type of the file being uploaded. Default is inferred from file extension |
 | `parameters`  | Record<string, string> |          |    All    | Additional form parameters to send with the upload |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this upload may proceed over a roaming connection. By default, roaming is allowed |
-| `isAllowedOverMetered` | Boolean   |          |  Android  | Whether this upload may proceed over a metered network connection. By default, metered networks are allowed |
+| `isAllowedOverMetered` | Boolean   |          |  All  | Whether this upload may proceed over a metered (cellular) network connection. Defaults to the global `allowsCellularAccess` |
 
 ### Returns
 
@@ -143,7 +143,7 @@ Sets global configuration for the downloader.
 | `isLogsEnabled`   | Boolean | Enables/disables verbose debug logs in native code (iOS and Android). Works in both debug and release builds. Default is false |
 | `logCallback`   | (log: { message: string, taskId?: string }) => void | Optional callback function to receive native debug logs in JavaScript. Only called when `isLogsEnabled` is true |
 | `maxParallelDownloads` | Number | Maximum number of downloads transferring at once. Must be >= 1. Default is 4. On iOS this is the session's maximum simultaneous connections per host. On Android it caps the library's own downloader (the mechanism used on Android 16+, and whenever `DownloadManager` or a UIDT job can't take the download); downloads running through `DownloadManager` or the JobScheduler are queued by those instead |
-| `allowsCellularAccess` | Boolean | Controls whether downloads are allowed over cellular (metered) connections. When set to `false`, downloads will only occur over WiFi. Default is `true`. This is a cross-platform abstraction - on iOS it sets `allowsCellularAccess`, on Android it sets `isAllowedOverMetered` |
+| `allowsCellularAccess` | Boolean | Controls whether downloads are allowed over cellular (metered) connections. When set to `false`, downloads and uploads will only occur over WiFi. Default is `true`. It's the default for each task's `isAllowedOverMetered`, so it applies to tasks created after the call; a task can override it either way |
 | `showNotificationsEnabled` | Boolean | **Android only**. Show full download notifications. When `false`, creates minimal silent notifications (UIDT jobs on Android 14+ require a notification, but it will be barely visible). Default is `false` |
 | `showCompletionNotification` | Boolean | **Android 14+ only**. Post a "download complete" notification when a download finishes; tapping it opens the saved file. Requires `showNotificationsEnabled`, and is skipped in `summaryOnly` grouping mode. Default is `false` |
 | `showCancelAction` | Boolean | **Android 14+ only**. Add a Cancel button to the download notification. Tapping it stops the download and fires the task's `.error()` handler with `errorCode = -1`, so only enable it if your app handles that. Requires `showNotificationsEnabled`. Default is `false` |

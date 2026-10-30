@@ -225,6 +225,10 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         // These APIs are available since our minimum iOS version (15.1)
         sessionConfig.shouldUseExtendedBackgroundIdleMode = YES;
         sessionConfig.allowsExpensiveNetworkAccess = YES;
+        // Cellular is restricted per request (isAllowedOverMetered, which defaults to the
+        // global setConfig value in JS). The session must stay open: a request can only
+        // reliably narrow its session's access, not widen it.
+        sessionConfig.allowsCellularAccess = YES;
 
         sharedLock = [NSNumber numberWithInt:1];
 
@@ -491,22 +495,11 @@ RCT_EXPORT_METHOD(setMaxParallelDownloads:(NSInteger)max) {
 #endif
 
 - (void)_setAllowsCellularAccessInternal:(BOOL)allows {
-    DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess:%@]", allows ? @"YES" : @"NO");
-    // Never let an NSException escape this void method - see the note on
-    // -_setMaxParallelDownloadsInternal: and issue #161. Recreating the session
-    // here can throw, and an escaping exception crashes Hermes off the JS thread.
-    @try {
-        @synchronized (sharedLock) {
-            sessionConfig.allowsCellularAccess = allows;
-            // Recreate session with new config if it's already initialized
-            if (urlSession != nil) {
-                [self unregisterSession];
-                [self lazyRegisterSession];
-            }
-        }
-    } @catch (NSException *exception) {
-        DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess] error: %@", exception.reason);
-    }
+    // The global setting is applied in JS as the default for each task's
+    // isAllowedOverMetered, which sets the request's allowsCellularAccess. The session
+    // keeps allowing cellular, so there's nothing to change here and no session to
+    // recreate. Kept so the native API stays the same.
+    DLog(nil, @"[RNBackgroundDownloader] - [setAllowsCellularAccess:%@] applied per task", allows ? @"YES" : @"NO");
 }
 
 #ifdef RCT_NEW_ARCH_ENABLED

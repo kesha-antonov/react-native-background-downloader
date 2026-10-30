@@ -4,7 +4,12 @@
 
 ### ✨ Features
 
-- **iOS: per-download `isAllowedOverMetered` ([#182](https://github.com/kesha-antonov/react-native-background-downloader/pull/182)):** the option was Android-only and silently ignored on iOS. It now sets the request's `allowsCellularAccess`, and the value is saved with the task so requests rebuilt on resume or retry keep it, including after an app relaunch. Apps that already pass `isAllowedOverMetered: false` will now wait for Wi-Fi on iOS too. iOS can only reliably narrow the global `setConfig` cellular setting, not widen it. Thanks to [@elliotdickison](https://github.com/elliotdickison)
+- **iOS: per-task `isAllowedOverMetered` ([#182](https://github.com/kesha-antonov/react-native-background-downloader/pull/182)):** the option was Android-only and silently ignored on iOS. It now sets the request's `allowsCellularAccess` for downloads and uploads, and the value is saved with the download so requests rebuilt on resume or retry keep it, including after an app relaunch. Thanks to [@elliotdickison](https://github.com/elliotdickison)
+
+### ⚠️ Behavior Changes
+
+- **`setConfig({ allowsCellularAccess })` is now the default for each task's `isAllowedOverMetered`:** before, tasks always sent `isAllowedOverMetered: true` unless set, which overrode the global setting - on Android `allowsCellularAccess: false` never took effect for a task created without the option. A task without the option now follows the global setting, on both platforms, for downloads and uploads, and the setting applies to tasks created after the call
+- **iOS: cellular is enforced per request, the session always allows it:** a request can only reliably narrow its session's access, so with the session closed to cellular a task's `isAllowedOverMetered: true` couldn't widen it. Now a task's option works in both directions, as on Android, and `setConfig({ allowsCellularAccess })` no longer recreates the background session. Apps that pass `isAllowedOverMetered: false` will now wait for Wi-Fi on iOS too. Downloads started by an earlier version while the global setting was `false` can use cellular after the update until they finish. Before, the setting wasn't saved natively either: each launch opened the session to cellular until `setConfig` ran
 
 ### 🐛 Bug Fixes
 

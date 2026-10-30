@@ -585,13 +585,13 @@ setConfig({
 })
 ```
 
-This is a cross-platform setting that works on both iOS and Android:
-- **iOS**: Sets the `allowsCellularAccess` property on the NSURLSession configuration
+This is a cross-platform setting that works on both iOS and Android, for downloads and uploads. It's the default for each task's `isAllowedOverMetered`, so it applies to tasks created after the call:
+- **iOS**: Sets `allowsCellularAccess` on each task's request (the session itself always allows cellular)
 - **Android**: Applied on all three download mechanisms - `DownloadManager` requests (`setAllowedOverMetered`), the UIDT/JobScheduler jobs used on Android 14+ (the job requires an unmetered network), and the foreground-service fallback used on Android < 14 (gated on a `ConnectivityManager` unmetered-network callback)
 
 When cellular is disallowed and the device only has a metered connection, the download doesn't fail - it waits until an unmetered network (e.g. WiFi) becomes available, then starts automatically. If the unmetered network is lost mid-download (e.g. WiFi drops and the device falls back to cellular), the download pauses instead of failing and automatically resumes from where it left off once an unmetered network returns. The restriction is kept across pause/resume and app restarts.
 
-**Per-download override:** You can override the global cellular setting for individual downloads using the `isAllowedOverMetered` option in `createDownloadTask()`. On iOS, this can only reliably disallow cellular when the global setting is `true`, not allow it when the global setting is `false`:
+**Per-task override:** You can override the global cellular setting for individual tasks using the `isAllowedOverMetered` option in `createDownloadTask()` or `createUploadTask()`, in either direction:
 
 ```javascript
 const task = createDownloadTask({
