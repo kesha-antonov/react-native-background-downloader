@@ -1660,6 +1660,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     NSString *fieldName = options.fieldName() ? options.fieldName() : nil;
     NSString *mimeType = options.mimeType() ? options.mimeType() : nil;
     NSDictionary *parameters = options.parameters() ? (NSDictionary *)options.parameters() : nil;
+    BOOL allowsCellularAccess = options.isAllowedOverMetered();
 
     if (options.progressInterval().has_value()) {
         progressInterval = options.progressInterval().value() / 1000.0;
@@ -1682,6 +1683,8 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
     NSString *fieldName = options[@"fieldName"];
     NSString *mimeType = options[@"mimeType"];
     NSDictionary *parameters = options[@"parameters"];
+    NSNumber *isAllowedOverMetered = options[@"isAllowedOverMetered"];
+    BOOL allowsCellularAccess = isAllowedOverMetered == nil || [isAllowedOverMetered boolValue];
 
     NSNumber *progressIntervalScope = options[@"progressInterval"];
     if (progressIntervalScope) {
@@ -1741,6 +1744,7 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
             // Create request
             NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:requestURL];
             request.HTTPMethod = method;
+            request.allowsCellularAccess = allowsCellularAccess;
             [request setValue:identifier forHTTPHeaderField:@"uploadConfigId"];
 
             // Add custom headers
