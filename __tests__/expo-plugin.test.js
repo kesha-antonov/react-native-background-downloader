@@ -151,6 +151,24 @@ class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
     expect(addSwiftSupport(custom)).toBe(custom)
   })
 
+  it('leaves a hand-written method with nested blocks that calls the library alone', () => {
+    const custom = expoAppDelegate.replace('  var window: UIWindow?\n', `  var window: UIWindow?
+
+  public override func application(
+    _ application: UIApplication,
+    handleEventsForBackgroundURLSession identifier: String,
+    completionHandler: @escaping () -> Void
+  ) {
+    if identifier.hasSuffix(".backgrounddownloadtask") {
+      RNBackgroundDownloader.setCompletionHandlerWithIdentifier(identifier, completionHandler: completionHandler)
+      return
+    }
+    super.application(application, handleEventsForBackgroundURLSession: identifier, completionHandler: completionHandler)
+  }
+`)
+    expect(addSwiftSupport(custom)).toBe(custom)
+  })
+
   it('uses a plain func when AppDelegate does not subclass ExpoAppDelegate', () => {
     const plain = 'class AppDelegate: UIResponder, UIApplicationDelegate {\n  var window: UIWindow?\n}\n'
     const result = addSwiftSupport(plain)

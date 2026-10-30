@@ -169,10 +169,11 @@ export function addSwiftSupport (appDelegateContents: string): string {
   // For Swift, we need to add the method to the AppDelegate class
   // The import should be handled by the bridging header
 
-  // Remove the method if an older version of this plugin added it outside the AppDelegate class
+  // Remove the method if an older version of this plugin added it outside the AppDelegate class.
+  // Only the exact one-line body it generated is matched, so hand-written methods are never touched
   appDelegateContents = appDelegateContents.replace(
-    /\n[ \t]*(?:public\s+)?(?:override\s+)?func application\(\s*_ application: UIApplication,\s*handleEventsForBackgroundURLSession[\s\S]*?\n[ \t]*\}\n/g,
-    (method) => method.includes('RNBackgroundDownloader') ? '' : method
+    /\n[ \t]*func application\(\s*_ application: UIApplication,\s*handleEventsForBackgroundURLSession identifier: String,\s*completionHandler: @escaping \(\) -> Void\s*\)\s*\{\s*RNBackgroundDownloader\.setCompletionHandlerWithIdentifier\(identifier, completionHandler: completionHandler\)\s*\}\n/g,
+    ''
   )
 
   // Add the handleEventsForBackgroundURLSession method if not already present
