@@ -14,6 +14,27 @@
 ### 🐛 Bug Fixes
 
 - **Expo: `handleEventsForBackgroundURLSession` was added to the wrong class ([#181](https://github.com/kesha-antonov/react-native-background-downloader/pull/181)):** with the Expo SDK 53+ template the config plugin inserted the method into `ReactNativeDelegate`, the last class in `AppDelegate.swift`, so iOS never called it. It now goes into `AppDelegate` as an override that hands other sessions to `ExpoAppDelegate`, and a copy left in the wrong place by an older version is moved. Thanks to [@elliotdickison](https://github.com/elliotdickison)
+- **iOS: `setConfig({ maxParallelDownloads })` cancelled every running transfer:** it recreated the background session, which cancels everything in it. The value is now saved and used when the session is created, and the live session is only recreated when nothing is running in it
+- **iOS: resuming after changing headers saved a truncated file:** a fresh request with a `Range` header saved only the remaining bytes as the whole file, reported as complete. A download with updated headers now starts over with them
+- **iOS: resuming a download paused without resume data did nothing:** when the server doesn't support resuming, the task stayed paused forever with no event. It now downloads the file again
+- **iOS: download setup failures left the JS task waiting forever:** missing params, an invalid destination or a failed task creation now emit `downloadFailed`, as uploads already did
+- **iOS: resume data from a cancel the app didn't ask for was lost on the next launch:** it's now saved like a pause
+- **iOS: restoring a suspended download replaced it with a task that never ran and had no headers:** a suspended task is now kept and resumed as is, and a finished one is replaced from its original request
+- **iOS: multipart upload temp files were never deleted;** stopping an upload restored without a live task now removes it, so it isn't listed on every launch
+- **iOS: build warning about `NativeRNBackgroundDownloaderSpec`:** added the missing `setNotificationGroupingConfig` method (Android-only, a no-op on iOS)
+- **Android: a successful `DownloadManager` download was deleted right after `downloadComplete`:** the cleanup called `DownloadManager.remove()`, which deletes the file
+- **Android: resuming a paused `DownloadManager` download saved only the remaining bytes:** pausing removes the partial file, so the download now starts over instead of requesting the rest
+- **Android: no `begin` event or progress for URLs that reject the HEAD request:** it didn't send the download's headers (auth), and its failure stopped progress tracking. It now sends them, and a failure reports an unknown size and keeps tracking
+- **Android: a download that finished while the app wasn't running was listed on every launch;** it's now reported once as done
+- **Android: completed downloads were reported as failed when the external files directory was invalid** (e.g. some OnePlus devices): that fallback saved the file elsewhere. It now uses the resumable downloader, which writes to the destination
+- **Android: uploads restored after a restart couldn't be resumed;** resuming now starts them again
+- **Android 14+: a download restarted after its process died lost its headers, and could append duplicate bytes:** the saved resume state was deleted as soon as the job started. It's now kept until the download ends, and a resume continues from the partial file's actual length
+- **Android 14+: Cancel on the notification of a download waiting for the network sent no event to JS;** and pausing or cancelling now updates or removes the group summary notification
+- **Android: multipart uploads garbled non-ASCII field values and file names;** relative redirect locations lost the port and path; the downloader's wake lock wasn't taken again after it expired; and recovery snapshots could bring back a finished download
+- **JS: `setConfig` reset options that weren't passed:** a later `setConfig({ allowsCellularAccess: false })` dropped the headers, turned logging off and reset the progress interval
+- **JS: `cleanup()` left the iOS new-architecture event listeners attached,** so every re-initialization doubled each event
+- **`groupId`, `groupName` and `notificationTitle` passed to `createDownloadTask` were ignored:** native reads them from `metadata`, so they're now copied there
+- **Expo: the config plugin did nothing for projects with `AppDelegate.mm`**
 
 ## v4.6.4
 
