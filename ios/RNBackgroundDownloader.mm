@@ -649,6 +649,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
         }];
         // nil means "use the library default" when saving the file (see -nsFileProtectionFromKey:)
         taskConfig.dataProtection = dataProtection;
+        taskConfig.allowsCellularAccess = request.allowsCellularAccess;
 
         taskToConfigMap[@(task.taskIdentifier)] = taskConfig;
         [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
@@ -827,9 +828,7 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                         DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] using updated headers with Range for %@", identifier);
                         NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
                         // Keep the original request's cellular access
-                        if (task.originalRequest != nil) {
-                            request.allowsCellularAccess = task.originalRequest.allowsCellularAccess;
-                        }
+                        request.allowsCellularAccess = taskConfig.allowsCellularAccess;
                         [request setValue:identifier forHTTPHeaderField:@"configId"];
                         for (NSString *headerKey in updatedHeaders) {
                             [request setValue:[updatedHeaders valueForKey:headerKey] forHTTPHeaderField:headerKey];
@@ -1575,9 +1574,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             // Build a fresh request replicating original headers
             NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:[NSURL URLWithString:taskConfig.url]];
             // Keep the original request's cellular access
-            if (task.originalRequest != nil) {
-                request.allowsCellularAccess = task.originalRequest.allowsCellularAccess;
-            }
+            request.allowsCellularAccess = taskConfig.allowsCellularAccess;
             // Reapply original request headers if available (including our internal identifier header)
             NSDictionary *originalHeaders = task.originalRequest.allHTTPHeaderFields;
             if (originalHeaders != nil) {

@@ -17,6 +17,8 @@ NS_ASSUME_NONNULL_BEGIN
 // iOS Data Protection level key for the saved file
 // (e.g. NSFileProtectionCompleteUntilFirstUserAuthentication). nil = library default.
 @property (nonatomic, copy, nullable) NSString *dataProtection;
+// Per-download cellular access (isAllowedOverMetered), kept so rebuilt requests honor it after a relaunch
+@property (nonatomic, assign) BOOL allowsCellularAccess;
 
 - (instancetype)initWithDictionary:(NSDictionary *)dict;
 
