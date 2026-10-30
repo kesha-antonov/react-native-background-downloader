@@ -375,12 +375,27 @@ object UIDTJobManager {
         UIDTJobRegistry.clearResumeState(context, configId)
 
         // Update summary notification if grouping was enabled
-        if (jobState != null && config.groupingEnabled && jobState.groupId.isNotEmpty()) {
-            UIDTNotificationManager.updateSummaryNotification(context, jobState.groupId, jobState.groupName)
+        if (jobState != null && config.groupingEnabled) {
+            refreshGroupSummaryAfterJobLeft(context, jobState.groupId, jobState.groupName)
         }
 
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "Cancelled UIDT job for $configId")
         return jobState != null
+    }
+
+    /**
+     * Update a group's summary notification after a job left it (cancelled or paused),
+     * mode-aware like the completion and error paths: remove it with the last job,
+     * otherwise refresh its count and progress. Nothing else would remove it.
+     */
+    private fun refreshGroupSummaryAfterJobLeft(context: Context, groupId: String, groupName: String) {
+        if (groupId.isEmpty()) return
+        if (UIDTJobRegistry.activeJobs.values.none { it.groupId == groupId }) {
+            UIDTJobRegistry.markGroupFinalized(groupId)
+            UIDTNotificationManager.cancelSummaryNotification(context, groupId)
+        } else {
+            UIDTNotificationManager.updateSummaryNotificationForGroup(context, groupId, groupName)
+        }
     }
 
     /**
@@ -416,6 +431,7 @@ object UIDTJobManager {
 
             // Remove from activeJobs - will create new job on resume
             UIDTJobRegistry.activeJobs.remove(configId)
+            refreshGroupSummaryAfterJobLeft(context, jobState.groupId, jobState.groupName)
 
             // Show detached paused notification (not tied to UIDT job)
             if (config.showNotificationsEnabled) {

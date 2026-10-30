@@ -16,6 +16,7 @@ import com.eko.uidt.UIDTNotificationIds
 import com.eko.uidt.UIDTNotificationManager
 import com.eko.utils.ProgressUtils
 import org.json.JSONObject
+import java.io.File
 
 /**
  * A JobService that uses User-Initiated Data Transfer (UIDT) for background downloads.
@@ -211,30 +212,38 @@ class UIDTDownloadJobService : JobService() {
         // In-memory pendingHeaders is populated in the same process (scheduleDownload / onStopJob).
         // The disk-persisted resume state is the fallback for a fresh process after a restart.
         val inMemoryHeaders = UIDTJobRegistry.pendingHeaders.remove(configId)
+        // Kept on disk until the download completes, fails or is cancelled (those clear it):
+        // if the process dies mid-transfer, the restarted job still needs the headers
         val diskResumeState = UIDTJobRegistry.loadResumeState(this, configId)
-        // Clear disk state now that we've consumed it.
-        UIDTJobRegistry.clearResumeState(this, configId)
 
         val headers: Map<String, String>
-        val startByte: Long
+        val savedStartByte: Long
         when {
             inMemoryHeaders != null -> {
                 // Same-process restart: use in-memory headers.
                 // Prefer the disk byte position if it is more advanced than the extras
                 // (written by onStopJob with the actual download offset).
                 headers = inMemoryHeaders
-                startByte = if (diskResumeState != null && diskResumeState.second > startByteFromExtras)
+                savedStartByte = if (diskResumeState != null && diskResumeState.second > startByteFromExtras)
                     diskResumeState.second else startByteFromExtras
             }
             diskResumeState != null -> {
                 // Cross-process restart: use the persisted state.
                 headers = diskResumeState.first
-                startByte = diskResumeState.second
+                savedStartByte = diskResumeState.second
             }
             else -> {
                 headers = emptyMap()
-                startByte = startByteFromExtras
+                savedStartByte = startByteFromExtras
             }
+        }
+        // When resuming, the partial file is the source of truth: a saved offset can lag
+        // the bytes written (it's recorded when the job stops, or not at all if the process
+        // died), and appending from a lower offset duplicates data. No file means start over.
+        val startByte = if (savedStartByte > 0) {
+            File(destination).let { if (it.exists()) it.length() else 0L }
+        } else {
+            0L
         }
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStartJob: configId=$configId, startByte=$startByte, headers=${headers.size}")
 

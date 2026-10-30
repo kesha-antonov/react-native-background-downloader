@@ -283,11 +283,14 @@ class Downloader(private val context: Context, private val storageManager: com.e
     // resumed in-service and transferred further before a force-stop froze the
     // record). The file grows by sequential appends, so its on-disk length is
     // the authoritative resume offset - resuming below it would append
-    // mid-stream data at the end of the file and corrupt it.
+    // mid-stream data at the end of the file and corrupt it. A missing file
+    // (pausing a DownloadManager download removes it, and its partial file
+    // with it) means starting from 0, or only the tail would be saved.
     val destFile = File(pausedInfo.destination)
-    val resumeInfo = if (destFile.exists() && destFile.length() != pausedInfo.bytesDownloaded) {
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Adjusting resume offset for $configId from ${pausedInfo.bytesDownloaded} to on-disk ${destFile.length()} bytes")
-      pausedInfo.copy(bytesDownloaded = destFile.length())
+    val onDiskBytes = if (destFile.exists()) destFile.length() else 0L
+    val resumeInfo = if (onDiskBytes != pausedInfo.bytesDownloaded) {
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "Adjusting resume offset for $configId from ${pausedInfo.bytesDownloaded} to on-disk $onDiskBytes bytes")
+      pausedInfo.copy(bytesDownloaded = onDiskBytes)
     } else {
       pausedInfo
     }

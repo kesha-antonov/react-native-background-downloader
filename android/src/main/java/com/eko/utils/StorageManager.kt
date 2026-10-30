@@ -352,6 +352,9 @@ class StorageManager(context: Context, private val name: String) {
     /**
      * Upsert a single in-progress resumable download recovery snapshot.
      */
+    // Synchronized: download threads save while others remove, and an unguarded
+    // load-modify-save can write back a snapshot another thread just removed
+    @Synchronized
     fun saveActiveDownload(info: Downloader.PausedDownloadInfo) {
         val map = loadActiveDownloads()
         map[info.configId] = info
@@ -361,6 +364,7 @@ class StorageManager(context: Context, private val name: String) {
     /**
      * Remove a single recovery snapshot by config ID.
      */
+    @Synchronized
     fun removeActiveDownload(configId: String) {
         val map = loadActiveDownloads()
         if (map.remove(configId) != null) {
@@ -371,6 +375,7 @@ class StorageManager(context: Context, private val name: String) {
     /**
      * Clear all recovery snapshots.
      */
+    @Synchronized
     fun clearActiveDownloads() {
         saveActiveDownloads(emptyMap())
     }

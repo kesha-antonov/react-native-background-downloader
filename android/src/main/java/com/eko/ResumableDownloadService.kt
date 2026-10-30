@@ -504,7 +504,8 @@ class ResumableDownloadService : Service() {
   }
 
   private fun acquireWakeLock() {
-    if (wakeLock == null) {
+    // Not just a null check: the lock times out, and an expired one must be taken again
+    if (wakeLock?.isHeld != true) {
       val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
       wakeLock = powerManager.newWakeLock(
         PowerManager.PARTIAL_WAKE_LOCK,

@@ -312,20 +312,20 @@ class Uploader(private val context: Context) {
 
         // Parameters
         config.parameters?.forEach { (key, value) ->
-            size += "$twoHyphens$boundary$crlf".length
-            size += "Content-Disposition: form-data; name=\"$key\"$crlf$crlf".length
-            size += "$value$crlf".length
+            size += "$twoHyphens$boundary$crlf".utf8Size()
+            size += "Content-Disposition: form-data; name=\"$key\"$crlf$crlf".utf8Size()
+            size += "$value$crlf".utf8Size()
         }
 
         // File
-        size += "$twoHyphens$boundary$crlf".length
-        size += "Content-Disposition: form-data; name=\"$fieldName\"; filename=\"$fileName\"$crlf".length
-        size += "Content-Type: $mimeType$crlf$crlf".length
+        size += "$twoHyphens$boundary$crlf".utf8Size()
+        size += "Content-Disposition: form-data; name=\"$fieldName\"; filename=\"$fileName\"$crlf".utf8Size()
+        size += "Content-Type: $mimeType$crlf$crlf".utf8Size()
         size += file.length()
         size += crlf.length
 
         // End boundary
-        size += "$twoHyphens$boundary$twoHyphens$crlf".length
+        size += "$twoHyphens$boundary$twoHyphens$crlf".utf8Size()
 
         return size
     }
@@ -351,8 +351,8 @@ class Uploader(private val context: Context) {
             val paramPart = "$twoHyphens$boundary$crlf" +
                 "Content-Disposition: form-data; name=\"$key\"$crlf$crlf" +
                 "$value$crlf"
-            outputStream.writeBytes(paramPart)
-            val bytesWritten = state.bytesUploaded.addAndGet(paramPart.length.toLong())
+            outputStream.write(paramPart.toByteArray(Charsets.UTF_8))
+            val bytesWritten = state.bytesUploaded.addAndGet(paramPart.utf8Size().toLong())
             listener.onProgress(config.id, bytesWritten, state.bytesTotal)
         }
 
@@ -360,8 +360,8 @@ class Uploader(private val context: Context) {
         val fileHeader = "$twoHyphens$boundary$crlf" +
             "Content-Disposition: form-data; name=\"$fieldName\"; filename=\"$fileName\"$crlf" +
             "Content-Type: $mimeType$crlf$crlf"
-        outputStream.writeBytes(fileHeader)
-        state.bytesUploaded.addAndGet(fileHeader.length.toLong())
+        outputStream.write(fileHeader.toByteArray(Charsets.UTF_8))
+        state.bytesUploaded.addAndGet(fileHeader.utf8Size().toLong())
 
         // Write file content
         FileInputStream(file).use { fileInputStream ->
@@ -407,3 +407,7 @@ class Uploader(private val context: Context) {
         }
     }
 }
+
+// Multipart text is sent as UTF-8 (DataOutputStream.writeBytes would keep only each
+// char's low byte, garbling non-ASCII names and values), so sizes count UTF-8 bytes
+private fun String.utf8Size(): Int = toByteArray(Charsets.UTF_8).size

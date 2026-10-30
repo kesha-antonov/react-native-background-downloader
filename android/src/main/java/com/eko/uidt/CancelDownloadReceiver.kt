@@ -34,7 +34,9 @@ class CancelDownloadReceiver : BroadcastReceiver() {
 
         // Snapshot liveness first: stopTask tears the job down, so afterwards we
         // can no longer tell an active download from an already-finished one.
-        val wasActive = UIDTJobRegistry.isActiveJob(configId)
+        // A job the system stopped (e.g. waiting for Wi-Fi) is no longer active but still
+        // scheduled, and its notification with this action stays up - that counts too.
+        val wasActive = UIDTJobRegistry.isActiveJob(configId) || UIDTJobManager.isScheduledJob(context, configId)
 
         if (!RNBackgroundDownloaderModuleImpl.stopTaskFromNative(configId)) {
             RNBackgroundDownloaderModuleImpl.logD(

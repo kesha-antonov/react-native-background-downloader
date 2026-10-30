@@ -16,7 +16,9 @@ import java.util.concurrent.Callable
  */
 class OnBegin(
     private val config: RNBGDTaskConfig,
-    private val callback: BeginCallback
+    private val callback: BeginCallback,
+    // The download's own headers, so auth-protected URLs answer the HEAD request too
+    private val requestHeaders: Map<String, String> = emptyMap()
 ) : Callable<OnBeginState> {
 
     override fun call(): OnBeginState {
@@ -44,6 +46,9 @@ class OnBegin(
         // Requests only headers from the server.
         // Prevents memory leaks for invalid connections.
         urlConnection.requestMethod = "HEAD"
+        for ((key, value) in requestHeaders) {
+            urlConnection.setRequestProperty(key, value)
+        }
 
         // Set timeout values to prevent downloads from staying in PENDING state
         // when URLs are slow to respond (e.g., taking 2-6 minutes)

@@ -55,20 +55,12 @@ object RedirectResolver {
                         break
                     }
 
-                    // Handle relative URLs
-                    currentUrl = when {
-                        location.startsWith("/") -> {
-                            val baseUrl = URL(currentUrl)
-                            "${baseUrl.protocol}://${baseUrl.host}$location"
-                        }
-                        !location.startsWith("http") -> {
-                            val baseUrl = URL(currentUrl)
-                            "${baseUrl.protocol}://${baseUrl.host}/$location"
-                        }
-                        else -> location
-                    }
+                    // Resolve relative locations against the current URL, keeping its port,
+                    // path and scheme (for "//host/path")
+                    val previousUrl = currentUrl
+                    currentUrl = URL(URL(currentUrl), location).toString()
 
-                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Redirect ${redirectCount + 1}/$maxRedirects: $currentUrl -> $location")
+                    RNBackgroundDownloaderModuleImpl.logD(TAG, "Redirect ${redirectCount + 1}/$maxRedirects: $previousUrl -> $currentUrl")
                     redirectCount++
                 } else {
                     // Not a redirect, we've found the final URL

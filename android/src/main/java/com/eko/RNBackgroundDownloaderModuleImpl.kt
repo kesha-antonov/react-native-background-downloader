@@ -9,7 +9,6 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import android.webkit.MimeTypeMap
 import com.eko.handlers.OnBegin
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
@@ -423,7 +422,12 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
               // Download successful, clean task after media scanning.
               val paths = arrayOf(localUri)
               MediaScannerConnection.scanFile(context, paths, null) { _, _ ->
-                stopTask(config.id)
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                  // Not stopTask: DownloadManager.remove() deletes the downloaded file too
+                  releaseCompletedTask(config.id)
+                } else {
+                  stopTask(config.id)
+                }
               }
             } else {
               // Download failed, clean task.
@@ -476,14 +480,23 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         var bytesTotal: Long = 0
 
         if (!config.reportedBegin) {
-          val onBeginCallable = OnBegin(config, this::onBeginDownload)
-          val onBeginFuture = cachedExecutorPool.submit(onBeginCallable)
-          val onBeginState = onBeginFuture.get()
-          bytesTotal = onBeginState.expectedBytes
+          val requestHeaders = synchronized(sharedLock) { configIdToHeaders[config.id] } ?: emptyMap()
+          val onBeginCallable = OnBegin(config, this::onBeginDownload, requestHeaders)
+          try {
+            bytesTotal = cachedExecutorPool.submit(onBeginCallable).get().expectedBytes
+          } catch (e: Exception) {
+            // The HEAD request is only for the size; some servers reject it (e.g. presigned
+            // GET URLs). Report begin with an unknown size and still track progress.
+            logW(NAME, "resumeTasks: HEAD request failed for ${config.id}: ${e.message}")
+            bytesTotal = -1
+            onBeginDownload(config.id, Arguments.createMap(), -1)
+          }
 
-          config.reportedBegin = true
-          downloadIdToConfig[downloadId] = config
-          saveDownloadIdToConfigMap()
+          synchronized(sharedLock) {
+            config.reportedBegin = true
+            downloadIdToConfig[downloadId] = config
+            saveDownloadIdToConfigMap()
+          }
         }
 
         val onProgressCallable = OnProgress(
@@ -495,7 +508,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           this::onProgressDownload
         )
         val onProgressFuture = cachedExecutorPool.submit(onProgressCallable)
-        configIdToProgressFuture[config.id] = onProgressFuture
+        synchronized(sharedLock) {
+          configIdToProgressFuture[config.id] = onProgressFuture
+        }
       } catch (e: Exception) {
         logE(NAME, "resumeTasks: ${Log.getStackTraceString(e)}")
       }
@@ -555,44 +570,48 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
    * surface the download again via getExistingDownloadTasks.
    */
   private fun maybeSnapshotActiveResumable(configId: String, bytesDownloaded: Long, bytesTotal: Long) {
-    val now = System.currentTimeMillis()
-    val last = configIdToLastSnapshotMs[configId] ?: 0L
-    if (now - last < DownloadConstants.RECOVERY_SNAPSHOT_INTERVAL_MS) {
-      return
-    }
-    configIdToLastSnapshotMs[configId] = now
+    // Runs on download threads: the maps and the load-modify-save of the snapshot
+    // store must not interleave with another download's save or a cleanup
+    synchronized(sharedLock) {
+      val now = System.currentTimeMillis()
+      val last = configIdToLastSnapshotMs[configId] ?: 0L
+      if (now - last < DownloadConstants.RECOVERY_SNAPSHOT_INTERVAL_MS) {
+        return
+      }
+      configIdToLastSnapshotMs[configId] = now
 
-    // The active state lives in the foreground-service ResumableDownloader (Android < 14)
-    // or, on Android 14+, in the UIDT job. Check both so force-stop recovery works on
-    // every supported version.
-    val state = downloader.getActiveResumableDownloads()[configId]
-      ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-        UIDTDownloadJobService.getJobDownloadState(configId)
-      else null)
-      ?: return
-    val headers = configIdToHeaders[configId] ?: state.headers
-    val metadata = configIdToMetadata[configId] ?: "{}"
-    // Persisted fallback: the UIDT job extras survive process death for jobs the
-    // JobScheduler restarted in a fresh process; the download state carries the
-    // flag on the foreground-service path.
-    val persistedIsAllowedOverMetered =
-      (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-        UIDTDownloadJobService.getJobIsAllowedOverMetered(configId)
-      else null)
-        ?: state.isAllowedOverMetered
+      // The active state lives in the foreground-service ResumableDownloader (Android < 14)
+      // or, on Android 14+, in the UIDT job. Check both so force-stop recovery works on
+      // every supported version.
+      val state = downloader.getActiveResumableDownloads()[configId]
+        ?: (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+          UIDTDownloadJobService.getJobDownloadState(configId)
+        else null)
+        ?: return
+      val headers = configIdToHeaders[configId] ?: state.headers
+      val metadata = configIdToMetadata[configId] ?: "{}"
+      // Persisted fallback: the UIDT job extras survive process death for jobs the
+      // JobScheduler restarted in a fresh process; the download state carries the
+      // flag on the foreground-service path.
+      val persistedIsAllowedOverMetered =
+        (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+          UIDTDownloadJobService.getJobIsAllowedOverMetered(configId)
+        else null)
+          ?: state.isAllowedOverMetered
 
-    downloader.saveActiveDownloadSnapshot(
-      Downloader.PausedDownloadInfo(
-        configId = configId,
-        url = state.url,
-        destination = state.destination,
-        headers = headers,
-        bytesDownloaded = bytesDownloaded,
-        bytesTotal = bytesTotal,
-        metadata = metadata,
-        isAllowedOverMetered = resolveIsAllowedOverMetered(configId, persistedIsAllowedOverMetered)
+      downloader.saveActiveDownloadSnapshot(
+        Downloader.PausedDownloadInfo(
+          configId = configId,
+          url = state.url,
+          destination = state.destination,
+          headers = headers,
+          bytesDownloaded = bytesDownloaded,
+          bytesTotal = bytesTotal,
+          metadata = metadata,
+          isAllowedOverMetered = resolveIsAllowedOverMetered(configId, persistedIsAllowedOverMetered)
+        )
       )
-    )
+    }
   }
 
   fun download(options: ReadableMap) {
@@ -698,10 +717,6 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     // DownloadManager requires external storage for downloads
     // Use app's private external files directory: /storage/emulated/0/Android/data/<package>/files/
     // This keeps files private to the app while being compatible with DownloadManager
-    val uuid = (System.currentTimeMillis() and 0xfffffff).toInt()
-    val extension = MimeTypeMap.getFileExtensionFromUrl(destination)
-    val filename = "$uuid.$extension"
-
     // Get external files directory and validate it's a proper external storage path
     val externalFilesDir = reactContext.getExternalFilesDir(null)
     val isValidExternalPath = externalFilesDir != null &&
@@ -818,22 +833,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         startWithResumableDownloader()
       }
     } else {
-      // External files directory path is invalid or null
-      // Try setDestinationInExternalFilesDir as fallback, then ResumableDownloader if that fails
+      // External files directory path is invalid or null (e.g. OnePlus devices returning
+      // /data/local/tmp/external/). DownloadManager could only save under its own name in
+      // the external files dir, not at the destination, so the completed file wouldn't be
+      // where the task expects it. ResumableDownloader writes to the destination directly.
       logW(NAME, "External files directory path may be invalid for DownloadManager: ${externalFilesDir?.absolutePath}")
-
-      try {
-        // Try standard setDestinationInExternalFilesDir - may work on some devices
-        request.setDestinationInExternalFilesDir(reactContext, null, filename)
-        startDownloadManagerDownload(downloader.download(request))
-        logD(NAME, "Using setDestinationInExternalFilesDir for download: $id")
-      } catch (e: Exception) {
-        // DownloadManager failed - fall back to ResumableDownloader
-        // This handles OnePlus and other devices that return paths like /data/local/tmp/external/
-        logW(NAME, "DownloadManager failed with: ${e.message}")
-        logD(NAME, "Using ResumableDownloader as fallback for download: $id")
-        startWithResumableDownloader()
-      }
+      logD(NAME, "Using ResumableDownloader for download: $id")
+      startWithResumableDownloader()
     }
   }
 
@@ -999,6 +1005,16 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
   }
 
+  /**
+   * Drop the bookkeeping for a download that finished, keeping its file.
+   */
+  private fun releaseCompletedTask(configId: String) {
+    synchronized(sharedLock) {
+      stopTaskProgress(configId)
+      cleanupDownloadState(configId, configIdToDownloadId[configId], removePausedState = false)
+    }
+  }
+
   fun completeHandler(configId: String) {
     // Firebase Performance compatibility: Add defensive programming to prevent crashes
     // when Firebase Performance SDK is installed and uses bytecode instrumentation
@@ -1096,6 +1112,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                   processedIds.add(config.id)
                   configIdToDownloadId[config.id] = downloadId
                   progressReporter.setPercent(config.id, percent)
+
+                  if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    // Finished while the app wasn't running, so no event was sent; it's
+                    // reported here as done once, then forgotten so it isn't listed again
+                    // on every launch (and a later stop can't remove its file)
+                    releaseCompletedTask(config.id)
+                  }
                 }
               } else if (downloadId != null) {
                 downloader.cancel(downloadId)
@@ -1467,12 +1490,18 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   }
 
   fun resumeUploadTask(configId: String) {
-    synchronized(sharedLock) {
+    val config = synchronized(sharedLock) {
       uploadConfigs[configId]?.state = DownloadConstants.TASK_RUNNING
       // Persist state change
       storageManager.saveUploadConfigs(uploadConfigs)
+      uploadConfigs[configId]
     }
-    uploader.resume(configId, uploadListener)
+    if (!uploader.resume(configId, uploadListener) && config != null && uploader.getState(configId) == null) {
+      // Restored after a restart: nothing is in memory to resume, so upload it again
+      uploader.startUpload(config, uploadListener)
+      logD(NAME, "Restarted restored upload: $configId")
+      return
+    }
     logD(NAME, "Resumed upload: $configId")
   }
 
