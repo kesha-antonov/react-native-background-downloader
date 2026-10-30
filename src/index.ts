@@ -533,7 +533,8 @@ export const completeHandler = (jobId: string) => {
 
 export function createDownloadTask ({
   isAllowedOverRoaming = true,
-  isAllowedOverMetered = true,
+  // Follows setConfig({ allowsCellularAccess }) unless the task sets its own
+  isAllowedOverMetered = config.allowsCellularAccess,
   metadata,
   ...rest
 }: TaskInfo & DownloadParams) {
@@ -628,7 +629,8 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
 
 export function createUploadTask ({
   isAllowedOverRoaming = true,
-  isAllowedOverMetered = true,
+  // Follows setConfig({ allowsCellularAccess }) unless the task sets its own
+  isAllowedOverMetered = config.allowsCellularAccess,
   metadata,
   ...rest
 }: UploadTaskInfo & UploadParams) {

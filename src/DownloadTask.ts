@@ -193,7 +193,7 @@ export class DownloadTask {
       ...this.downloadParams,
       headers: this.headersToUnsafeObject(this.downloadParams.headers),
       isAllowedOverRoaming: this.downloadParams.isAllowedOverRoaming ?? false,
-      isAllowedOverMetered: this.downloadParams.isAllowedOverMetered ?? false,
+      isAllowedOverMetered: this.downloadParams.isAllowedOverMetered ?? config.allowsCellularAccess,
       // iOS-only; ignored on Android. Falls back to the global setConfig default.
       iosDataProtection: this.downloadParams.iosDataProtection ?? config.iosDataProtection,
     })
