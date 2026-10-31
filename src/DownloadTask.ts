@@ -49,6 +49,10 @@ export class DownloadTask {
   doneHandler?: DoneHandler
   errorHandler?: ErrorHandler
 
+  // begin fires once per task. Android sends it again for each new transfer (a resume in
+  // a new job, a reschedule by the system), which isn't a new beginning for the app.
+  private hasBegun = false
+
   constructor (taskParams: TaskInfo | TaskInfoNative, originalTask?: DownloadTaskType) {
     this.id = taskParams.id
 
@@ -62,6 +66,9 @@ export class DownloadTask {
       this.destination = (taskParams as TaskInfoNative).destination ?? undefined
 
     this.metadata = this.tryParseJson(taskParams.metadata) ?? {}
+
+    // A restored task that already has data has begun; so has one this replaces
+    this.hasBegun = (originalTask instanceof DownloadTask && originalTask.hasBegun) || this.bytesDownloaded > 0
 
     if (originalTask) {
       this.beginHandler = originalTask.beginHandler
@@ -107,13 +114,22 @@ export class DownloadTask {
 
   // event listeners
 
+  // Native can still deliver begin or progress that was in flight when the app paused
+  // or stopped the task, or when it ended. Those must not run handlers or change state.
+  private isInactive (): boolean {
+    return this.state === 'PAUSED' || this.state === 'STOPPED' || this.state === 'DONE' || this.state === 'FAILED'
+  }
+
   onBegin (params: BeginHandlerParams) {
+    if (this.isInactive() || this.hasBegun) return
+    this.hasBegun = true
     this.state = 'DOWNLOADING'
     this.bytesTotal = params.expectedBytes
     this.beginHandler?.(params)
   }
 
   onProgress (params: ProgressHandlerParams) {
+    if (this.isInactive()) return
     this.bytesDownloaded = params.bytesDownloaded
     this.bytesTotal = params.bytesTotal
     this.progressHandler?.(params)
@@ -128,6 +144,7 @@ export class DownloadTask {
 
   onError (params: ErrorHandlerParams) {
     this.state = 'FAILED'
+    this.errorCode = params.errorCode
     this.errorHandler?.(params)
   }
 

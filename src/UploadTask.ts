@@ -48,6 +48,10 @@ export class UploadTask {
   doneHandler?: UploadDoneHandler
   errorHandler?: UploadErrorHandler
 
+  // begin fires once per task. Android sends it again for each new transfer (a resume in
+  // a new job, a reschedule by the system), which isn't a new beginning for the app.
+  private hasBegun = false
+
   constructor (taskParams: UploadTaskInfo | UploadTaskInfoNative, originalTask?: UploadTaskType) {
     this.id = taskParams.id
 
@@ -58,6 +62,9 @@ export class UploadTask {
       this.bytesTotal = (taskParams as UploadTaskInfoNative).bytesTotal
 
     this.metadata = this.tryParseJson(taskParams.metadata) ?? {}
+
+    // A restored task that already has data has begun; so has one this replaces
+    this.hasBegun = (originalTask instanceof UploadTask && originalTask.hasBegun) || this.bytesUploaded > 0
 
     if (originalTask) {
       this.beginHandler = originalTask.beginHandler
@@ -103,13 +110,22 @@ export class UploadTask {
 
   // event listeners
 
+  // Native can still deliver begin or progress that was in flight when the app paused
+  // or stopped the upload, or when it ended. Those must not run handlers or change state.
+  private isInactive (): boolean {
+    return this.state === 'PAUSED' || this.state === 'STOPPED' || this.state === 'DONE' || this.state === 'FAILED'
+  }
+
   onBegin (params: UploadBeginHandlerParams) {
+    if (this.isInactive() || this.hasBegun) return
+    this.hasBegun = true
     this.state = 'UPLOADING'
     this.bytesTotal = params.expectedBytes
     this.beginHandler?.(params)
   }
 
   onProgress (params: UploadProgressHandlerParams) {
+    if (this.isInactive()) return
     this.bytesUploaded = params.bytesUploaded
     this.bytesTotal = params.bytesTotal
     this.progressHandler?.(params)
@@ -124,6 +140,7 @@ export class UploadTask {
 
   onError (params: UploadErrorHandlerParams) {
     this.state = 'FAILED'
+    this.errorCode = params.errorCode
     this.errorHandler?.(params)
   }
 
