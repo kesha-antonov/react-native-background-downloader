@@ -3,8 +3,6 @@ import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Pressable, Switch
 import Animated, {
   type SharedValue,
   Easing,
-  FadeIn,
-  FadeOut,
   cancelAnimation,
   interpolate,
   useAnimatedStyle,
@@ -609,16 +607,33 @@ interface NotificationSettingsProps {
 // Developer settings, collapsed by default so the list comes first
 const NotificationSettingsCard = (props: NotificationSettingsProps) => {
   const [isOpen, setIsOpen] = useState(false)
-  const rotation = useSharedValue(0)
+  // 0 closed … 1 open; drives the body's height, its fade and the chevron together
+  const openness = useSharedValue(0)
+  // The body's natural height, measured while it's laid out outside the clip
+  const bodyHeight = useSharedValue(0)
+  const reduceMotion = useReducedMotion()
 
   const toggle = useCallback(() => setIsOpen(open => !open), [])
 
   useEffect(() => {
-    rotation.value = withTiming(isOpen ? 180 : 0, { duration: 200 })
-  }, [isOpen, rotation])
+    const target = isOpen ? 1 : 0
+    openness.value = reduceMotion
+      ? target
+      : withTiming(target, { duration: 280, easing: Easing.out(Easing.cubic) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, reduceMotion])
 
   const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value}deg` }],
+    transform: [{ rotate: `${openness.value * 180}deg` }],
+  }))
+
+  const bodyClipStyle = useAnimatedStyle(() => ({
+    height: bodyHeight.value * openness.value,
+  }))
+
+  const bodyContentStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(openness.value, [0, 0.4, 1], [0, 0, 1]),
+    transform: [{ translateY: interpolate(openness.value, [0, 1], [-8, 0]) }],
   }))
 
   const summary = useMemo(() => {
@@ -659,11 +674,17 @@ const NotificationSettingsCard = (props: NotificationSettingsProps) => {
         </Animated.View>
       </Pressable>
 
-      {isOpen && (
+      {/* Always rendered: the clip's height unfolds it. Hidden from accessibility and
+          touches while closed */}
+      <Animated.View
+        style={[styles.settingsClip, bodyClipStyle]}
+        pointerEvents={isOpen ? 'auto' : 'none'}
+        accessibilityElementsHidden={!isOpen}
+        importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
+      >
         <Animated.View
-          entering={FadeIn.duration(150)}
-          exiting={FadeOut.duration(100)}
-          style={styles.settingsBody}
+          style={[styles.settingsBody, styles.settingsMeasured, bodyContentStyle]}
+          onLayout={event => { bodyHeight.value = event.nativeEvent.layout.height }}
         >
           <SettingRow
             label='Show notifications'
@@ -701,7 +722,7 @@ const NotificationSettingsCard = (props: NotificationSettingsProps) => {
           />
           <Text style={styles.settingsHint}>{batchHint}</Text>
         </Animated.View>
-      )}
+      </Animated.View>
     </View>
   )
 }
@@ -1552,6 +1573,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.text,
+  },
+  settingsClip: {
+    overflow: 'hidden',
+  },
+  // Absolute, so it keeps its natural height (measured for the clip) at any clip height
+  settingsMeasured: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
   },
   settingsBody: {
     paddingHorizontal: 16,
