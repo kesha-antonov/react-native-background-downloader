@@ -1082,6 +1082,14 @@ Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) sectio
 
 The repository includes a full example app demonstrating all features:
 
+<p align="center">
+  <img src="docs/images/example-main-dark.png" width="250" alt="Example app: main screen" />
+  &nbsp;
+  <img src="docs/images/example-download-dark.png" width="250" alt="Example app: downloads, one in progress" />
+  &nbsp;
+  <img src="docs/images/example-upload-dark.png" width="250" alt="Example app: uploads" />
+</p>
+
 ```bash
 cd example
 yarn install
@@ -1100,6 +1108,8 @@ The example app shows:
 - Progress tracking with animations
 - Re-attaching to background tasks
 - File management
+- Uploads to a test server
+- Light and dark theme, following the system setting
 
 ## 💡 Use Cases
 
