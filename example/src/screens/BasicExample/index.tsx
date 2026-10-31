@@ -1,6 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Pressable, Switch, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut } from 'react-native-reanimated'
+import Animated, {
+  type SharedValue,
+  Easing,
+  FadeIn,
+  FadeOut,
+  cancelAnimation,
+  interpolate,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated'
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
@@ -231,10 +243,11 @@ interface IconButtonProps {
   onPress: () => void
 }
 
-const IconButton = ({ spec, rowId, onPress }: IconButtonProps) => {
+const IconButton = React.memo(({ spec, rowId, onPress }: IconButtonProps) => {
   const tone = TONES[spec.tone]
   const bg = spec.disabled ? colors.disabledBg : tone.bg
   const fg = spec.disabled ? colors.disabledIcon : tone.fg
+
 
   return (
     <Pressable
@@ -246,54 +259,201 @@ const IconButton = ({ spec, rowId, onPress }: IconButtonProps) => {
       android_ripple={{ color: 'rgba(15, 23, 42, 0.12)', borderless: true, radius: 22 }}
       style={({ pressed }) => [
         styles.iconButton,
-        { backgroundColor: bg },
         pressed && Platform.OS === 'ios' && styles.pressed,
       ]}
     >
-      {spec.mciIcon
-        ? <MaterialCommunityIcons name={spec.mciIcon} size={22} color={fg} />
-        : <Ionicons name={spec.icon} size={20} color={fg} />}
-      {spec.badge && (
-        <View style={[styles.iconBadge, { backgroundColor: fg }]}>
-          <MaterialCommunityIcons name={spec.badge} size={12} color={bg} />
-        </View>
-      )}
+      {/* The color is on this view: with android_ripple, a Pressable can keep its
+          first background on Android, e.g. Delete's red on the Stop that replaces it */}
+      <View style={[styles.iconButtonFill, { backgroundColor: bg }]} />
+      <View style={styles.iconButtonContent}>
+        {spec.mciIcon
+          ? <MaterialCommunityIcons name={spec.mciIcon} size={22} color={fg} />
+          : <Ionicons name={spec.icon} size={20} color={fg} />}
+        {spec.badge && (
+          <View style={[styles.iconBadge, { backgroundColor: fg }]}>
+            <MaterialCommunityIcons name={spec.badge} size={12} color={bg} />
+          </View>
+        )}
+      </View>
     </Pressable>
   )
-}
+}, (prev, next) =>
+  // onPress is a new arrow on every row render but only calls the row's action;
+  // skipping it keeps progress ticks from re-rendering the button mid-animation
+  prev.rowId === next.rowId && (Object.keys(next.spec) as (keyof ActionSpec)[]).every(key => prev.spec[key] === next.spec[key])
+    && Object.keys(prev.spec).length === Object.keys(next.spec).length)
 
 interface ProgressBarProps {
   progress: number
   indeterminate: boolean
+  // Downloading now: the fill shimmers, so a slow download still looks alive
+  active: boolean
   color: string
 }
 
-const ProgressBar = ({ progress, indeterminate, color }: ProgressBarProps) => {
+const SHIMMER_WIDTH = 0.35 // of the track
+
+interface BarViewsProps {
+  progress: SharedValue<number>
+  sweep: SharedValue<number>
+  trackWidth: SharedValue<number>
+  color: SharedValue<string>
+  // 1 or 0: shared values, so the views never re-render (see ProgressBar)
+  indeterminate: SharedValue<number>
+  moving: SharedValue<number>
+}
+
+// The bar's views take only shared values and never re-render: a React commit of an
+// animated view re-applies a stale copy of its animated style, which froze the bar part
+// way (or made it lag) whenever the row re-rendered, e.g. on each progress event
+const BarViews = React.memo(({ progress, sweep, trackWidth, color, indeterminate, moving }: BarViewsProps) => {
+  // Scaled rather than sized from the left edge
+  const fillStyle = useAnimatedStyle(() => ({
+    backgroundColor: color.value,
+    opacity: indeterminate.value ? 0 : 1,
+    transform: [{ scaleX: progress.value }],
+  }))
+
+  // A light band crossing the fill, ending at its edge so it never shows on the empty track
+  const shimmerStyle = useAnimatedStyle(() => {
+    const width = trackWidth.value * SHIMMER_WIDTH
+    const end = trackWidth.value * progress.value - width
+    return {
+      width,
+      opacity: !indeterminate.value && moving.value ? 1 : 0,
+      transform: [{ translateX: interpolate(sweep.value, [0, 1], [-width, end]) }],
+    }
+  })
+
+  // For an unknown size: a segment crossing the whole track
+  const segmentStyle = useAnimatedStyle(() => {
+    const width = trackWidth.value * SHIMMER_WIDTH
+    return {
+      width,
+      backgroundColor: color.value,
+      opacity: indeterminate.value && moving.value ? 1 : 0,
+      transform: [{ translateX: interpolate(sweep.value, [0, 1], [-width, trackWidth.value]) }],
+    }
+  })
+
+  return (
+    <>
+      <Animated.View style={[styles.progressFill, fillStyle]} />
+      <Animated.View style={[styles.progressShimmer, shimmerStyle]} />
+      <Animated.View style={[styles.progressSegment, segmentStyle]} />
+    </>
+  )
+})
+
+const ProgressBar = ({ progress, indeterminate, active, color }: ProgressBarProps) => {
   // Start from the current value so a row that mounts mid-download
   // doesn't animate from zero
   const progressAnim = useSharedValue(progress)
+  const trackWidth = useSharedValue(0)
+  const sweep = useSharedValue(0)
+  const colorValue = useSharedValue(color)
+  const indeterminateValue = useSharedValue(indeterminate ? 1 : 0)
+  const movingValue = useSharedValue(0)
+  const reduceMotion = useReducedMotion()
+  const moving = (active || indeterminate) && !reduceMotion
 
   useEffect(() => {
-    progressAnim.value = withTiming(progress, { duration: 300 })
+    colorValue.value = color
+    indeterminateValue.value = indeterminate ? 1 : 0
+    movingValue.value = moving ? 1 : 0
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [color, indeterminate, moving])
+
+  // Progress arrives in steps (one event per progressInterval). Gliding linearly to
+  // each new value over the time the last step took keeps the bar moving at the
+  // download's pace until the next event, instead of jumping and then standing still
+  const lastUpdateAt = useRef(Date.now())
+  useEffect(() => {
+    const now = Date.now()
+    const sinceLastUpdate = now - lastUpdateAt.current
+    lastUpdateAt.current = now
+    if (progress < progressAnim.value) {
+      // Started over: no animating backwards
+      progressAnim.value = progress
+      return
+    }
+    const duration = progress >= 1 ? 250 : Math.min(Math.max(sinceLastUpdate, 150), 1500)
+    progressAnim.value = withTiming(progress, { duration, easing: Easing.linear })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress])
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    width: `${progressAnim.value * 100}%`,
-  }))
+  useEffect(() => {
+    cancelAnimation(sweep)
+    sweep.value = 0
+    if (moving)
+      sweep.value = withRepeat(
+        withTiming(1, { duration: indeterminate ? 1100 : 1400, easing: Easing.inOut(Easing.quad) }),
+        -1,
+        false
+      )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moving, indeterminate])
 
   return (
-    <View style={styles.progressTrack}>
-      <Animated.View
-        style={[
-          styles.progressFill,
-          { backgroundColor: color },
-          indeterminate ? styles.progressIndeterminate : animatedStyle,
-        ]}
+    <View
+      style={styles.progressTrack}
+      onLayout={event => { trackWidth.value = event.nativeEvent.layout.width }}
+    >
+      <BarViews
+        progress={progressAnim}
+        sweep={sweep}
+        trackWidth={trackWidth}
+        color={colorValue}
+        indeterminate={indeterminateValue}
+        moving={movingValue}
       />
     </View>
   )
 }
+
+// The badge acts out its state: the arrow keeps falling while downloading, the
+// hourglass turns while starting, and the pause icon breathes
+const StateBadge = React.memo(({ status }: { status: RowStatus }) => {
+  const style = STATUS_STYLES[status]
+  const reduceMotion = useReducedMotion()
+  const loop = useSharedValue(0)
+
+  useEffect(() => {
+    cancelAnimation(loop)
+    loop.value = 0
+    if (reduceMotion) return
+
+    if (status === 'downloading')
+      loop.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.in(Easing.quad) }), -1, false)
+    else if (status === 'pending')
+      loop.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.linear }), -1, false)
+    else if (status === 'paused')
+      loop.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }), -1, true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, reduceMotion])
+
+  const iconStyle = useAnimatedStyle(() => {
+    const t = loop.value
+    if (status === 'downloading')
+      return {
+        opacity: interpolate(t, [0, 0.25, 0.75, 1], [0, 1, 1, 0]),
+        transform: [{ translateY: interpolate(t, [0, 1], [-12, 12]) }],
+      }
+    if (status === 'pending')
+      return { opacity: 1, transform: [{ rotate: `${t * 360}deg` }] }
+    if (status === 'paused')
+      return { opacity: interpolate(t, [0, 1], [1, 0.4]) }
+    return { opacity: 1 }
+  })
+
+  return (
+    <View style={[styles.badge, { backgroundColor: style.soft }]}>
+      <Animated.View style={iconStyle}>
+        <Ionicons name={style.icon} size={20} color={style.color} />
+      </Animated.View>
+    </View>
+  )
+})
 
 const rowsEqual = (a: RowModel, b: RowModel) => {
   for (const key of Object.keys(a) as (keyof RowModel)[])
@@ -342,9 +502,7 @@ const DownloadRow = React.memo(({ row, onAction }: DownloadRowProps) => {
           accessibilityLabel={`Details ${row.id}`}
           accessibilityHint='Shows the URL and file path'
         >
-          <View style={[styles.badge, { backgroundColor: status.soft }]}>
-            <Ionicons name={status.icon} size={20} color={status.color} />
-          </View>
+          <StateBadge status={row.status} />
           <View style={styles.rowText}>
             <Text style={styles.rowTitle} numberOfLines={1}>{row.title}</Text>
             <Text style={styles.rowSubtitle} numberOfLines={1}>{row.subtitle}</Text>
@@ -360,6 +518,7 @@ const DownloadRow = React.memo(({ row, onAction }: DownloadRowProps) => {
       <ProgressBar
         progress={progress}
         indeterminate={indeterminate}
+        active={row.status === 'downloading'}
         color={row.status === 'idle' ? colors.track : status.color}
       />
       <View style={styles.metaRow}>
@@ -1461,6 +1620,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    // The falling arrow enters and leaves through the edges
+    overflow: 'hidden',
   },
   badgeSmall: {
     width: 36,
@@ -1514,12 +1675,34 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   progressFill: {
-    height: '100%',
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 2,
+    transformOrigin: 'left',
+  },
+  progressShimmer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
     borderRadius: 2,
   },
-  progressIndeterminate: {
-    width: '100%',
-    opacity: 0.35,
+  progressSegment: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 2,
+  },
+  iconButtonFill: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+  },
+  iconButtonContent: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   metaRow: {
     flexDirection: 'row',
