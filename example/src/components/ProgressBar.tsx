@@ -82,7 +82,7 @@ const BarViews = React.memo(({ progress, sweep, trackWidth, color, shimmerColor,
 // Static, theme-independent: BarViews never re-renders, so it can't use a themed sheet
 const barStyles = StyleSheet.create({
   fill: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 2,
     transformOrigin: 'left',
   },

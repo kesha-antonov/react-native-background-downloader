@@ -57,7 +57,7 @@ const useStyles = createThemedStyles(theme => ({
     overflow: 'hidden',
   },
   fill: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   filled: {
     backgroundColor: theme.colors.primary,

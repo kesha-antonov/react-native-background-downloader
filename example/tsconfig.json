@@ -5,14 +5,14 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "jsx": "react-native",
-    "baseUrl": ".",
     "paths": {
       "@kesha-antonov/react-native-background-downloader": ["../src/index"]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    "../types/*.d.ts"
   ],
   "exclude": [
     "node_modules"

@@ -317,7 +317,7 @@ const UploadExampleScreen = () => {
       const smallFileId = uuid()
       const smallFile = new File(uploadsDir, `${smallFileId}.txt`)
       const smallContent = 'Hello, World! '.repeat(64) // ~1 KB
-      smallFile.write(smallContent)
+      smallFile.writeSync(smallContent)
       files.push({
         id: smallFileId,
         fileName: `${smallFileId}.txt`,
@@ -329,7 +329,7 @@ const UploadExampleScreen = () => {
       const mediumFileId = uuid()
       const mediumFile = new File(uploadsDir, `${mediumFileId}.txt`)
       const mediumContent = 'Test data for upload. '.repeat(4500) // ~100 KB
-      mediumFile.write(mediumContent)
+      mediumFile.writeSync(mediumContent)
       files.push({
         id: mediumFileId,
         fileName: `${mediumFileId}.txt`,
@@ -341,7 +341,7 @@ const UploadExampleScreen = () => {
       const largeFileId = uuid()
       const largeFile = new File(uploadsDir, `${largeFileId}.txt`)
       const largeContent = 'Large test file content for background upload testing. '.repeat(9000) // ~500 KB
-      largeFile.write(largeContent)
+      largeFile.writeSync(largeContent)
       files.push({
         id: largeFileId,
         fileName: `${largeFileId}.txt`,
@@ -355,7 +355,7 @@ const UploadExampleScreen = () => {
       const xlFile = new File(uploadsDir, `${xlFileId}.bin`)
       // Create binary-like content
       const xlContent = 'X'.repeat(800 * 1000) // 800 KB
-      xlFile.write(xlContent)
+      xlFile.writeSync(xlContent)
       files.push({
         id: xlFileId,
         fileName: `${xlFileId}.bin`,

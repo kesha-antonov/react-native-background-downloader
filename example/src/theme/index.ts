@@ -1,4 +1,4 @@
-import { StyleSheet, useColorScheme } from 'react-native'
+import { StyleSheet, useColorScheme, type ViewStyle, type TextStyle, type ImageStyle } from 'react-native'
 import { DarkTheme, DefaultTheme, type Theme as NavigationTheme } from '@react-navigation/native'
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,11 @@ export const statusColors = (theme: Theme, status: TransferStatus): StatusColors
 // so components never re-create styles on render
 // ---------------------------------------------------------------------------
 
-export const createThemedStyles = <T extends StyleSheet.NamedStyles<T>>(factory: (theme: Theme) => T) => {
+// What StyleSheet.create takes; React Native 0.88's strict API no longer exports
+// StyleSheet.NamedStyles. The constraint keeps style values literal ('600', 'center')
+type NamedStyles<T> = { [P in keyof T]: ViewStyle | TextStyle | ImageStyle }
+
+export const createThemedStyles = <T extends NamedStyles<T>>(factory: (theme: Theme) => T) => {
   const cache = new Map<Theme, T>()
   return (): T => {
     const theme = useTheme()
