@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, TouchableOpacity, Switch, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Pressable, Switch, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
@@ -11,7 +11,6 @@ import {
   directories,
 } from '@kesha-antonov/react-native-background-downloader'
 import type { DownloadTask } from '@kesha-antonov/react-native-background-downloader'
-import { ExButton } from '../../components/commons'
 import { toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { createMMKV } from 'react-native-mmkv'
@@ -63,120 +62,61 @@ const TaskIdStorage = {
   },
 }
 
-interface UrlItem {
-  id: string
-  url: string
-  maxRedirects?: number
-  title?: string
+// ---------------------------------------------------------------------------
+// Design tokens
+// ---------------------------------------------------------------------------
+
+const colors = {
+  background: '#F3F4F6',
+  surface: '#FFFFFF',
+  border: '#E5E7EB',
+  divider: '#F1F5F9',
+  text: '#0F172A',
+  textSecondary: '#64748B',
+  textMuted: '#94A3B8',
+  primary: '#2563EB',
+  primarySoft: '#DBEAFE',
+  primaryText: '#1D4ED8',
+  track: '#E5E7EB',
+  disabledBg: '#F8FAFC',
+  disabledIcon: '#CBD5E1',
 }
 
-interface DownloadItemData {
-  urlItem: UrlItem
-  task: DownloadTask | null
-  destination: string | null
+type RowStatus = 'idle' | 'pending' | 'downloading' | 'paused' | 'done' | 'failed' | 'stopped'
+
+interface StatusStyle {
+  label: string
+  icon: React.ComponentProps<typeof Ionicons>['name']
+  // Strong color: bar fill, state label, badge icon
+  color: string
+  // Soft color: badge background
+  soft: string
 }
 
-interface DownloadItemProps {
-  item: DownloadItemData
-  onStart: (urlItem: UrlItem) => void
-  onStop: (id: string) => void
-  onPause: (id: string) => void
-  onResume: (id: string) => void
-  onDelete: (id: string) => void
+const STATUS_STYLES: Record<RowStatus, StatusStyle> = {
+  idle: { label: 'Not downloaded', icon: 'cloud-download-outline', color: '#64748B', soft: '#F1F5F9' },
+  pending: { label: 'Starting…', icon: 'hourglass-outline', color: '#2563EB', soft: '#DBEAFE' },
+  downloading: { label: 'Downloading', icon: 'arrow-down', color: '#2563EB', soft: '#DBEAFE' },
+  paused: { label: 'Paused', icon: 'pause', color: '#D97706', soft: '#FEF3C7' },
+  done: { label: 'Downloaded', icon: 'checkmark', color: '#16A34A', soft: '#DCFCE7' },
+  failed: { label: 'Failed', icon: 'alert', color: '#DC2626', soft: '#FEE2E2' },
+  stopped: { label: 'Stopped', icon: 'stop', color: '#6B7280', soft: '#F3F4F6' },
 }
 
-const DownloadItem = React.memo(({ item, onStart, onStop, onPause, onResume, onDelete }: DownloadItemProps) => {
-  const { urlItem, task, destination } = item
-  const state = task?.state ?? 'IDLE'
-  const isDownloading = state === 'DOWNLOADING'
-  const isPaused = state === 'PAUSED'
-  const isDone = state === 'DONE'
-  const isFailed = state === 'FAILED'
-  const isStopped = state === 'STOPPED'
-  const isEnded = isDone || isFailed || isStopped
+const isActiveStatus = (status: RowStatus) =>
+  status === 'pending' || status === 'downloading' || status === 'paused'
 
-  const bytesDownloaded = task?.bytesDownloaded ?? 0
-  const bytesTotal = task?.bytesTotal ?? 0
-  // bytesTotal can be -1 when server doesn't send Content-Length header
-  const isTotalUnknown = bytesTotal <= 0
-  const progress = isTotalUnknown ? 0 : bytesDownloaded / bytesTotal
-  const progressPercent = isTotalUnknown ? 0 : Math.round(progress * 100)
-
-  // Animated progress bar using reanimated
-  const progressAnim = useSharedValue(0)
-
-  useEffect(() => {
-    progressAnim.value = withTiming(progress, { duration: 300 })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress])
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    width: `${progressAnim.value * 100}%`,
-  }))
-
-  const stateColor = useMemo(() => {
-    switch (state) {
-      case 'DOWNLOADING': return '#4CAF50'
-      case 'PAUSED': return '#FF9800'
-      case 'DONE': return '#2196F3'
-      case 'FAILED': return '#F44336'
-      case 'STOPPED': return '#9E9E9E'
-      default: return '#666'
-    }
-  }, [state])
-
-  return (
-    <View style={styles.downloadItem}>
-      <Text style={styles.itemId}>{urlItem.id}</Text>
-      <Text style={styles.itemUrl} numberOfLines={2}>{urlItem.url}</Text>
-      {destination && (
-        <Text style={styles.itemDestination} numberOfLines={1}>📁 {destination}</Text>
-      )}
-      {urlItem.title && (
-        <Text style={styles.itemTitle}>{urlItem.title}</Text>
-      )}
-
-      {/* Progress Section - always show when task exists */}
-      {task && (
-        <View style={styles.progressContainer}>
-          <View style={styles.progressHeader}>
-            <Text style={[styles.stateText, { color: stateColor }]}>{state}</Text>
-            <Text style={styles.progressPercent}>{isTotalUnknown ? '—' : `${progressPercent}%`}</Text>
-          </View>
-
-          {/* Progress Bar */}
-          <View style={styles.progressBarContainer}>
-            <Animated.View style={[styles.progressBarFill, isTotalUnknown ? { width: '100%', backgroundColor: stateColor, opacity: 0.3 } : [animatedStyle, { backgroundColor: stateColor }]]} />
-          </View>
-
-          <Text style={styles.progressText}>
-            {formatBytes(bytesDownloaded)}{isTotalUnknown ? '' : ` / ${formatBytes(bytesTotal)}`}
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.buttonRow}>
-        {(!task || isFailed || isStopped) && (
-          <ExButton title="Start" onPress={() => onStart(urlItem)} />
-        )}
-        {(isDone || isStopped || isFailed) && bytesDownloaded > 0 && (
-          <ExButton title="Delete File" onPress={() => onDelete(urlItem.id)} />
-        )}
-        {task && !isEnded && (
-          <>
-            <ExButton title="Stop" onPress={() => onStop(urlItem.id)} />
-            {isDownloading && (
-              <ExButton title="Pause" onPress={() => onPause(urlItem.id)} />
-            )}
-            {isPaused && (
-              <ExButton title="Resume" onPress={() => onResume(urlItem.id)} />
-            )}
-          </>
-        )}
-      </View>
-    </View>
-  )
-})
+const statusFromTask = (task: DownloadTask): RowStatus => {
+  switch (task.state) {
+    case 'PENDING': return 'pending'
+    case 'DOWNLOADING': return 'downloading'
+    case 'PAUSED': return 'paused'
+    case 'DONE': return 'done'
+    case 'FAILED': return 'failed'
+    case 'STOPPED': return 'stopped'
+    default: return 'idle'
+  }
+}
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 0) return 'Unknown'
@@ -187,16 +127,137 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
-// Component to display an existing task (from getExistingDownloadTasks)
-const TaskItem = React.memo(({ task, onRemove }: { task: DownloadTask, onRemove: (id: string) => void }) => {
-  const state = task.state
-  const bytesDownloaded = task.bytesDownloaded ?? 0
-  const bytesTotal = task.bytesTotal ?? 0
-  const isTotalUnknown = bytesTotal <= 0
-  const progress = isTotalUnknown ? 0 : bytesDownloaded / bytesTotal
-  const progressPercent = isTotalUnknown ? 0 : Math.round(progress * 100)
+const baseName = (path: string) => path.split('/').pop() || path
 
-  // Animated progress bar using reanimated - initialize with current progress
+// ---------------------------------------------------------------------------
+// Row model: one row per download, whatever its lifecycle stage
+// ---------------------------------------------------------------------------
+
+interface UrlItem {
+  id: string
+  url: string
+  maxRedirects?: number
+  title?: string
+}
+
+type RowKind =
+  | 'url' // a predefined URL, can be (re)started
+  | 'task' // a task that doesn't belong to a predefined URL (batch, restored)
+  | 'file' // a file on disk that no row claims
+
+// Only primitives, so React.memo can compare rows field by field
+interface RowModel {
+  key: string
+  id: string
+  kind: RowKind
+  title: string
+  subtitle: string
+  status: RowStatus
+  bytesDownloaded: number
+  bytesTotal: number
+  hasTask: boolean
+  hasFile: boolean
+  fileName: string | null
+  path: string | null
+  url: string | null
+  errorCode: number | null
+}
+
+type RowAction = 'start' | 'pause' | 'resume' | 'stop' | 'delete' | 'remove' | 'details'
+
+interface ActionSpec {
+  action: RowAction
+  label: string
+  icon: React.ComponentProps<typeof Ionicons>['name']
+  tone: 'primary' | 'warning' | 'neutral' | 'danger'
+  disabled?: boolean
+}
+
+const TONES: Record<ActionSpec['tone'], { bg: string, fg: string }> = {
+  primary: { bg: colors.primarySoft, fg: colors.primaryText },
+  warning: { bg: '#FEF3C7', fg: '#B45309' },
+  neutral: { bg: '#F1F5F9', fg: '#334155' },
+  danger: { bg: '#FEE2E2', fg: '#B91C1C' },
+}
+
+// Two action slots per row. The slots never appear or disappear: their
+// content is swapped in place, so the row keeps the same footprint in every state
+const getRowActions = (row: RowModel): [ActionSpec, ActionSpec] => {
+  const active = isActiveStatus(row.status)
+
+  let primary: ActionSpec
+  if (row.status === 'downloading')
+    primary = { action: 'pause', label: 'Pause', icon: 'pause', tone: 'warning' }
+  else if (row.status === 'pending')
+    primary = { action: 'pause', label: 'Pause', icon: 'pause', tone: 'warning', disabled: true }
+  else if (row.status === 'paused')
+    primary = { action: 'resume', label: 'Resume', icon: 'play', tone: 'primary' }
+  else if (row.kind === 'url')
+    primary = {
+      action: 'start',
+      label: 'Start',
+      icon: row.status === 'idle' ? 'play' : 'refresh',
+      tone: 'primary',
+    }
+  else
+    primary = { action: 'details', label: 'Details', icon: 'information', tone: 'neutral' }
+
+  let secondary: ActionSpec
+  if (active)
+    secondary = { action: 'stop', label: 'Stop', icon: 'stop', tone: 'neutral' }
+  else if (row.hasFile)
+    secondary = { action: 'delete', label: 'Delete', icon: 'trash-outline', tone: 'danger' }
+  else if (row.hasTask)
+    secondary = { action: 'remove', label: 'Remove', icon: 'close', tone: 'neutral' }
+  else
+    secondary = { action: 'delete', label: 'Delete', icon: 'trash-outline', tone: 'danger', disabled: true }
+
+  return [primary, secondary]
+}
+
+// ---------------------------------------------------------------------------
+// Components
+// ---------------------------------------------------------------------------
+
+interface IconButtonProps {
+  spec: ActionSpec
+  rowId: string
+  onPress: () => void
+}
+
+const IconButton = ({ spec, rowId, onPress }: IconButtonProps) => {
+  const tone = TONES[spec.tone]
+  const bg = spec.disabled ? colors.disabledBg : tone.bg
+  const fg = spec.disabled ? colors.disabledIcon : tone.fg
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={spec.disabled}
+      accessibilityRole='button'
+      accessibilityLabel={`${spec.label} ${rowId}`}
+      accessibilityState={{ disabled: !!spec.disabled }}
+      android_ripple={{ color: 'rgba(15, 23, 42, 0.12)', borderless: true, radius: 22 }}
+      style={({ pressed }) => [
+        styles.iconButton,
+        { backgroundColor: bg },
+        pressed && Platform.OS === 'ios' && styles.pressed,
+      ]}
+    >
+      <Ionicons name={spec.icon} size={20} color={fg} />
+    </Pressable>
+  )
+}
+
+interface ProgressBarProps {
+  progress: number
+  indeterminate: boolean
+  color: string
+}
+
+const ProgressBar = ({ progress, indeterminate, color }: ProgressBarProps) => {
+  // Start from the current value so a row that mounts mid-download
+  // doesn't animate from zero
   const progressAnim = useSharedValue(progress)
 
   useEffect(() => {
@@ -208,220 +269,322 @@ const TaskItem = React.memo(({ task, onRemove }: { task: DownloadTask, onRemove:
     width: `${progressAnim.value * 100}%`,
   }))
 
-  const stateColor = useMemo(() => {
-    switch (state) {
-      case 'DOWNLOADING': return '#4CAF50'
-      case 'PAUSED': return '#FF9800'
-      case 'DONE': return '#2196F3'
-      case 'FAILED': return '#F44336'
-      case 'STOPPED': return '#9E9E9E'
-      default: return '#666'
-    }
-  }, [state])
+  return (
+    <View style={styles.progressTrack}>
+      <Animated.View
+        style={[
+          styles.progressFill,
+          { backgroundColor: color },
+          indeterminate ? styles.progressIndeterminate : animatedStyle,
+        ]}
+      />
+    </View>
+  )
+}
+
+const rowsEqual = (a: RowModel, b: RowModel) => {
+  for (const key of Object.keys(a) as (keyof RowModel)[])
+    if (a[key] !== b[key]) return false
+
+  return true
+}
+
+interface DownloadRowProps {
+  row: RowModel
+  onAction: (action: RowAction, key: string) => void
+}
+
+const DownloadRow = React.memo(({ row, onAction }: DownloadRowProps) => {
+  const status = STATUS_STYLES[row.status]
+  const [primary, secondary] = getRowActions(row)
+
+  const isTotalUnknown = row.bytesTotal <= 0
+  const showsBytes = row.status !== 'idle' && row.status !== 'pending'
+  const progress = row.status === 'done'
+    ? 1
+    : isTotalUnknown ? 0 : Math.min(1, row.bytesDownloaded / row.bytesTotal)
+  const indeterminate = row.status === 'downloading' && isTotalUnknown
+
+  let bytesText = ''
+  if (showsBytes)
+    bytesText = row.status === 'done' || isTotalUnknown
+      ? formatBytes(row.bytesDownloaded)
+      : `${formatBytes(row.bytesDownloaded)} / ${formatBytes(row.bytesTotal)}`
+
+  const percentText = showsBytes && (row.status === 'done' || !isTotalUnknown)
+    ? `${Math.round(progress * 100)}%`
+    : ''
+
+  const stateLabel = row.status === 'failed' && row.errorCode
+    ? `${status.label} · ${row.errorCode}`
+    : status.label
 
   return (
-    <Animated.View
-      style={styles.taskItem}
-      exiting={FadeOut.duration(200)}
-      layout={LinearTransition.duration(200)}
-    >
-      <View style={styles.taskHeader}>
-        <Text style={styles.taskId} numberOfLines={1}>{task.id}</Text>
-        <Text style={[styles.taskState, { color: stateColor }]}>{state}</Text>
-        <TouchableOpacity onPress={() => onRemove(task.id)} style={styles.removeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="close" size={18} color="#999" />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.taskProgressRow}>
-        <View style={styles.taskProgressBarContainer}>
-          <Animated.View style={[styles.taskProgressBarFill, isTotalUnknown ? { width: '100%', backgroundColor: stateColor, opacity: 0.3 } : [animatedStyle, { backgroundColor: stateColor }]]} />
+    <View style={styles.row}>
+      <View style={styles.rowHeader}>
+        <Pressable
+          style={styles.rowInfo}
+          onPress={() => onAction('details', row.key)}
+          accessibilityRole='button'
+          accessibilityLabel={`Details ${row.id}`}
+          accessibilityHint='Shows the URL and file path'
+        >
+          <View style={[styles.badge, { backgroundColor: status.soft }]}>
+            <Ionicons name={status.icon} size={20} color={status.color} />
+          </View>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle} numberOfLines={1}>{row.title}</Text>
+            <Text style={styles.rowSubtitle} numberOfLines={1}>{row.subtitle}</Text>
+          </View>
+        </Pressable>
+        <View style={styles.rowActions}>
+          <IconButton spec={primary} rowId={row.id} onPress={() => onAction(primary.action, row.key)} />
+          <IconButton spec={secondary} rowId={row.id} onPress={() => onAction(secondary.action, row.key)} />
         </View>
-        <Text style={styles.taskProgressText}>
-          {isTotalUnknown ? formatBytes(bytesDownloaded) : `${progressPercent}%`}
+      </View>
+
+      {/* Progress area is always rendered, so the row height never changes */}
+      <ProgressBar
+        progress={progress}
+        indeterminate={indeterminate}
+        color={row.status === 'idle' ? colors.track : status.color}
+      />
+      <View style={styles.metaRow}>
+        <Text style={[styles.metaState, { color: status.color }]} numberOfLines={1}>
+          {stateLabel}
+        </Text>
+        <Text style={styles.metaBytes} numberOfLines={1}>
+          {bytesText}
+          {bytesText && percentText ? '  ·  ' : ''}
+          {percentText ? <Text style={styles.metaPercent}>{percentText}</Text> : null}
         </Text>
       </View>
-      <Text style={styles.taskBytes}>
-        {formatBytes(bytesDownloaded)}{isTotalUnknown ? '' : ` / ${formatBytes(bytesTotal)}`}
-      </Text>
-    </Animated.View>
+    </View>
   )
-})
+}, (prev, next) => prev.onAction === next.onAction && rowsEqual(prev.row, next.row))
 
-interface HeaderProps {
-  onClear: () => void
-  onReset: () => void
-  onRemoveTask: (id: string) => void
-  onDeleteFile: (fileName: string) => void
-  files: string[]
-  tasks: Map<string, DownloadTask>
-  downloadsPath: string
-  notificationGroupingEnabled: boolean
-  onNotificationGroupingChange: (enabled: boolean) => void
+interface ToolbarButtonProps {
+  label: string
+  accessibilityLabel: string
+  icon: React.ComponentProps<typeof Ionicons>['name']
+  onPress: () => void
+  variant?: 'filled' | 'plain'
+  disabled?: boolean
+}
+
+const ToolbarButton = ({ label, accessibilityLabel, icon, onPress, variant = 'plain', disabled }: ToolbarButtonProps) => {
+  const filled = variant === 'filled'
+  const fg = disabled ? colors.disabledIcon : filled ? '#FFFFFF' : colors.text
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole='button'
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: !!disabled }}
+      android_ripple={{ color: filled ? 'rgba(255,255,255,0.25)' : 'rgba(15,23,42,0.08)' }}
+      style={({ pressed }) => [
+        styles.toolbarButton,
+        filled ? styles.toolbarButtonFilled : styles.toolbarButtonPlain,
+        disabled && styles.toolbarButtonDisabled,
+        pressed && Platform.OS === 'ios' && styles.pressed,
+      ]}
+    >
+      <Ionicons name={icon} size={18} color={fg} />
+      <Text style={[styles.toolbarButtonText, { color: fg }]} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  )
+}
+
+interface SettingRowProps {
+  label: string
+  description: string
+  value: boolean
+  onValueChange: (value: boolean) => void
+  disabled?: boolean
+}
+
+const SettingRow = ({ label, description, value, onValueChange, disabled }: SettingRowProps) => (
+  <View style={[styles.settingRow, disabled && styles.settingRowDisabled]}>
+    <View style={styles.settingInfo}>
+      <Text style={styles.settingLabel}>{label}</Text>
+      <Text style={styles.settingDescription}>{description}</Text>
+    </View>
+    <Switch
+      value={value}
+      onValueChange={onValueChange}
+      disabled={disabled}
+      accessibilityLabel={label}
+      trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
+      thumbColor={value ? colors.primary : '#F8FAFC'}
+    />
+  </View>
+)
+
+interface NotificationSettingsProps {
   showNotificationsEnabled: boolean
   onShowNotificationsEnabledChange: (show: boolean) => void
+  notificationGroupingEnabled: boolean
+  onNotificationGroupingChange: (enabled: boolean) => void
   summaryOnlyMode: boolean
   onSummaryOnlyModeChange: (enabled: boolean) => void
   showCancelAction: boolean
   onShowCancelActionChange: (enabled: boolean) => void
   showCompletionNotification: boolean
   onShowCompletionNotificationChange: (enabled: boolean) => void
-  onBatchDownload: () => void
 }
 
-const Header = React.memo(({ onClear, onReset, onRemoveTask, onDeleteFile, files, tasks, downloadsPath, notificationGroupingEnabled, onNotificationGroupingChange, showNotificationsEnabled, onShowNotificationsEnabledChange, summaryOnlyMode, onSummaryOnlyModeChange, showCancelAction, onShowCancelActionChange, showCompletionNotification, onShowCompletionNotificationChange, onBatchDownload }: HeaderProps) => {
-  // Convert tasks to array for display
-  const tasksList = Array.from(tasks.values())
+// Developer settings, collapsed by default so the list comes first
+const NotificationSettingsCard = (props: NotificationSettingsProps) => {
+  const [isOpen, setIsOpen] = useState(false)
+  const rotation = useSharedValue(0)
+
+  const toggle = useCallback(() => setIsOpen(open => !open), [])
+
+  useEffect(() => {
+    rotation.value = withTiming(isOpen ? 180 : 0, { duration: 200 })
+  }, [isOpen, rotation])
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }))
+
+  const summary = useMemo(() => {
+    if (!props.showNotificationsEnabled) return 'Off'
+    const parts = ['On']
+    if (props.notificationGroupingEnabled)
+      parts.push(props.summaryOnlyMode ? 'summary only' : 'grouped')
+    if (props.showCancelAction) parts.push('cancel')
+    if (props.showCompletionNotification) parts.push('completion')
+    return parts.join(' · ')
+  }, [props.showNotificationsEnabled, props.notificationGroupingEnabled, props.summaryOnlyMode, props.showCancelAction, props.showCompletionNotification])
+
+  const batchHint = props.summaryOnlyMode
+    ? 'Start 5 shows only ONE summary notification.'
+    : props.notificationGroupingEnabled
+      ? 'Start 5 shows grouped notifications.'
+      : 'Start 5 shows individual notifications.'
 
   return (
-    <View>
-      {/* Notification Settings Section (Android only) */}
-      {Platform.OS === 'android' && (
-        <View style={styles.settingsSection}>
-          <Text style={styles.settingsSectionTitle}>Notification Settings (Android)</Text>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Show Notifications</Text>
-              <Text style={styles.settingDescription}>Display download progress notifications</Text>
-            </View>
-            <Switch
-              value={showNotificationsEnabled}
-              onValueChange={onShowNotificationsEnabledChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={showNotificationsEnabled ? '#4CAF50' : '#f4f3f4'}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Group Notifications</Text>
-              <Text style={styles.settingDescription}>Group multiple downloads under one notification</Text>
-            </View>
-            <Switch
-              value={notificationGroupingEnabled}
-              onValueChange={onNotificationGroupingChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={notificationGroupingEnabled ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Summary Only Mode</Text>
-              <Text style={styles.settingDescription}>Show only 1 summary notification with aggregate progress</Text>
-            </View>
-            <Switch
-              value={summaryOnlyMode}
-              onValueChange={onSummaryOnlyModeChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={summaryOnlyMode ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled || !notificationGroupingEnabled}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Cancel Action (Android 14+)</Text>
-              <Text style={styles.settingDescription}>Add a Cancel button to the download notification</Text>
-            </View>
-            <Switch
-              value={showCancelAction}
-              onValueChange={onShowCancelActionChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={showCancelAction ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled}
-            />
-          </View>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Completion Notification (Android 14+)</Text>
-              <Text style={styles.settingDescription}>Notify when a download finishes; tap it to open the file</Text>
-            </View>
-            <Switch
-              value={showCompletionNotification}
-              onValueChange={onShowCompletionNotificationChange}
-              trackColor={{ false: '#ccc', true: '#81c784' }}
-              thumbColor={showCompletionNotification ? '#4CAF50' : '#f4f3f4'}
-              disabled={!showNotificationsEnabled}
-            />
-          </View>
-
-          <View style={styles.batchDownloadSection}>
-            <Text style={styles.batchDownloadTitle}>Test Batch Downloads</Text>
-            <Text style={styles.batchDownloadDescription}>
-              Start 5 downloads simultaneously to test notification grouping.
-              {summaryOnlyMode
-                ? ' With summaryOnly mode, you will see only ONE notification.'
-                : notificationGroupingEnabled
-                  ? ' You will see grouped notifications.'
-                  : ' You will see individual notifications.'}
-            </Text>
-            <TouchableOpacity
-              style={[styles.batchDownloadButton, !showNotificationsEnabled && styles.batchDownloadButtonDisabled]}
-              onPress={onBatchDownload}
-            >
-              <Ionicons name="cloud-download" size={20} color="#fff" />
-              <Text style={styles.batchDownloadButtonText}>Start 5 Downloads</Text>
-            </TouchableOpacity>
-          </View>
+    <View style={styles.card}>
+      <Pressable
+        onPress={toggle}
+        style={styles.settingsHeader}
+        accessibilityRole='button'
+        accessibilityLabel='Notification settings'
+        accessibilityState={{ expanded: isOpen }}
+        android_ripple={{ color: 'rgba(15,23,42,0.06)' }}
+      >
+        <View style={[styles.badgeSmall, { backgroundColor: '#EEF2FF' }]}>
+          <Ionicons name='notifications-outline' size={18} color='#4F46E5' />
         </View>
-      )}
-
-      {tasksList.length > 0 && (
-        <Animated.View
-          style={styles.tasksSection}
-          exiting={FadeOut.duration(200)}
-          layout={LinearTransition.duration(200)}
-        >
-          <View style={styles.tasksSectionHeader}>
-            <Text style={styles.tasksSectionTitle}>Tasks ({tasksList.length})</Text>
-            <TouchableOpacity onPress={onReset} style={styles.clearAllButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.clearAllText}>Clear all</Text>
-            </TouchableOpacity>
-          </View>
-          {tasksList.map(task => (
-            <TaskItem key={task.id} task={task} onRemove={onRemoveTask} />
-          ))}
+        <View style={styles.rowText}>
+          <Text style={styles.settingsTitle}>Notification settings</Text>
+          <Text style={styles.rowSubtitle} numberOfLines={1}>Android · {summary}</Text>
+        </View>
+        <Animated.View style={chevronStyle}>
+          <Ionicons name='chevron-down' size={20} color={colors.textSecondary} />
         </Animated.View>
-      )}
+      </Pressable>
 
-      {files.length > 0 && (
+      {isOpen && (
         <Animated.View
-          style={styles.filesSection}
-          exiting={FadeOut.duration(200)}
-          layout={LinearTransition.duration(200)}
+          entering={FadeIn.duration(150)}
+          exiting={FadeOut.duration(100)}
+          style={styles.settingsBody}
         >
-          <View style={styles.filesSectionHeader}>
-            <Text style={styles.filesSectionTitle}>Downloaded Files ({files.length})</Text>
-            <TouchableOpacity onPress={onClear} style={styles.clearAllButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.clearAllText}>Delete all</Text>
-            </TouchableOpacity>
-          </View>
-          {files.map(fileName => (
-            <Animated.View
-              key={fileName}
-              style={styles.fileItem}
-              entering={FadeIn.duration(200)}
-              exiting={FadeOut.duration(200)}
-              layout={LinearTransition.duration(200)}
-            >
-              <Ionicons name="document" size={20} color="#2196F3" style={styles.fileIcon} />
-              <View style={styles.fileInfo}>
-                <Text style={styles.fileName}>{fileName}</Text>
-                <Text style={styles.filePath}>{downloadsPath}/{fileName}</Text>
-              </View>
-              <TouchableOpacity onPress={() => onDeleteFile(fileName)} style={styles.removeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close" size={18} color="#999" />
-              </TouchableOpacity>
-            </Animated.View>
-          ))}
+          <SettingRow
+            label='Show notifications'
+            description='Display download progress notifications'
+            value={props.showNotificationsEnabled}
+            onValueChange={props.onShowNotificationsEnabledChange}
+          />
+          <SettingRow
+            label='Group notifications'
+            description='Group multiple downloads under one notification'
+            value={props.notificationGroupingEnabled}
+            onValueChange={props.onNotificationGroupingChange}
+            disabled={!props.showNotificationsEnabled}
+          />
+          <SettingRow
+            label='Summary only mode'
+            description='Show only 1 summary notification with aggregate progress'
+            value={props.summaryOnlyMode}
+            onValueChange={props.onSummaryOnlyModeChange}
+            disabled={!props.showNotificationsEnabled || !props.notificationGroupingEnabled}
+          />
+          <SettingRow
+            label='Cancel action (Android 14+)'
+            description='Add a Cancel button to the download notification'
+            value={props.showCancelAction}
+            onValueChange={props.onShowCancelActionChange}
+            disabled={!props.showNotificationsEnabled}
+          />
+          <SettingRow
+            label='Completion notification (Android 14+)'
+            description='Notify when a download finishes; tap it to open the file'
+            value={props.showCompletionNotification}
+            onValueChange={props.onShowCompletionNotificationChange}
+            disabled={!props.showNotificationsEnabled}
+          />
+          <Text style={styles.settingsHint}>{batchHint}</Text>
         </Animated.View>
       )}
     </View>
   )
-})
+}
+
+interface HeaderProps extends NotificationSettingsProps {
+  rowCount: number
+  activeCount: number
+  taskCount: number
+  fileCount: number
+  onBatchDownload: () => void
+  onClearTasks: () => void
+  onDeleteFiles: () => void
+}
+
+const Header = React.memo(({ rowCount, activeCount, taskCount, fileCount, onBatchDownload, onClearTasks, onDeleteFiles, ...settings }: HeaderProps) => (
+  <View style={styles.header}>
+    <View style={styles.card}>
+      <View style={styles.toolbarSummary}>
+        <Text style={styles.toolbarTitle}>Downloads</Text>
+        <Text style={styles.toolbarStats} numberOfLines={1}>
+          {rowCount} items · {activeCount} active · {fileCount} on disk
+        </Text>
+      </View>
+      <View style={styles.toolbarActions}>
+        <ToolbarButton
+          label='Start 5'
+          accessibilityLabel='Start 5 Downloads'
+          icon='cloud-download-outline'
+          variant='filled'
+          onPress={onBatchDownload}
+        />
+        <ToolbarButton
+          label='Clear tasks'
+          accessibilityLabel='Clear all tasks'
+          icon='stop-circle-outline'
+          onPress={onClearTasks}
+          disabled={taskCount === 0}
+        />
+        <ToolbarButton
+          label='Delete files'
+          accessibilityLabel='Delete all files'
+          icon='trash-outline'
+          onPress={onDeleteFiles}
+          disabled={fileCount === 0}
+        />
+      </View>
+    </View>
+
+    {Platform.OS === 'android' && <NotificationSettingsCard {...settings} />}
+  </View>
+))
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
 
 const BasicExampleScreen = () => {
   const insets = useSafeAreaInsets()
@@ -464,7 +627,8 @@ const BasicExampleScreen = () => {
 
   const [downloadTasks, setDownloadTasks] = useState<Map<string, DownloadTask>>(new Map())
   const [destinations, setDestinations] = useState<Map<string, string>>(new Map())
-  const [downloadedFiles, setDownloadedFiles] = useState<string[]>([])
+  // Files in the downloads directory: name -> size in bytes
+  const [diskFiles, setDiskFiles] = useState<Map<string, number>>(new Map())
   const [notificationGroupingEnabled, setNotificationGroupingEnabled] = useState(() => {
     return storage.getBoolean(NOTIFICATION_GROUPING_KEY) ?? false
   })
@@ -481,6 +645,11 @@ const BasicExampleScreen = () => {
   const [showCompletionNotification, setShowCompletionNotification] = useState(() => {
     return storage.getBoolean(COMPLETION_NOTIFICATION_KEY) ?? false
   })
+
+  // Latest values for the row action handler, which stays stable so
+  // rows don't all re-render on every progress tick
+  const tasksRef = useRef(downloadTasks)
+  tasksRef.current = downloadTasks
 
   // The effect below re-applies the whole notification config whenever any of
   // these change, so the toggles only have to persist their own value
@@ -615,6 +784,47 @@ const BasicExampleScreen = () => {
     })
   }, [requestNotificationPermission, notificationGroupingEnabled, summaryOnlyMode])
 
+  const getDownloadsDir = useCallback(() => {
+    // Use Paths.document from expo-file-system which has proper permissions
+    return new Directory(Paths.document, DOWNLOADS_SUBDIR)
+  }, [])
+
+  const getDownloadsDirPath = useCallback(() => {
+    // For the download library, we need path without file:// prefix
+    // Use directories.documents from our library if available, otherwise extract from expo Paths
+    if (directories.documents)
+      return directories.documents + '/' + DOWNLOADS_SUBDIR
+
+    // Paths.document.uri is a URI string, remove file:// prefix
+    return Paths.document.uri.replace('file://', '') + '/' + DOWNLOADS_SUBDIR
+  }, [])
+
+  const ensureDownloadsDirExists = useCallback(() => {
+    const downloadsDir = getDownloadsDir()
+    if (!downloadsDir.exists)
+      downloadsDir.create()
+
+    return downloadsDir
+  }, [getDownloadsDir])
+
+  const readStorage = useCallback(() => {
+    try {
+      const downloadsDir = getDownloadsDir()
+      if (!downloadsDir.exists) {
+        setDiskFiles(new Map())
+        return
+      }
+      const files = new Map<string, number>()
+      downloadsDir.list().forEach(item => {
+        files.set(item.name, item instanceof File ? item.size : 0)
+      })
+      setDiskFiles(files)
+    } catch (error) {
+      console.warn('readStorage error:', error)
+      toast('Error reading files')
+    }
+  }, [getDownloadsDir])
+
   const updateTask = useCallback((task: DownloadTask) => {
     // Store the actual task instance, not a copy, to preserve methods
     setDownloadTasks(prev => new Map(prev).set(task.id, task))
@@ -638,8 +848,7 @@ const BasicExampleScreen = () => {
         updateTask(task)
         completeHandler(task.id)
       })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateTask])
+  }, [updateTask, readStorage])
 
   const resumeExistingTasks = useCallback(async () => {
     try {
@@ -669,56 +878,17 @@ const BasicExampleScreen = () => {
     }
   }, [process])
 
-  const getDownloadsDir = useCallback(() => {
-    // Use Paths.document from expo-file-system which has proper permissions
-    return new Directory(Paths.document, DOWNLOADS_SUBDIR)
-  }, [])
-
-  const getDownloadsDirPath = useCallback(() => {
-    // For the download library, we need path without file:// prefix
-    // Use directories.documents from our library if available, otherwise extract from expo Paths
-    if (directories.documents)
-      return directories.documents + '/' + DOWNLOADS_SUBDIR
-
-    // Paths.document.uri is a URI string, remove file:// prefix
-    return Paths.document.uri.replace('file://', '') + '/' + DOWNLOADS_SUBDIR
-  }, [])
-
-  const ensureDownloadsDirExists = useCallback(() => {
-    const downloadsDir = getDownloadsDir()
-    if (!downloadsDir.exists)
-      downloadsDir.create()
-
-    return downloadsDir
-  }, [getDownloadsDir])
-
-  const readStorage = useCallback(() => {
-    try {
-      const downloadsDir = getDownloadsDir()
-      if (!downloadsDir.exists) {
-        setDownloadedFiles([])
-        return
-      }
-      const contents = downloadsDir.list()
-      const fileNames = contents.map(item => item.name)
-      setDownloadedFiles(fileNames)
-    } catch (error) {
-      console.warn('readStorage error:', error)
-      toast('Error reading files')
-    }
-  }, [getDownloadsDir])
-
   const clearStorage = useCallback(() => {
     try {
       const downloadsDir = getDownloadsDir()
       if (!downloadsDir.exists) {
-        setDownloadedFiles([])
+        setDiskFiles(new Map())
         setDestinations(new Map())
         return
       }
       const contents = downloadsDir.list()
       contents.forEach(item => item.delete())
-      setDownloadedFiles([])
+      setDiskFiles(new Map())
       setDestinations(new Map())
       toast('All files deleted')
     } catch (error) {
@@ -728,21 +898,22 @@ const BasicExampleScreen = () => {
   }, [getDownloadsDir])
 
   const reset = useCallback(() => {
-    downloadTasks.forEach(task => task.stop())
+    tasksRef.current.forEach(task => task.stop())
     setDownloadTasks(new Map())
-  }, [downloadTasks])
+  }, [])
 
-  const removeTask = useCallback((id: string) => {
-    const task = downloadTasks.get(id)
-    if (task)
-      task.stop()
-
+  const forgetTask = useCallback((id: string) => {
     setDownloadTasks(prev => {
       const newMap = new Map(prev)
       newMap.delete(id)
       return newMap
     })
-  }, [downloadTasks])
+    setDestinations(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(id)
+      return newMap
+    })
+  }, [])
 
   const getFileNameFromUrl = useCallback((url: string, fallbackId: string): string => {
     try {
@@ -832,89 +1003,73 @@ const BasicExampleScreen = () => {
   }, [process, ensureDownloadsDirExists, getDownloadsDirPath])
 
   const stopDownload = useCallback((id: string) => {
-    const task = downloadTasks.get(id)
+    const task = tasksRef.current.get(id)
     if (task) {
       task.stop()
       updateTask(task)
     }
-  }, [downloadTasks, updateTask])
+  }, [updateTask])
 
   const pauseDownload = useCallback((id: string) => {
-    const task = downloadTasks.get(id)
+    const task = tasksRef.current.get(id)
     if (task) {
       task.pause()
       updateTask(task)
     }
-  }, [downloadTasks, updateTask])
+  }, [updateTask])
 
   const resumeDownload = useCallback((id: string) => {
-    const task = downloadTasks.get(id)
+    const task = tasksRef.current.get(id)
     if (task) {
       task.resume()
       updateTask(task)
     }
-  }, [downloadTasks, updateTask])
+  }, [updateTask])
 
-  const deleteFile = useCallback((id: string) => {
+  // Deletes the row's file from disk and forgets its task, so a predefined
+  // URL goes back to "not downloaded" and an extra row leaves the list
+  const deleteRowFile = useCallback((row: RowModel) => {
     try {
-      // Get the destination path to find the actual filename
-      const destination = destinations.get(id)
-      if (destination) {
-        const fileName = destination.split('/').pop() || id
-        const downloadsDir = getDownloadsDir()
-        const file = new File(downloadsDir, fileName)
+      if (row.fileName) {
+        const file = new File(getDownloadsDir(), row.fileName)
         if (file.exists) {
           file.delete()
           toast('File deleted')
+        } else {
+          toast('File not found')
         }
-        setDownloadedFiles(prev => prev.filter(name => name !== fileName))
       }
-      setDownloadTasks(prev => {
-        const newMap = new Map(prev)
-        newMap.delete(id)
-        return newMap
-      })
-      setDestinations(prev => {
-        const newMap = new Map(prev)
-        newMap.delete(id)
-        return newMap
-      })
+      if (row.hasTask)
+        forgetTask(row.id)
+      readStorage()
     } catch (error) {
       console.warn('deleteFile error:', error)
       toast('Error deleting file')
     }
-  }, [getDownloadsDir, destinations])
+  }, [getDownloadsDir, forgetTask, readStorage])
 
-  const deleteSingleFile = useCallback((fileName: string) => {
-    try {
-      const downloadsDir = getDownloadsDir()
-      const file = new File(downloadsDir, fileName)
-      if (file.exists) {
-        file.delete()
-        toast('File deleted')
-      } else {
-        toast('File not found')
-      }
-      // Clear destination for the task that had this file
-      setDestinations(prev => {
-        const newMap = new Map(prev)
-        for (const [id, dest] of newMap)
-          if (dest.endsWith('/' + fileName)) {
-            newMap.delete(id)
-            break
-          }
+  // Stops the task and drops it from the list (the old "remove task" action)
+  const removeTask = useCallback((id: string) => {
+    const task = tasksRef.current.get(id)
+    if (task)
+      task.stop()
+    forgetTask(id)
+  }, [forgetTask])
 
-        return newMap
-      })
-      // Refresh file list from disk
-      readStorage()
-    } catch (error) {
-      console.warn('deleteSingleFile error:', error)
-      toast('Error deleting file')
-    }
-  }, [getDownloadsDir, readStorage])
+  const showDetails = useCallback((row: RowModel) => {
+    const lines = [
+      `ID: ${row.id}`,
+      `State: ${STATUS_STYLES[row.status].label}`,
+      row.url ? `URL: ${row.url}` : null,
+      row.path ? `Path: ${row.path}` : null,
+      row.status !== 'idle'
+        ? `Bytes: ${formatBytes(row.bytesDownloaded)}${row.bytesTotal > 0 ? ` / ${formatBytes(row.bytesTotal)}` : ''}`
+        : null,
+      row.errorCode ? `Error code: ${row.errorCode}` : null,
+    ].filter(Boolean)
+    Alert.alert(row.title, lines.join('\n\n'))
+  }, [])
 
-  // Update notification grouping config when settings change
   useEffect(() => {
     setConfig({
       isLogsEnabled: true,
@@ -957,82 +1112,183 @@ const BasicExampleScreen = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const downloadItems = useMemo<DownloadItemData[]>(() =>
-    urlList.map(urlItem => ({
-      urlItem,
-      task: downloadTasks.get(urlItem.id) || null,
-      destination: destinations.get(urlItem.id) || null,
-    }))
-  , [urlList, downloadTasks, destinations])
-
-  const keyExtractor = useCallback((item: DownloadItemData) => item.urlItem.id, [])
-
-  const renderItem = useCallback(({ item }: ListRenderItemInfo<DownloadItemData>) => (
-    <DownloadItem
-      item={item}
-      onStart={startDownload}
-      onStop={stopDownload}
-      onPause={pauseDownload}
-      onResume={resumeDownload}
-      onDelete={deleteFile}
-    />
-  ), [startDownload, stopDownload, pauseDownload, resumeDownload, deleteFile])
-
   const downloadsPath = getDownloadsDirPath()
 
-  // Filter out files that have an active (non-DONE) download task
-  const completedFiles = useMemo(() => {
-    return downloadedFiles.filter(fileName => {
-      // Check if any active task is downloading this file
-      for (const task of downloadTasks.values()) {
-        // Check if task's destination matches this file
-        const taskDestination = destinations.get(task.id)
-        if (taskDestination && taskDestination.endsWith('/' + fileName))
-          // File has an associated task - only show if task is DONE
-          return task.state === 'DONE'
-      }
-      // No active task for this file - it's a completed download from a previous session
-      return true
-    })
-  }, [downloadedFiles, downloadTasks, destinations])
+  // One list: predefined URLs first (fixed order, never shift), then tasks
+  // that don't belong to a URL (batch, restored), then unclaimed files on disk
+  const rows = useMemo<RowModel[]>(() => {
+    const claimedFiles = new Set<string>()
+    const urlIds = new Set(urlList.map(item => item.id))
+    const result: RowModel[] = []
 
-  const renderHeader = useCallback(() => (
+    const buildRow = (base: {
+      key: string
+      id: string
+      kind: RowKind
+      title: string
+      task: DownloadTask | null
+      fileName: string | null
+      path: string | null
+      url: string | null
+    }): RowModel => {
+      const { task, fileName } = base
+      const diskSize = fileName != null ? diskFiles.get(fileName) : undefined
+      const hasFile = diskSize !== undefined
+      const status: RowStatus = task ? statusFromTask(task) : hasFile ? 'done' : 'idle'
+
+      let bytesDownloaded = task?.bytesDownloaded ?? 0
+      let bytesTotal = task?.bytesTotal ?? 0
+      if (status === 'done' && hasFile && (!task || bytesDownloaded <= 0)) {
+        bytesDownloaded = diskSize
+        bytesTotal = diskSize
+      }
+
+      const subtitleParts = [base.id]
+      if (fileName && fileName !== base.id && fileName !== base.title) subtitleParts.push(fileName)
+
+      return {
+        key: base.key,
+        id: base.id,
+        kind: base.kind,
+        title: base.title,
+        subtitle: subtitleParts.join(' · '),
+        status,
+        bytesDownloaded,
+        bytesTotal,
+        hasTask: !!task,
+        hasFile,
+        fileName,
+        path: base.path,
+        url: base.url,
+        errorCode: task && status === 'failed' && task.errorCode ? task.errorCode : null,
+      }
+    }
+
+    urlList.forEach(urlItem => {
+      const task = downloadTasks.get(urlItem.id) ?? null
+      const destination = destinations.get(urlItem.id)
+      const fileName = destination ? baseName(destination) : getFileNameFromUrl(urlItem.url, urlItem.id)
+      claimedFiles.add(fileName)
+      result.push(buildRow({
+        key: urlItem.id,
+        id: urlItem.id,
+        kind: 'url',
+        title: urlItem.title ?? fileName,
+        task,
+        fileName,
+        path: destination ?? `${downloadsPath}/${fileName}`,
+        url: urlItem.url,
+      }))
+    })
+
+    downloadTasks.forEach(task => {
+      if (urlIds.has(task.id)) return
+      const destination = destinations.get(task.id) ||
+        (task as { destination?: string }).destination ||
+        (task.metadata as { destination?: string } | undefined)?.destination
+      const fileName = destination ? baseName(destination) : null
+      if (fileName) claimedFiles.add(fileName)
+      result.push(buildRow({
+        key: `task:${task.id}`,
+        id: task.id,
+        kind: 'task',
+        title: fileName ?? task.id,
+        task,
+        fileName,
+        path: destination ?? null,
+        url: task.downloadParams?.url ?? null,
+      }))
+    })
+
+    Array.from(diskFiles.keys())
+      .filter(name => !claimedFiles.has(name))
+      .sort()
+      .forEach(name => {
+        result.push(buildRow({
+          key: `file:${name}`,
+          id: name,
+          kind: 'file',
+          title: name,
+          task: null,
+          fileName: name,
+          path: `${downloadsPath}/${name}`,
+          url: null,
+        }))
+      })
+
+    return result
+  }, [urlList, downloadTasks, destinations, diskFiles, downloadsPath, getFileNameFromUrl])
+
+  const rowsRef = useRef<Map<string, RowModel>>(new Map())
+  rowsRef.current = useMemo(() => new Map(rows.map(row => [row.key, row])), [rows])
+  const urlListRef = useRef(urlList)
+  urlListRef.current = urlList
+
+  // Stable across renders: everything it needs is read from refs
+  const handleRowAction = useCallback((action: RowAction, key: string) => {
+    const row = rowsRef.current.get(key)
+    if (!row) return
+
+    switch (action) {
+      case 'start': {
+        const urlItem = urlListRef.current.find(item => item.id === row.id)
+        if (urlItem) startDownload(urlItem)
+        break
+      }
+      case 'pause': pauseDownload(row.id); break
+      case 'resume': resumeDownload(row.id); break
+      case 'stop': stopDownload(row.id); break
+      case 'delete': deleteRowFile(row); break
+      case 'remove': removeTask(row.id); break
+      case 'details': showDetails(row); break
+    }
+  }, [startDownload, pauseDownload, resumeDownload, stopDownload, deleteRowFile, removeTask, showDetails])
+
+  const keyExtractor = useCallback((row: RowModel) => row.key, [])
+
+  const renderItem = useCallback(({ item }: ListRenderItemInfo<RowModel>) => (
+    <DownloadRow row={item} onAction={handleRowAction} />
+  ), [handleRowAction])
+
+  const activeCount = useMemo(() => rows.filter(row => isActiveStatus(row.status)).length, [rows])
+
+  // Pass an element, not a render function: a new function identity on every
+  // progress update would be a new component type to React and remount the header
+  const headerElement = (
     <Header
-      onReset={reset}
-      onClear={clearStorage}
-      onRemoveTask={removeTask}
-      onDeleteFile={deleteSingleFile}
-      files={completedFiles}
-      tasks={downloadTasks}
-      downloadsPath={downloadsPath}
-      notificationGroupingEnabled={notificationGroupingEnabled}
-      onNotificationGroupingChange={handleNotificationGroupingChange}
+      rowCount={rows.length}
+      activeCount={activeCount}
+      taskCount={downloadTasks.size}
+      fileCount={diskFiles.size}
+      onBatchDownload={startBatchDownload}
+      onClearTasks={reset}
+      onDeleteFiles={clearStorage}
       showNotificationsEnabled={showNotificationsEnabled}
       onShowNotificationsEnabledChange={handleShowNotificationsChange}
+      notificationGroupingEnabled={notificationGroupingEnabled}
+      onNotificationGroupingChange={handleNotificationGroupingChange}
       summaryOnlyMode={summaryOnlyMode}
       onSummaryOnlyModeChange={handleSummaryOnlyModeChange}
       showCancelAction={showCancelAction}
       onShowCancelActionChange={handleShowCancelActionChange}
       showCompletionNotification={showCompletionNotification}
       onShowCompletionNotificationChange={handleShowCompletionNotificationChange}
-      onBatchDownload={startBatchDownload}
     />
-  ), [reset, clearStorage, removeTask, deleteSingleFile, completedFiles, downloadTasks, downloadsPath, notificationGroupingEnabled, showNotificationsEnabled, handleNotificationGroupingChange, handleShowNotificationsChange, summaryOnlyMode, handleSummaryOnlyModeChange, showCancelAction, handleShowCancelActionChange, showCompletionNotification, handleShowCompletionNotificationChange, startBatchDownload])
-
-  // Pass an element, not the renderHeader function itself: the function identity
-  // changes on every progress update, and a changed ListHeaderComponent function
-  // is a new component type to React - it remounts the whole header and replays
-  // the file items' entering animations (visible as blinking)
-  const headerElement = renderHeader()
+  )
 
   return (
     <FlatList
       style={styles.list}
-      data={downloadItems}
+      data={rows}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
       ListHeaderComponent={headerElement}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+      contentContainerStyle={{
+        paddingTop: 12,
+        paddingBottom: insets.bottom + 16,
+        paddingLeft: insets.left + 16,
+        paddingRight: insets.right + 16,
+      }}
     />
   )
 }
@@ -1040,27 +1296,108 @@ const BasicExampleScreen = () => {
 export default BasicExampleScreen
 
 const styles = StyleSheet.create({
-  settingsSection: {
-    margin: 12,
-    padding: 12,
-    backgroundColor: '#fff3e0',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffcc80',
+  list: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
-  settingsSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#e65100',
+  pressed: {
+    opacity: 0.6,
+  },
+
+  // Header
+  header: {
+    gap: 12,
     marginBottom: 12,
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  toolbarSummary: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  toolbarTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  toolbarStats: {
+    flexShrink: 1,
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontVariant: ['tabular-nums'],
+  },
+  toolbarActions: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  toolbarButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    overflow: 'hidden',
+  },
+  toolbarButtonFilled: {
+    backgroundColor: colors.primary,
+  },
+  toolbarButtonPlain: {
+    backgroundColor: '#F1F5F9',
+  },
+  toolbarButtonDisabled: {
+    backgroundColor: colors.disabledBg,
+  },
+  toolbarButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Settings
+  settingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 60,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  settingsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  settingsBody: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   settingRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 56,
     paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffe0b2',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
+  settingRowDisabled: {
+    opacity: 0.5,
   },
   settingInfo: {
     flex: 1,
@@ -1069,262 +1406,121 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#333',
+    color: colors.text,
   },
   settingDescription: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textSecondary,
     marginTop: 2,
   },
-  batchDownloadSection: {
-    marginTop: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#ffcc80',
-  },
-  batchDownloadTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#e65100',
-    marginBottom: 4,
-  },
-  batchDownloadDescription: {
+  settingsHint: {
     fontSize: 12,
-    color: '#666',
-    marginBottom: 12,
+    color: colors.textSecondary,
+    marginTop: 12,
   },
-  batchDownloadButton: {
+
+  // Row
+  row: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    marginBottom: 8,
+  },
+  rowHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+  },
+  rowInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    height: 44,
+  },
+  badge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ff9800',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    gap: 8,
   },
-  batchDownloadButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  batchDownloadButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  tasksSection: {
-    margin: 12,
-    padding: 12,
-    backgroundColor: '#e8f5e9',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#a5d6a7',
-  },
-  tasksSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  badgeSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
   },
-  tasksSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2e7d32',
-  },
-  filesSection: {
-    margin: 12,
-    padding: 12,
-    backgroundColor: '#e3f2fd',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#90caf9',
-  },
-  filesSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  filesSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1565c0',
-  },
-  clearAllButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-  clearAllText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  taskItem: {
-    backgroundColor: '#fff',
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#c8e6c9',
-  },
-  taskHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  taskId: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
+  rowText: {
     flex: 1,
+    minWidth: 0,
   },
-  taskState: {
-    fontSize: 12,
+  rowTitle: {
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '600',
-    marginRight: 8,
+    color: colors.text,
   },
-  removeButton: {
-    padding: 4,
+  rowSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.textSecondary,
   },
-  taskProgressRow: {
+  rowActions: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
+    marginLeft: 8,
   },
-  taskProgressBarContainer: {
-    flex: 1,
-    height: 6,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 3,
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.track,
     overflow: 'hidden',
+    marginTop: 12,
   },
-  taskProgressBarFill: {
+  progressFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 2,
   },
-  taskProgressText: {
-    fontSize: 11,
+  progressIndeterminate: {
+    width: '100%',
+    opacity: 0.35,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+    height: 16,
+  },
+  metaState: {
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '600',
-    color: '#333',
-    width: 40,
+  },
+  metaBytes: {
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.textSecondary,
+    fontVariant: ['tabular-nums'],
     textAlign: 'right',
   },
-  taskBytes: {
-    fontSize: 10,
-    color: '#666',
-    marginTop: 4,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '500',
-    textAlign: 'center',
-    alignSelf: 'center',
-    marginVertical: 16,
-  },
-  list: {
-    flex: 1,
-    marginTop: 8,
-  },
-  downloadItem: {
-    padding: 16,
-    marginHorizontal: 12,
-    marginVertical: 8,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  itemId: {
-    fontSize: 14,
+  metaPercent: {
+    color: colors.text,
     fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  itemUrl: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  itemDestination: {
-    fontSize: 10,
-    color: '#4CAF50',
-    marginBottom: 4,
-  },
-  itemTitle: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    color: '#888',
-    marginBottom: 8,
-  },
-  progressContainer: {
-    marginVertical: 8,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  stateText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  progressPercent: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  progressBarContainer: {
-    height: 8,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  progressText: {
-    fontSize: 11,
-    color: '#888',
-    textAlign: 'right',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    gap: 8,
-    marginTop: 8,
-  },
-  fileItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#bbdefb',
-  },
-  fileIcon: {
-    marginRight: 10,
-  },
-  fileInfo: {
-    flex: 1,
-    marginRight: 8,
-  },
-  fileName: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 2,
-  },
-  filePath: {
-    fontSize: 10,
-    color: '#888',
   },
 })
