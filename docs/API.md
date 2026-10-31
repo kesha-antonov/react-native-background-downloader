@@ -256,7 +256,7 @@ Use these methods to stay updated on what's happening with the task. All callbac
 | `begin`    | `{ expectedBytes: number, headers: Record<string, string \| null> }` | Called once, when the first byte is received; not again on resume. 💡 This is a good place to check if the device has enough storage space for this download |
 | `progress` | `{ bytesDownloaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly. **Note:** `bytesTotal` will be `-1` if the server does not provide a `Content-Length` header |
 | `done`     | `{ location: string, bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set. `location` is the final file path. **Note:** `bytesTotal` will be `-1` if the server did not provide a `Content-Length` header |
-| `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error |
+| `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error. A download the network cuts off (a stall, a dropped connection, a timeout) first continues from where it stopped, a few times; `error` fires only if that doesn't get data through |
 
 ### Methods
 
