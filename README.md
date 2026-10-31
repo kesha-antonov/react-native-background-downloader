@@ -35,6 +35,7 @@
   <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
 </p>
 
+<!-- cryptoc-promo:start -->
 <hr />
 
 <h2 align="center">Sponsors</h2>
@@ -45,7 +46,6 @@
   <a href="https://getstream.io/chat/sdk/react-native/?utm_source=github&utm_medium=sponsor&utm_campaign=keshaantonov&utm_term=react-native-background-downloader"><strong>Stream</strong></a> - React Native Chat SDK
 </p>
 
-<!-- cryptoc-promo:start -->
 <hr />
 
 <table align="center">
@@ -57,11 +57,15 @@
   <br />
   <sub>Scan to install</sub>
   <br /><br />
+  <!-- App Store button hidden for now
   <a href="https://apps.apple.com/app/cryptoc/id1333169178"><img height="40" src="https://cryptoc-app.web.app/img/appstore.svg?v=2" alt="Download on the App Store" /></a>
   <br />
+  -->
   <a href="https://play.google.com/store/apps/details?id=co.ssoul.CryptoC"><img height="59" src="https://cryptoc-app.web.app/img/googleplay.png?v=2" alt="Get it on Google Play" /></a>
 </td>
 <td valign="top">
+
+### Support my work
 
 **[cryptoc](https://cryptoc-app.web.app/)** - my crypto portfolio app. Your coins on the home screen, lock screen and watch face. iPhone, iPad, Mac, Apple Watch, Android, Android tablet and Wear OS.
 
