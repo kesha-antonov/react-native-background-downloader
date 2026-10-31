@@ -25,6 +25,32 @@ describe('setConfig only changes the options it is given', () => {
     expect(config.progressMinBytes).toBe(4096)
     expect(RNBackgroundDownloaderNative.setLogsEnabled).not.toHaveBeenCalled()
   })
+
+  test('an option that is passed is still applied', () => {
+    setConfig({ headers: { Authorization: 'Bearer token' }, isLogsEnabled: true })
+    jest.clearAllMocks()
+
+    setConfig({ isLogsEnabled: false, headers: {} })
+
+    expect(config.isLogsEnabled).toBe(false)
+    expect(config.headers).toEqual({})
+    expect(RNBackgroundDownloaderNative.setLogsEnabled).toHaveBeenCalledWith(false)
+  })
+
+  test('a task created after a partial call still sends the earlier headers', () => {
+    setConfig({ headers: { Authorization: 'Bearer token' } })
+    setConfig({ progressInterval: 1500 })
+
+    createDownloadTask({
+      id: 'partial-headers',
+      url: 'https://example.com/file.zip',
+      destination: '/tmp/file.zip',
+    }).start()
+
+    const args = RNBackgroundDownloaderNative.download.mock.calls.at(-1)[0]
+    expect(args.headers).toEqual({ Authorization: 'Bearer token' })
+    expect(args.progressInterval).toBe(1500)
+  })
 })
 
 describe('notification fields on createDownloadTask', () => {

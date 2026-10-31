@@ -160,6 +160,15 @@ class UIDTDownloadJobService : JobService() {
         var downloadListener: ResumableDownloader.DownloadListener?
             get() = UIDTJobRegistry.downloadListener
             set(value) { UIDTJobRegistry.downloadListener = value }
+
+        /**
+         * The byte a job continues from. When resuming, the partial file is the source of
+         * truth: a saved offset can lag the bytes written (it's recorded when the job stops,
+         * or not at all if the process died), and appending from a lower offset duplicates
+         * data. No file means start over.
+         */
+        internal fun resumeStartByte(savedStartByte: Long, destination: String): Long =
+            if (savedStartByte > 0) File(destination).let { if (it.exists()) it.length() else 0L } else 0L
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -237,14 +246,7 @@ class UIDTDownloadJobService : JobService() {
                 savedStartByte = startByteFromExtras
             }
         }
-        // When resuming, the partial file is the source of truth: a saved offset can lag
-        // the bytes written (it's recorded when the job stops, or not at all if the process
-        // died), and appending from a lower offset duplicates data. No file means start over.
-        val startByte = if (savedStartByte > 0) {
-            File(destination).let { if (it.exists()) it.length() else 0L }
-        } else {
-            0L
-        }
+        val startByte = resumeStartByte(savedStartByte, destination)
         RNBackgroundDownloaderModuleImpl.logD(UIDTConstants.TAG, "onStartJob: configId=$configId, startByte=$startByte, headers=${headers.size}")
 
         // Create notification for UIDT job (required)

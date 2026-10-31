@@ -181,3 +181,38 @@ class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
     expect(addSwiftSupport(contents)).toBe(contents)
   })
 })
+
+describe('AppDelegate mod', () => {
+  const objcAppDelegate = `#import "AppDelegate.h"
+#import <React/RCTBundleURLProvider.h>
+
+@implementation AppDelegate
+@end
+`
+
+  // Runs the mod the plugin registers, as prebuild would
+  const runAppDelegateMod = async language => {
+    const config = plugin({ name: 'test', slug: 'test', _internal: { projectRoot: '/nonexistent' } })
+    const result = await config.mods.ios.appDelegate({
+      ...config,
+      modResults: { language, contents: objcAppDelegate },
+      modRequest: {
+        projectRoot: '/nonexistent',
+        platformProjectRoot: '/nonexistent/ios',
+        projectName: 'Test',
+        platform: 'ios',
+        modName: 'appDelegate',
+        introspect: false,
+        nextMod: c => c,
+      },
+    })
+    return result.modResults.contents
+  }
+
+  it.each(['objc', 'objcpp'])('adds the import and method to a %s AppDelegate', async language => {
+    const contents = await runAppDelegateMod(language)
+
+    expect(contents).toContain('#import <RNBackgroundDownloader.h>')
+    expect(contents).toContain('[RNBackgroundDownloader setCompletionHandlerWithIdentifier:identifier completionHandler:completionHandler];')
+  })
+})
