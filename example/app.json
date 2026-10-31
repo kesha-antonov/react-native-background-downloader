@@ -38,7 +38,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "@kesha-antonov/react-native-background-downloader"
+      "@kesha-antonov/react-native-background-downloader",
+      "./plugins/withLibraryTests"
     ]
   }
 }

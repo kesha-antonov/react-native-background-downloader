@@ -16,6 +16,7 @@ Pod::Spec.new do |s|
   s.source       = { git: 'https://github.com/kesha-antonov/react-native-background-downloader.git', tag: 'main' }
 
   s.source_files = 'ios/**/*.{h,m,mm,swift}'
+  s.exclude_files = 'ios/Tests/**/*'
   # React Native Core dependency
   install_modules_dependencies(s)
 
@@ -41,6 +42,13 @@ Pod::Spec.new do |s|
   # MMKVCore, and MMKV 2.4.0 depends on 'MMKVCore (~> 2.4.0)', which would still
   # resolve to the broken 2.4.1 on its own.
   s.dependency 'MMKVCore', '!= 2.4.1'
+
+  # Unit tests, built only when a Podfile asks for them with `:testspecs => ['Tests']`
+  # (the example app does). They need C++20 for React's headers.
+  s.test_spec 'Tests' do |test_spec|
+    test_spec.source_files = 'ios/Tests/**/*.{h,m,mm}'
+    test_spec.pod_target_xcconfig = { 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20' }
+  end
 
   # Enable codegen for new architecture
   if ENV['RCT_NEW_ARCH_ENABLED'] == '1'
