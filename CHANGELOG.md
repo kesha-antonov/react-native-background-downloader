@@ -48,6 +48,9 @@
 - **iOS: starting a download or upload delayed every task's progress events,** so starting them often stopped progress altogether
 - **Android: a paused download could be set back to downloading, and a stopped or finished one listed again on every launch,** when the size request for it finished late
 - **Android: `progressMinBytes` couldn't be set back to 0**
+- **iOS: a JS reload cancelled every download and upload:** the module invalidated the background session on reload (including over-the-air update reloads), which cancels everything in it, and sent `downloadFailed` for each. The session now outlives the module and the new one takes it over, so transfers keep running; re-attach with `getExistingDownloadTasks()` after the reload
+- **iOS old architecture: events sent before the bridge was ready could reach JS out of order,** e.g. `progress` or `done` before `begin`; they now wait in one queue and are delivered in order
+- **Android: a failed `DownloadManager` download could send `downloadFailed` twice**
 
 ## v4.6.4
 
