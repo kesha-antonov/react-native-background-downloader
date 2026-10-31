@@ -221,6 +221,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         headersMap.putString(key, value)
       }
       onBeginDownload(id, headersMap, expectedBytes)
+      // Save the size now: the first progress snapshot comes only after the throttle
+      // interval, and a download recovered after a force-stop before it had no total
+      if (expectedBytes > 0) {
+        maybeSnapshotActiveResumable(id, 0, expectedBytes, force = true)
+      }
     }
 
     override fun onProgress(id: String, bytesDownloaded: Long, bytesTotal: Long) {
@@ -591,13 +596,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
    * If the app is force-stopped, restoreRecoverableDownloads() uses this snapshot to
    * surface the download again via getExistingDownloadTasks.
    */
-  private fun maybeSnapshotActiveResumable(configId: String, bytesDownloaded: Long, bytesTotal: Long) {
+  private fun maybeSnapshotActiveResumable(configId: String, bytesDownloaded: Long, bytesTotal: Long, force: Boolean = false) {
     // Runs on download threads: the maps and the load-modify-save of the snapshot
     // store must not interleave with another download's save or a cleanup
     synchronized(sharedLock) {
       val now = System.currentTimeMillis()
       val last = configIdToLastSnapshotMs[configId] ?: 0L
-      if (now - last < DownloadConstants.RECOVERY_SNAPSHOT_INTERVAL_MS) {
+      if (!force && now - last < DownloadConstants.RECOVERY_SNAPSHOT_INTERVAL_MS) {
         return
       }
       configIdToLastSnapshotMs[configId] = now

@@ -52,6 +52,7 @@
 - **Android: `progressMinBytes` couldn't be set back to 0**
 - **Android: a download whose connection closed early was reported as done:** with the library's own downloader, a body shorter than its `Content-Length` (a server or proxy ending the connection without an error) left a truncated file reported by `done`. The rest is now fetched
 - **iOS: `getExistingDownloadTasks()` blocked every download's events for 100 ms on each call;** it now waits only on the first call after launch
+- **Android: a download recovered after a force-stop in its first seconds had no total size:** the size was only saved with the first progress snapshot, about 2 seconds in; it's now saved when the download begins
 - **Android: fewer progress reports per second on fast connections:** the downloader reads 64 KB at a time (was 8 KB) and keeps pending progress as plain values instead of a React map per read
 - **iOS: a JS reload cancelled every download and upload:** the module invalidated the background session on reload (including over-the-air update reloads), which cancels everything in it, and sent `downloadFailed` for each. The session now outlives the module and the new one takes it over, so transfers keep running; re-attach with `getExistingDownloadTasks()` after the reload
 - **iOS old architecture: events sent before the bridge was ready could reach JS out of order,** e.g. `progress` or `done` before `begin`; they now wait in one queue and are delivered in order
