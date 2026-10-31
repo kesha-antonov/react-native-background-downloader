@@ -22,6 +22,7 @@
 - (void)trackTerminalEvent:(NSString *)eventName body:(id)body;
 - (void)completeHandler:(NSString *)jobId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)handleBridgeHotReload:(NSNotification *)note;
+- (void)restartStalledDownloads;
 #ifndef RCT_NEW_ARCH_ENABLED
 - (void)download:(NSDictionary *)options;
 #endif
@@ -51,6 +52,10 @@
 @property (nonatomic, assign) int64_t fakeExpected;
 @property (nonatomic, strong) NSURLRequest *fakeRequest;
 @property (nonatomic, strong) NSError *fakeError;
+@property (nonatomic, strong) NSURLResponse *fakeResponse;
+// What cancelByProducingResumeData: hands back
+@property (nonatomic, strong) NSData *fakeResumeData;
+@property (nonatomic, assign) BOOL wasCancelled;
 @end
 
 @implementation RNBGDFakeTask
@@ -62,6 +67,12 @@
 - (NSURLRequest *)originalRequest { return self.fakeRequest; }
 - (NSURLRequest *)currentRequest { return self.fakeRequest; }
 - (NSError *)error { return self.fakeError; }
+- (NSURLResponse *)response { return self.fakeResponse; }
+- (void)cancelByProducingResumeData:(void (^)(NSData *))completionHandler
+{
+    self.wasCancelled = YES;
+    completionHandler(self.fakeResumeData);
+}
 
 @end
 
@@ -555,6 +566,140 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     [self runMainQueue];
 
     XCTAssertEqual(calls, 1);
+}
+
+#pragma mark - Network failures and stalls
+
+// Resume data the session accepts; the task it makes can't actually continue anything
+- (NSData *)resumeData
+{
+    NSDictionary *plist = @{
+        @"NSURLSessionDownloadURL": kUnreachableURL,
+        @"NSURLSessionResumeBytesReceived": @1000,
+        @"NSURLSessionResumeEntityTag": @"\"v1\"",
+        @"NSURLSessionResumeInfoTempFileName": @"CFNetworkDownload_test.tmp",
+        @"NSURLSessionResumeInfoVersion": @2,
+    };
+    return [NSPropertyListSerialization dataWithPropertyList:plist format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
+}
+
+- (RNBGDFakeTask *)fakeTaskWithKey:(NSUInteger)key
+{
+    RNBGDFakeTask *task = [RNBGDFakeTask new];
+    task.fakeIdentifier = key;
+    task.fakeState = NSURLSessionTaskStateRunning;
+    task.fakeReceived = 1000;
+    task.fakeExpected = 5000;
+    return task;
+}
+
+- (void)testADownloadCutOffByTheNetworkContinuesFromItsResumeData
+{
+    NSString *identifier = [self uniqueId:@"connection-lost"];
+    RNBGDTaskConfig *config = [self addConfigWithId:identifier key:900010];
+    RNBGDFakeTask *task = [self fakeTaskWithKey:900010];
+    NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost
+                                     userInfo:@{NSURLSessionDownloadTaskResumeData: self.resumeData}];
+
+    [self.module URLSession:self.session task:task didCompleteWithError:error];
+
+    NSURLSessionDownloadTask *continued = [self taskForId:identifier];
+    XCTAssertNotNil(continued);
+    XCTAssertNotEqual(continued, (NSURLSessionDownloadTask *)task);
+    @synchronized ([self lock]) {
+        XCTAssertNil(self.taskToConfigMap[@900010]);
+        XCTAssertEqual(self.taskToConfigMap[@(continued.taskIdentifier)], config);
+    }
+    XCTAssertEqual(config.state, NSURLSessionTaskStateRunning);
+}
+
+- (void)testADownloadThatKeepsGettingCutOffFails
+{
+    NSString *identifier = [self uniqueId:@"keeps-failing"];
+    [self addConfigWithId:identifier key:900011];
+    NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut
+                                     userInfo:@{NSURLSessionDownloadTaskResumeData: self.resumeData}];
+    NSUInteger key = 900011;
+
+    // Each continuation fails again without getting any data through
+    for (int attempt = 0; attempt <= 5; attempt++) {
+        RNBGDFakeTask *task = [self fakeTaskWithKey:key];
+        [self.module URLSession:self.session task:task didCompleteWithError:error];
+        NSURLSessionDownloadTask *continued = [self taskForId:identifier];
+        if (continued == nil) {
+            break;
+        }
+        key = continued.taskIdentifier;
+        [continued cancel];
+    }
+
+    @synchronized ([self lock]) {
+        XCTAssertNil([self taskForId:identifier]);
+        XCTAssertNil(self.taskToConfigMap[@(key)], @"still running after 6 cut-offs");
+    }
+}
+
+- (RNBGDFakeTask *)addStalledDownload:(NSString *)identifier key:(NSUInteger)key headers:(NSDictionary *)headers
+{
+    [self addConfigWithId:identifier key:key];
+    RNBGDFakeTask *task = [self fakeTaskWithKey:key];
+    task.fakeResponse = [[NSHTTPURLResponse alloc] initWithURL:[NSURL URLWithString:kUnreachableURL] statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:headers];
+    task.fakeResumeData = self.resumeData;
+    @synchronized ([self lock]) {
+        ((NSMutableDictionary *)[self ivar:@"idToTaskMap"])[identifier] = task;
+        ((NSMutableDictionary *)[self ivar:@"idToLastDataAt"])[identifier] = [NSDate dateWithTimeIntervalSinceNow:-60];
+    }
+    return task;
+}
+
+- (void)testAStalledDownloadIsContinuedInANewConnection
+{
+    NSString *identifier = [self uniqueId:@"stalled"];
+    RNBGDFakeTask *task = [self addStalledDownload:identifier key:900012 headers:@{@"Accept-Ranges": @"bytes", @"ETag": @"\"v1\""}];
+
+    [self.module restartStalledDownloads];
+
+    XCTAssertTrue(task.wasCancelled);
+    NSURLSessionDownloadTask *continued = [self taskForId:identifier];
+    XCTAssertNotNil(continued);
+    XCTAssertNotEqual(continued, (NSURLSessionDownloadTask *)task);
+    @synchronized ([self lock]) {
+        XCTAssertNil(self.taskToConfigMap[@900012]);
+        XCTAssertEqualObjects(self.taskToConfigMap[@(continued.taskIdentifier)].id, identifier);
+    }
+    // The cancel of the stalled task isn't a pause or a failure
+    [self.module URLSession:self.session task:task didCompleteWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled userInfo:nil]];
+    XCTAssertEqual(self.failures.count, 0u);
+}
+
+- (void)testAStalledDownloadIsLeftAloneWhenTheServerCantContinueIt
+{
+    NSString *identifier = [self uniqueId:@"stalled-no-ranges"];
+    RNBGDFakeTask *task = [self addStalledDownload:identifier key:900013 headers:@{@"ETag": @"\"v1\""}];
+
+    [self.module restartStalledDownloads];
+
+    XCTAssertFalse(task.wasCancelled);
+    XCTAssertEqual([self taskForId:identifier], (NSURLSessionDownloadTask *)task);
+    @synchronized ([self lock]) {
+        [(NSMutableDictionary *)[self ivar:@"idToTaskMap"] removeObjectForKey:identifier];
+    }
+}
+
+- (void)testADownloadThatGotDataRecentlyIsntRestarted
+{
+    NSString *identifier = [self uniqueId:@"not-stalled"];
+    RNBGDFakeTask *task = [self addStalledDownload:identifier key:900014 headers:@{@"Accept-Ranges": @"bytes", @"ETag": @"\"v1\""}];
+    @synchronized ([self lock]) {
+        ((NSMutableDictionary *)[self ivar:@"idToLastDataAt"])[identifier] = [NSDate date];
+    }
+
+    [self.module restartStalledDownloads];
+
+    XCTAssertFalse(task.wasCancelled);
+    @synchronized ([self lock]) {
+        [(NSMutableDictionary *)[self ivar:@"idToTaskMap"] removeObjectForKey:identifier];
+    }
 }
 
 #pragma mark - Cancel by the system

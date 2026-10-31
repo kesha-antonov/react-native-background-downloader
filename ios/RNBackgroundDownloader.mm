@@ -3,6 +3,7 @@
 #import "RNBGDUploadTaskConfig.h"
 #import <MMKV/MMKV.h>
 #import <React/RCTBridge.h>
+#import <React/RCTUtils.h>
 
 #ifdef RCT_NEW_ARCH_ENABLED
 #import <RNBackgroundDownloaderSpec/RNBackgroundDownloaderSpec.h>
@@ -30,6 +31,12 @@ static const float kProgressReportThreshold = 0.01f;         // Report progress 
 // Fallback for the background completion handler; iOS gives a background launch about 30 s
 static const NSTimeInterval kCompletionHandlerTimeout = 25.0;
 static const NSTimeInterval kSessionInvalidationTimeout = 5.0; // Max wait for a replaced session to go away
+// A download that gets no data for this long while the app is in the foreground is
+// restarted from where it stopped: the system can take many minutes to do it itself
+static const NSTimeInterval kStallTimeout = 20.0;
+static const NSTimeInterval kStallCheckInterval = 5.0;
+// Times in a row a download cut off by the network continues from its resume data
+static const NSInteger kMaxNetworkResumes = 5;
 
 // DLog accepts taskId as first parameter to help debugging
 // Only logs if isLogsEnabled is true (works in both DEBUG and RELEASE builds)
@@ -130,6 +137,16 @@ static void callCompletionHandlerIfDone(void) {
     // the signal that it's gone (see -lazyRegisterSession)
     NSURLSession *replacedSession;
     dispatch_semaphore_t replacedSessionInvalidated;
+    // When each download last received data, for the stall check
+    NSMutableDictionary<NSString *, NSDate *> *idToLastDataAt;
+    // Downloads being restarted after a stall; their cancel isn't a pause or a failure
+    NSMutableSet<NSString *> *idsBeingRestarted;
+    // Times each download continued after the network cut it off, since it last got data
+    NSMutableDictionary<NSString *, NSNumber *> *idToNetworkResumeCount;
+    NSTimeInterval stallTimeout;
+    BOOL isAppActive;
+    BOOL hasReconciledTasks;
+    dispatch_source_t stallTimer;
 
     // Downloads that finished but whose file couldn't be moved to its destination because
     // the device was locked. Keyed by configId -> staging/destination info. Retried on
@@ -348,6 +365,12 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
         idToUpdatedHeadersMap = [[NSMutableDictionary alloc] init];
         isSessionActivated = NO;
         pendingDownloads = [[NSMutableArray alloc] init];
+        idToLastDataAt = [[NSMutableDictionary alloc] init];
+        idsBeingRestarted = [[NSMutableSet alloc] init];
+        idToNetworkResumeCount = [[NSMutableDictionary alloc] init];
+        stallTimeout = kStallTimeout;
+        isAppActive = YES;
+        [self startStallTimer];
 
         // Restore any downloads whose file move was deferred because the device was locked
         NSData *pendingMovesData = [mmkv getDataForKey:PENDING_MOVES_MAP_KEY];
@@ -512,6 +535,24 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
                                                   name:RCTJavaScriptWillStartLoadingNotification
                                                   object:nil];
 
+            // The stall check runs only while the app is in the foreground
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                  selector:@selector(handleAppActiveChange:)
+                                                  name:UIApplicationDidBecomeActiveNotification
+                                                  object:nil];
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                  selector:@selector(handleAppActiveChange:)
+                                                  name:UIApplicationWillResignActiveNotification
+                                                  object:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UIApplication *application = RCTSharedApplication();
+                if (application != nil) {
+                    @synchronized (self->sharedLock) {
+                        self->isAppActive = application.applicationState == UIApplicationStateActive;
+                    }
+                }
+            });
+
             // Finish any moves deferred while the device was locked, as soon as
             // protected data becomes available again (device unlocked). See #101.
             // Note: the ObjC constant has no "Notification" suffix (unlike most UIApplication ones).
@@ -520,6 +561,136 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
                                                   name:UIApplicationProtectedDataDidBecomeAvailable
                                                   object:nil];
         }
+    }
+}
+
+- (void)handleAppActiveChange:(NSNotification *)note {
+    @synchronized (sharedLock) {
+        isAppActive = [note.name isEqualToString:UIApplicationDidBecomeActiveNotification];
+        // Time in the background doesn't count as a stall
+        NSDate *now = [NSDate date];
+        for (NSString *identifier in [idToLastDataAt allKeys]) {
+            idToLastDataAt[identifier] = now;
+        }
+    }
+}
+
+- (void)startStallTimer {
+    __weak RNBackgroundDownloader *weakSelf = self;
+    stallTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+    dispatch_source_set_timer(stallTimer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kStallCheckInterval * NSEC_PER_SEC)), (uint64_t)(kStallCheckInterval * NSEC_PER_SEC), NSEC_PER_SEC);
+    dispatch_source_set_event_handler(stallTimer, ^{
+        [weakSelf restartStalledDownloads];
+    });
+    dispatch_resume(stallTimer);
+}
+
+// The system retries a stalled background download on its own, but that can take many
+// minutes. While the app is in the foreground, a download that has gone quiet is cancelled
+// with resume data and continued in a new task, which opens a new connection.
+- (void)restartStalledDownloads {
+    @synchronized (sharedLock) {
+        if (!isAppActive) {
+            return;
+        }
+        NSDate *now = [NSDate date];
+        for (NSString *identifier in [idToTaskMap allKeys]) {
+            NSURLSessionDownloadTask *task = idToTaskMap[identifier];
+            NSDate *lastDataAt = idToLastDataAt[identifier];
+            if (task.state != NSURLSessionTaskStateRunning || lastDataAt == nil
+                || [now timeIntervalSinceDate:lastDataAt] < stallTimeout
+                || [idsBeingRestarted containsObject:identifier] || [idsToPauseSet containsObject:identifier]
+                || ![self canResumeTask:task]) {
+                continue;
+            }
+            DLog(identifier, @"[RNBackgroundDownloader] - [restartStalledDownloads] no data for %.0f s, restarting", [now timeIntervalSinceDate:lastDataAt]);
+            [idsBeingRestarted addObject:identifier];
+            [task cancelByProducingResumeData:^(NSData *resumeData) {
+                @synchronized (self->sharedLock) {
+                    [self->idsBeingRestarted removeObject:identifier];
+                    RNBGDTaskConfig *taskConfig = self->taskToConfigMap[@(task.taskIdentifier)];
+                    // Stopped meanwhile
+                    if (self->idToTaskMap[identifier] != task || taskConfig == nil) {
+                        return;
+                    }
+                    if ([self->idsToPauseSet containsObject:identifier]) {
+                        // Paused meanwhile: keep the resume data as -pauseTaskInternal: does
+                        if (resumeData != nil) {
+                            self->idToResumeDataMap[identifier] = resumeData;
+                            [self saveResumeData:resumeData forTaskId:identifier];
+                            taskConfig.hasResumeData = YES;
+                        }
+                        taskConfig.state = NSURLSessionTaskStateCanceling;
+                        taskConfig.errorCode = NSURLErrorCancelled;
+                        [self->mmkv setData:[self serialize:self->taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+                        return;
+                    }
+                    if (![self continueTask:task config:taskConfig resumeData:resumeData]) {
+                        [self removeTaskFromMap:task];
+                        [self emitDownloadFailed:identifier error:@"the download stalled and couldn't be continued" errorCode:NSURLErrorTimedOut];
+                    }
+                }
+            }];
+        }
+    }
+}
+
+// Resume data needs the server to take ranges and a validator to check the file didn't change
+- (BOOL)canResumeTask:(NSURLSessionTask *)task {
+    if (task.countOfBytesReceived <= 0 || ![task.response isKindOfClass:[NSHTTPURLResponse class]]) {
+        return NO;
+    }
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *)task.response;
+    NSString *acceptRanges = [response valueForHTTPHeaderField:@"Accept-Ranges"];
+    BOOL takesRanges = response.statusCode == 206 || [acceptRanges.lowercaseString containsString:@"bytes"];
+    BOOL hasValidator = [response valueForHTTPHeaderField:@"ETag"] != nil || [response valueForHTTPHeaderField:@"Last-Modified"] != nil;
+    return takesRanges && hasValidator;
+}
+
+// Continues a download from resume data in a new task with the same config. Must hold
+// sharedLock. NO if there's nothing to continue from.
+- (BOOL)continueTask:(NSURLSessionTask *)oldTask config:(RNBGDTaskConfig *)taskConfig resumeData:(NSData *)resumeData {
+    if (resumeData == nil) {
+        return NO;
+    }
+    NSURLSessionDownloadTask *newTask = nil;
+    @try {
+        newTask = [urlSession downloadTaskWithResumeData:resumeData];
+    } @catch (NSException *exception) {
+        DLog(taskConfig.id, @"[RNBackgroundDownloader] - [continueTask] error: %@", exception.reason);
+    }
+    if (newTask == nil) {
+        return NO;
+    }
+    [taskToConfigMap removeObjectForKey:@(oldTask.taskIdentifier)];
+    taskConfig.state = NSURLSessionTaskStateRunning;
+    taskConfig.errorCode = 0;
+    taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
+    [mmkv setData:[self serialize:taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
+    idToTaskMap[taskConfig.id] = newTask;
+    idToLastDataAt[taskConfig.id] = [NSDate date];
+    [newTask resume];
+    return YES;
+}
+
+- (BOOL)isNetworkFailure:(NSError *)error {
+    if (![error.domain isEqualToString:NSURLErrorDomain]) {
+        return NO;
+    }
+    switch (error.code) {
+        case NSURLErrorTimedOut:
+        case NSURLErrorNetworkConnectionLost:
+        case NSURLErrorNotConnectedToInternet:
+        case NSURLErrorCannotConnectToHost:
+        case NSURLErrorCannotFindHost:
+        case NSURLErrorDNSLookupFailed:
+        case NSURLErrorInternationalRoamingOff:
+        case NSURLErrorCallIsActive:
+        case NSURLErrorDataNotAllowed:
+        case NSURLErrorBackgroundSessionWasDisconnected:
+            return YES;
+        default:
+            return NO;
     }
 }
 
@@ -576,6 +747,8 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
             [idToLastBytesMap removeObjectForKey:taskConfig.id];
             // Progress buffered for a task that's over must not reach JS in a later batch
             [progressReports removeObjectForKey:taskConfig.id];
+            [idToLastDataAt removeObjectForKey:taskConfig.id];
+            [idToNetworkResumeCount removeObjectForKey:taskConfig.id];
             // Clean up decode error retry tracking to prevent memory leak
             [decodeErrorRetriedIds removeObject:taskConfig.id];
         }
@@ -1252,8 +1425,13 @@ RCT_EXPORT_METHOD(completeHandler:(nonnull NSString *)jobId resolver:(RCTPromise
                 NSString *logMsg = [NSString stringWithFormat:@"getExistingDownloadTasks: found %lu download tasks", (unsigned long)downloadTasks.count];
                 [self sendDebugLog:logMsg taskId:nil];
 
-                // Wait for session tasks to stabilize after app restart
-                [NSThread sleepForTimeInterval:kTaskReconciliationDelay];
+                // Wait for session tasks to stabilize after app restart. Only the first time:
+                // this blocks the session's queue, and so every download's events, and apps
+                // call this for every download they start, pause or stop
+                if (!self->hasReconciledTasks) {
+                    self->hasReconciledTasks = YES;
+                    [NSThread sleepForTimeInterval:kTaskReconciliationDelay];
+                }
 
                 NSMutableArray *foundTasks = [[NSMutableArray alloc] init];
                 NSMutableSet *processedIds = [[NSMutableSet alloc] init];
@@ -1687,6 +1865,9 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didWriteData]");
 
+        idToLastDataAt[taskConfig.id] = [NSDate date];
+        [idToNetworkResumeCount removeObjectForKey:taskConfig.id];
+
         [self reportBeginIfNeeded:taskConfig downloadTask:downloadTask expectedBytes:bytesTotalExpectedToWrite];
         [self updateProgressIfNeeded:taskConfig bytesWritten:bytesTotalWritten bytesTotal:bytesTotalExpectedToWrite];
         [self flushProgressReportsIfNeeded];
@@ -1789,9 +1970,26 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] error: %@", error);
         [self sendDebugLog:[NSString stringWithFormat:@"didCompleteWithError: error code=%ld, %@", (long)error.code, error.localizedDescription] taskId:taskConfig.id];
 
+        // Cancelled to be restarted after a stall (-restartStalledDownloads:)
+        if ([idsBeingRestarted containsObject:taskConfig.id]) {
+            return;
+        }
+
         // NSURLErrorCancelled (-999) is used for paused or cancelled tasks
         // Extract resume data first before checking isPausedTask
         NSData *resumeData = error.userInfo[NSURLSessionDownloadTaskResumeData];
+
+        // Cut off by the network (timeout, lost connection): continue from the resume data
+        // the system handed over, as it does itself for a stall, instead of failing the task.
+        // Bounded, as a server that always cuts it off would loop
+        if (resumeData != nil && [self isNetworkFailure:error]) {
+            NSInteger resumes = [idToNetworkResumeCount[taskConfig.id] integerValue];
+            if (resumes < kMaxNetworkResumes && [self continueTask:task config:taskConfig resumeData:resumeData]) {
+                idToNetworkResumeCount[taskConfig.id] = @(resumes + 1);
+                DLog(taskConfig.id, @"[RNBackgroundDownloader] - [didCompleteWithError] network failure, continuing (%ld)", (long)resumes + 1);
+                return;
+            }
+        }
 
         // Check if this task was intentionally paused (marked in idsToPauseSet)
         BOOL wasIntentionallyPaused = [idsToPauseSet containsObject:taskConfig.id];
