@@ -27,7 +27,8 @@ static const NSTimeInterval kResourceTimeoutSeconds = 60 * 60 * 24;  // 1 day - 
 // Progress reporting constants
 static const NSTimeInterval kTaskReconciliationDelay = 0.1;  // Delay to allow session tasks to stabilize
 static const float kProgressReportThreshold = 0.01f;         // Report progress every 1% change
-static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for completion handler (30 seconds)
+// Fallback for the background completion handler; iOS gives a background launch about 30 s
+static const NSTimeInterval kCompletionHandlerTimeout = 25.0;
 static const NSTimeInterval kSessionInvalidationTimeout = 5.0; // Max wait for a replaced session to go away
 
 // DLog accepts taskId as first parameter to help debugging
@@ -42,7 +43,25 @@ static const NSTimeInterval kSessionInvalidationTimeout = 5.0; // Max wait for a
 #define DLogStatic( taskId, s, ... ) do { } while(0)
 #endif
 
+// The system's completion handler for a background launch, and what it waits for. Only
+// touched on the main queue.
 static CompletionHandler storedCompletionHandler;
+// Set when the session has delivered every event of the background launch
+static BOOL backgroundEventsFinished = NO;
+// Tasks whose done or failed event was sent during the launch, not yet passed to completeHandler
+static NSMutableSet<NSString *> *idsAwaitingCompleteHandler;
+
+// Calls the completion handler once the session has delivered its events and JS has
+// handled every task that ended in them, so the app isn't suspended mid-way. Main queue.
+static void callCompletionHandlerIfDone(void) {
+    if (storedCompletionHandler == nil || !backgroundEventsFinished || idsAwaitingCompleteHandler.count > 0) {
+        return;
+    }
+    CompletionHandler handler = storedCompletionHandler;
+    storedCompletionHandler = nil;
+    backgroundEventsFinished = NO;
+    handler();
+}
 
 @implementation RNBackgroundDownloader {
     MMKV *mmkv;
@@ -166,6 +185,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 // Old architecture override to ensure events are sent
 // Check if bridge is valid and loaded before sending events
 - (void)sendEventWithName:(NSString *)eventName body:(id)body {
+    [self trackTerminalEvent:eventName body:body];
     [self sendEventWithName:eventName body:body retryCount:0];
 }
 
@@ -459,6 +479,8 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
             [self -> idToTaskMap removeObjectForKey:taskConfig.id];
             [idToPercentMap removeObjectForKey:taskConfig.id];
             [idToLastBytesMap removeObjectForKey:taskConfig.id];
+            // Progress buffered for a task that's over must not reach JS in a later batch
+            [progressReports removeObjectForKey:taskConfig.id];
             // Clean up decode error retry tracking to prevent memory leak
             [decodeErrorRetriedIds removeObject:taskConfig.id];
         }
@@ -702,7 +724,6 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 
         [task resume];
         [self sendDebugLog:@"executeDownloadWithRequest: task.resume() called" taskId:identifier];
-        lastProgressReportedAt = [[NSDate alloc] init];
     }
 }
 
@@ -807,6 +828,7 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
             if (task != nil) {
                 // Mark task as pausing IMMEDIATELY before cancellation to prevent race condition
                 [idsToPauseSet addObject:identifier];
+                [progressReports removeObjectForKey:identifier];
                 DLog(identifier, @"[RNBackgroundDownloader] - [pauseTask] marking task as pausing: %@", identifier);
 
                 [task cancelByProducingResumeData:^(NSData * _Nullable resumeData) {
@@ -906,6 +928,9 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                         DLog(identifier, @"[RNBackgroundDownloader] - [resumeTask] restarting with updated headers for %@", identifier);
                         newTask = [self createDownloadTaskWithRequest:[self freshRequestForConfig:taskConfig headers:updatedHeaders] identifier:identifier];
                         taskConfig.bytesDownloaded = 0;
+                        // Progress thresholds compare with the last report, which was for the old transfer
+                        idToPercentMap[identifier] = @0.0;
+                        idToLastBytesMap[identifier] = @0;
                     } else {
                         newTask = [urlSession downloadTaskWithResumeData:resumeData];
                     }
@@ -976,6 +1001,8 @@ RCT_EXPORT_METHOD(pauseTask:(NSString *)id resolver:(RCTPromiseResolveBlock)reso
                         taskConfig.errorCode = 0;
                         taskConfig.hasResumeData = NO;
                         taskConfig.bytesDownloaded = 0;
+                        idToPercentMap[identifier] = @0.0;
+                        idToLastBytesMap[identifier] = @0;
                         taskToConfigMap[@(newTask.taskIdentifier)] = taskConfig;
                         [mmkv setData:[self serialize: taskToConfigMap] forKey:ID_TO_CONFIG_MAP_KEY];
                         self->idToTaskMap[identifier] = newTask;
@@ -1091,10 +1118,10 @@ RCT_EXPORT_METHOD(updateTaskHeaders:(NSString *)id headers:(NSDictionary *)heade
     DLog(nil, @"[RNBackgroundDownloader] - [completeHandlerIOS]");
     @try {
         [[NSOperationQueue mainQueue] addOperationWithBlock:^{
-            if (storedCompletionHandler) {
-                storedCompletionHandler();
-                storedCompletionHandler = nil;
+            if (jobId != nil) {
+                [idsAwaitingCompleteHandler removeObject:jobId];
             }
+            callCompletionHandlerIfDone();
         }];
 
         resolve(nil);
@@ -1428,6 +1455,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 // when NSURLSession delegate callbacks fire before JS has registered listeners
 // (e.g., background session delivering completions from a prior app session).
 - (void)safeEmitEvent:(NSString *)eventName value:(id)value {
+    [self trackTerminalEvent:eventName body:value];
     @synchronized (pendingEmitEvents) {
         if (_eventEmitterCallback) {
             _eventEmitterCallback(std::string([eventName UTF8String]), value);
@@ -1521,17 +1549,19 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
         }];
 #endif
     } else {
+        // Where -saveFile: put it, which differs from the stored path after an app update
+        NSString *location = [self currentPathForDestination:taskConfig.destination] ?: taskConfig.destination;
 #ifdef RCT_NEW_ARCH_ENABLED
         [self safeEmitEvent:@"onDownloadComplete" value:@{
             @"id": taskConfig.id,
-            @"location": taskConfig.destination,
+            @"location": location,
             @"bytesDownloaded": @(task.countOfBytesReceived),
             @"bytesTotal": @(task.countOfBytesExpectedToReceive)
         }];
 #else
         [self sendEventWithName:@"downloadComplete" body:@{
             @"id": taskConfig.id,
-            @"location": taskConfig.destination,
+            @"location": location,
             @"bytesDownloaded": @(task.countOfBytesReceived),
             @"bytesTotal": @(task.countOfBytesExpectedToReceive)
         }];
@@ -1597,6 +1627,10 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 }
 
 - (void)updateProgressIfNeeded:(RNBGDTaskConfig *)taskConfig bytesWritten:(int64_t)bytesWritten bytesTotal:(int64_t)bytesTotal {
+    // Data already in flight when the app paused the task
+    if ([idsToPauseSet containsObject:taskConfig.id]) {
+        return;
+    }
     NSNumber *prevPercent = idToPercentMap[taskConfig.id] ?: @0.0;
     NSNumber *prevBytes = idToLastBytesMap[taskConfig.id] ?: @0;
     float currentPercent = bytesTotal > 0 ? (float)bytesWritten / (float)bytesTotal : 0.0;
@@ -1749,6 +1783,33 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
 - (void)URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session {
     DLog(nil, @"[RNBackgroundDownloader] - [URLSessionDidFinishEventsForBackgroundURLSession]");
+    // Queued after the ids of the events just sent (-trackTerminalEvent:body:), so they count
+    dispatch_async(dispatch_get_main_queue(), ^{
+        backgroundEventsFinished = YES;
+        callCompletionHandlerIfDone();
+    });
+}
+
+// Remembers a task whose done or failed event is sent during a background launch: the
+// completion handler waits until JS passes it to completeHandler
+- (void)trackTerminalEvent:(NSString *)eventName body:(id)body {
+    static NSSet<NSString *> *terminalEvents;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        terminalEvents = [NSSet setWithArray:@[
+            @"downloadComplete", @"downloadFailed", @"uploadComplete", @"uploadFailed",
+            @"onDownloadComplete", @"onDownloadFailed", @"onUploadComplete", @"onUploadFailed",
+        ]];
+    });
+    NSString *identifier = [body isKindOfClass:[NSDictionary class]] ? body[@"id"] : nil;
+    if (identifier == nil || ![terminalEvents containsObject:eventName]) {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (storedCompletionHandler != nil) {
+            [idsAwaitingCompleteHandler addObject:identifier];
+        }
+    });
 }
 
 #pragma mark - Upload methods
@@ -1766,6 +1827,7 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
             [idToUploadTaskMap removeObjectForKey:taskConfig.id];
             [idToUploadPercentMap removeObjectForKey:taskConfig.id];
             [idToUploadLastBytesMap removeObjectForKey:taskConfig.id];
+            [uploadProgressReports removeObjectForKey:taskConfig.id];
         }
     }
 }
@@ -1967,7 +2029,6 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
             idToUploadLastBytesMap[identifier] = @0;
 
             [uploadTask resume];
-            lastUploadProgressReportedAt = [[NSDate alloc] init];
         }
     } @catch (NSException *exception) {
         DLog(identifier, @"[RNBackgroundDownloader] - [upload] error: %@", exception.reason);
@@ -2178,7 +2239,10 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
 #endif
         }
 
-        // Update progress
+        // Update progress, unless the app has paused the upload
+        if ([idsToUploadPauseSet containsObject:taskConfig.id]) {
+            return;
+        }
         NSNumber *prevPercent = idToUploadPercentMap[taskConfig.id] ?: @0.0;
         NSNumber *prevBytes = idToUploadLastBytesMap[taskConfig.id] ?: @0;
         float currentPercent = totalBytesExpectedToSend > 0 ? (float)totalBytesSent / (float)totalBytesExpectedToSend : 0.0;
@@ -2322,18 +2386,31 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
   NSString *sessionIdentifier =
       [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
   if ([sessionIdentifier isEqualToString:identifier]) {
+    // Called on the main queue by the AppDelegate. A handler left from an earlier launch
+    // must still be called, not dropped
+    if (storedCompletionHandler) {
+      CompletionHandler previous = storedCompletionHandler;
+      storedCompletionHandler = nil;
+      previous();
+    }
     storedCompletionHandler = completionHandler;
+    backgroundEventsFinished = NO;
+    if (idsAwaitingCompleteHandler == nil) {
+      idsAwaitingCompleteHandler = [NSMutableSet new];
+    }
+    [idsAwaitingCompleteHandler removeAllObjects];
 
-    // Set a timeout to prevent memory leak if JS never calls completeHandler
-    // iOS requires the completion handler to be called within 30 seconds
-    // Copy the handler to a local variable to avoid retain cycle with static variable
+    // Call it anyway before the background time runs out, e.g. if JS never calls
+    // completeHandler for a task. Copy the handler to avoid a retain cycle with the static
     __block CompletionHandler handlerToCall = completionHandler;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kCompletionHandlerTimeout * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       // Check if this is still the same handler (not already called or replaced)
       if (storedCompletionHandler && storedCompletionHandler == handlerToCall) {
         DLogStatic(nil, @"[RNBackgroundDownloader] - [setCompletionHandlerWithIdentifier] timeout - calling completion handler automatically");
-        storedCompletionHandler();
         storedCompletionHandler = nil;
+        backgroundEventsFinished = NO;
+        [idsAwaitingCompleteHandler removeAllObjects];
+        handlerToCall();
       }
       handlerToCall = nil;  // Release the block reference
     });
@@ -2369,6 +2446,17 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
     return NSFileProtectionCompleteUntilFirstUserAuthentication;
 }
 
+// The destination in the app's current container: its absolute path changes when the app
+// is updated, its path relative to the container doesn't. nil if it isn't in the container.
+- (NSString *)currentPathForDestination:(NSString *)destination {
+    NSString *rootPath = [self getRootPathFromPath:destination];
+    NSString *fileRelativePath = [self getRelativeFilePathFromPath:destination];
+    if (rootPath == nil || fileRelativePath == nil) {
+        return nil;
+    }
+    return [rootPath stringByAppendingPathComponent:fileRelativePath];
+}
+
 - (BOOL)saveFile: (nonnull RNBGDTaskConfig *) taskConfig downloadURL:(nonnull NSURL *)location bytesDownloaded:(int64_t)bytesDownloaded bytesTotal:(int64_t)bytesTotal error:(NSError **)saveError deferred:(BOOL *)deferred {
     DLog(taskConfig.id, @"[RNBackgroundDownloader] - [saveFile]");
     if (deferred) *deferred = NO;
@@ -2376,11 +2464,10 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
     // The absolute path may change when the application is restarted.
     // But the relative path remains the same.
     // Relative paths are used to recreate the Absolute path.
-    NSString *rootPath = [self getRootPathFromPath:taskConfig.destination];
-    NSString *fileRelativePath = [self getRelativeFilePathFromPath:taskConfig.destination];
+    NSString *fileAbsolutePath = [self currentPathForDestination:taskConfig.destination];
 
     // Check for nil paths to prevent crash
-    if (rootPath == nil || fileRelativePath == nil) {
+    if (fileAbsolutePath == nil) {
         if (saveError) {
             *saveError = [NSError errorWithDomain:NSURLErrorDomain
                                              code:NSURLErrorFileDoesNotExist
@@ -2389,7 +2476,6 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
         return NO;
     }
 
-    NSString *fileAbsolutePath = [rootPath stringByAppendingPathComponent:fileRelativePath];
     NSURL *destinationURL = [NSURL fileURLWithPath:fileAbsolutePath];
 
     NSFileManager *fileManager = [NSFileManager defaultManager];

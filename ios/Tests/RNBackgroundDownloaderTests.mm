@@ -17,6 +17,10 @@
 - (NSString *)multipartTempPathForUploadId:(NSString *)identifier;
 - (NSData *)loadResumeDataForTaskId:(NSString *)taskId;
 - (void)getExistingDownloadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)pauseTaskInternal:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)updateProgressIfNeeded:(RNBGDTaskConfig *)taskConfig bytesWritten:(int64_t)bytesWritten bytesTotal:(int64_t)bytesTotal;
+- (void)trackTerminalEvent:(NSString *)eventName body:(id)body;
+- (void)completeHandler:(NSString *)jobId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 #ifndef RCT_NEW_ARCH_ENABLED
 - (void)download:(NSDictionary *)options;
 #endif
@@ -361,6 +365,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     config.allowsCellularAccess = NO;
     @synchronized ([self lock]) {
         ((NSMutableDictionary *)[self ivar:@"idToResumeDataMap"])[identifier] = [@"resume" dataUsingEncoding:NSUTF8StringEncoding];
+        ((NSMutableDictionary *)[self ivar:@"idToPercentMap"])[identifier] = @0.8;
     }
 
     [self.module updateTaskHeadersInternal:identifier
@@ -378,12 +383,19 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     XCTAssertFalse(request.allowsCellularAccess);
     XCTAssertEqual(config.bytesDownloaded, 0);
     XCTAssertEqual(self.failures.count, 0u);
+    // Progress thresholds start over with the transfer, or nothing is reported up to 80%
+    @synchronized ([self lock]) {
+        XCTAssertEqualObjects(((NSDictionary *)[self ivar:@"idToPercentMap"])[identifier], @0.0);
+    }
 }
 
 - (void)testResumeWithoutResumeDataDownloadsTheFileAgain
 {
     NSString *identifier = [self uniqueId:@"no-resume-data"];
     [self addConfigWithId:identifier key:900002];
+    @synchronized ([self lock]) {
+        ((NSMutableDictionary *)[self ivar:@"idToPercentMap"])[identifier] = @0.8;
+    }
 
     [self.module resumeTaskInternal:identifier resolve:^(id result) {} reject:^(NSString *code, NSString *message, NSError *error) {}];
 
@@ -394,7 +406,116 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     @synchronized ([self lock]) {
         XCTAssertNil(self.taskToConfigMap[@900002]);
         XCTAssertEqualObjects(self.taskToConfigMap[@(task.taskIdentifier)].id, identifier);
+        XCTAssertEqualObjects(((NSDictionary *)[self ivar:@"idToPercentMap"])[identifier], @0.0);
     }
+}
+
+#pragma mark - Progress
+
+- (NSMutableDictionary *)progressReports
+{
+    return [self ivar:@"progressReports"];
+}
+
+// A download the module is running, with a real task that isn't resumed
+- (NSString *)addLiveDownload:(NSString *)prefix config:(RNBGDTaskConfig **)configOut
+{
+    NSString *identifier = [self uniqueId:prefix];
+    NSURLSessionDownloadTask *task = [self.session downloadTaskWithURL:[NSURL URLWithString:kUnreachableURL]];
+    RNBGDTaskConfig *config = [self addConfigWithId:identifier key:task.taskIdentifier];
+    @synchronized ([self lock]) {
+        ((NSMutableDictionary *)[self ivar:@"idToTaskMap"])[identifier] = task;
+    }
+    if (configOut) *configOut = config;
+    return identifier;
+}
+
+- (void)testStoppingADownloadDropsItsBufferedProgress
+{
+    NSString *identifier = [self addLiveDownload:@"stop-progress" config:nil];
+    @synchronized ([self lock]) {
+        self.progressReports[identifier] = @{@"id": identifier, @"bytesDownloaded": @10, @"bytesTotal": @100};
+    }
+
+    [self.module stopTaskInternal:identifier resolve:^(id result) {} reject:^(NSString *code, NSString *message, NSError *error) {}];
+
+    @synchronized ([self lock]) {
+        XCTAssertNil(self.progressReports[identifier]);
+    }
+}
+
+- (void)testPausingADownloadDropsItsBufferedProgressAndIgnoresDataInFlight
+{
+    RNBGDTaskConfig *config = nil;
+    NSString *identifier = [self addLiveDownload:@"pause-progress" config:&config];
+    @synchronized ([self lock]) {
+        self.progressReports[identifier] = @{@"id": identifier, @"bytesDownloaded": @10, @"bytesTotal": @100};
+    }
+
+    XCTestExpectation *paused = [self expectationWithDescription:@"paused"];
+    [self.module pauseTaskInternal:identifier resolve:^(id result) { [paused fulfill]; } reject:^(NSString *code, NSString *message, NSError *error) { [paused fulfill]; }];
+    [self waitForExpectations:@[paused] timeout:10];
+    @synchronized ([self lock]) {
+        XCTAssertNil(self.progressReports[identifier]);
+        // Data the session delivers after the pause
+        [self.module updateProgressIfNeeded:config bytesWritten:50 bytesTotal:100];
+        XCTAssertNil(self.progressReports[identifier]);
+    }
+}
+
+#pragma mark - Background completion handler
+
+- (void)runMainQueue
+{
+    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+}
+
+- (void)completeJob:(NSString *)jobId
+{
+    [self.module completeHandler:jobId resolve:^(id result) {} reject:^(NSString *code, NSString *message, NSError *error) {}];
+    [self runMainQueue];
+}
+
+- (void)testCompletionHandlerWaitsForEveryFinishedTaskAndTheEndOfEvents
+{
+    // Events earlier tests sent are tracked on the main queue; let them through first
+    [self runMainQueue];
+    __block NSInteger calls = 0;
+    NSString *sessionId = [[[NSBundle mainBundle] bundleIdentifier] stringByAppendingString:@".backgrounddownloadtask"];
+    [RNBackgroundDownloader setCompletionHandlerWithIdentifier:sessionId completionHandler:^{ calls++; }];
+
+    // A background launch delivers two finished downloads
+    [self.module trackTerminalEvent:@"onDownloadComplete" body:@{@"id": @"wake-a"}];
+    [self.module trackTerminalEvent:@"onDownloadFailed" body:@{@"id": @"wake-b"}];
+    [self runMainQueue];
+
+    // JS handles the first before the session says it's done
+    [self completeJob:@"wake-a"];
+    XCTAssertEqual(calls, 0);
+
+    [self.module URLSessionDidFinishEventsForBackgroundURLSession:self.session];
+    [self runMainQueue];
+    XCTAssertEqual(calls, 0, @"called before JS handled wake-b");
+
+    [self completeJob:@"wake-b"];
+    XCTAssertEqual(calls, 1);
+
+    [self completeJob:@"wake-b"];
+    XCTAssertEqual(calls, 1);
+}
+
+- (void)testCompletionHandlerIsCalledWhenTheLaunchEndedNoTask
+{
+    // Events earlier tests sent are tracked on the main queue; let them through first
+    [self runMainQueue];
+    __block NSInteger calls = 0;
+    NSString *sessionId = [[[NSBundle mainBundle] bundleIdentifier] stringByAppendingString:@".backgrounddownloadtask"];
+    [RNBackgroundDownloader setCompletionHandlerWithIdentifier:sessionId completionHandler:^{ calls++; }];
+
+    [self.module URLSessionDidFinishEventsForBackgroundURLSession:self.session];
+    [self runMainQueue];
+
+    XCTAssertEqual(calls, 1);
 }
 
 #pragma mark - Cancel by the system
