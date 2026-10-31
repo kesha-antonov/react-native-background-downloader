@@ -154,6 +154,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     return configIdToIsAllowedOverMetered[configId] ?: persistedValue ?: true
   }
 
+  // DownloadManager ids whose end was already reported. A failure is broadcast twice (by the
+  // progress loop and by DownloadManager), and the task is only cleaned up after the media
+  // scanner, so the second broadcast would report it again.
+  private val endedDownloadIds = mutableSetOf<Long>()
+
   // Last time (ms) a recovery snapshot was persisted for a resumable download,
   // used to throttle snapshot writes from the frequent progress callbacks.
   private val configIdToLastSnapshotMs = mutableMapOf<String, Long>()
@@ -399,6 +404,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         val config = downloadIdToConfig[downloadId]
 
         if (config != null) {
+          if (!synchronized(sharedLock) { endedDownloadIds.add(downloadId) }) {
+            logD(NAME, "Ignoring repeated broadcast for download: $downloadId")
+            return
+          }
           val downloadStatus = downloader.checkDownloadStatus(downloadId)
           val status = downloadStatus.getInt("status")
           val localUri = downloadStatus.getString("localUri")
@@ -429,10 +438,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
                 } else {
                   stopTask(config.id)
                 }
+                // Cleaned up: a later broadcast finds no config
+                synchronized(sharedLock) { endedDownloadIds.remove(downloadId) }
               }
             } else {
               // Download failed, clean task.
               stopTask(config.id)
+              endedDownloadIds.remove(downloadId)
             }
           }
         }
