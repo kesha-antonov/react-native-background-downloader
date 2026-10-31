@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Pressable, Switch, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, FadeIn, FadeOut } from 'react-native-reanimated'
-import { Ionicons } from '@expo/vector-icons'
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
   completeHandler,
@@ -169,6 +169,8 @@ interface ActionSpec {
   action: RowAction
   label: string
   icon: React.ComponentProps<typeof Ionicons>['name']
+  // Takes precedence over `icon`: Ionicons has no "download again" glyph
+  mciIcon?: React.ComponentProps<typeof MaterialCommunityIcons>['name']
   tone: 'primary' | 'warning' | 'neutral' | 'danger'
   disabled?: boolean
 }
@@ -196,7 +198,8 @@ const getRowActions = (row: RowModel): [ActionSpec, ActionSpec] => {
     primary = {
       action: 'start',
       label: 'Start',
-      icon: row.status === 'idle' ? 'play' : 'refresh',
+      icon: 'download-outline',
+      mciIcon: row.status === 'idle' ? 'download' : 'cloud-refresh-variant-outline',
       tone: 'primary',
     }
   else
@@ -244,7 +247,9 @@ const IconButton = ({ spec, rowId, onPress }: IconButtonProps) => {
         pressed && Platform.OS === 'ios' && styles.pressed,
       ]}
     >
-      <Ionicons name={spec.icon} size={20} color={fg} />
+      {spec.mciIcon
+        ? <MaterialCommunityIcons name={spec.mciIcon} size={22} color={fg} />
+        : <Ionicons name={spec.icon} size={20} color={fg} />}
     </Pressable>
   )
 }
