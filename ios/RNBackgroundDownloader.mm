@@ -28,6 +28,7 @@ static const NSTimeInterval kResourceTimeoutSeconds = 60 * 60 * 24;  // 1 day - 
 static const NSTimeInterval kTaskReconciliationDelay = 0.1;  // Delay to allow session tasks to stabilize
 static const float kProgressReportThreshold = 0.01f;         // Report progress every 1% change
 static const NSTimeInterval kCompletionHandlerTimeout = 30.0; // Timeout for completion handler (30 seconds)
+static const NSTimeInterval kSessionInvalidationTimeout = 5.0; // Max wait for a replaced session to go away
 
 // DLog accepts taskId as first parameter to help debugging
 // Only logs if isLogsEnabled is true (works in both DEBUG and RELEASE builds)
@@ -70,6 +71,10 @@ static CompletionHandler storedCompletionHandler;
     NSMutableArray<dispatch_block_t> *pendingDownloads;
     // Controls whether debug logs are sent to JS
     BOOL isLogsEnabled;
+    // A session being invalidated to be replaced with one with a new configuration, and
+    // the signal that it's gone (see -lazyRegisterSession)
+    NSURLSession *replacedSession;
+    dispatch_semaphore_t replacedSessionInvalidated;
 
     // Downloads that finished but whose file couldn't be moved to its destination because
     // the device was locked. Keyed by configId -> staging/destination info. Retried on
@@ -307,6 +312,15 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     [self sendDebugLog:@"lazyRegisterSession called" taskId:nil];
     @synchronized (sharedLock) {
         if (urlSession == nil) {
+            if (replacedSession != nil) {
+                // A background session created while one with its identifier is still being
+                // invalidated is unusable, so wait for -URLSession:didBecomeInvalidWithError:.
+                // The replaced session is idle, so nothing on its queue needs this lock.
+                [self sendDebugLog:@"lazyRegisterSession: waiting for the replaced session to be invalidated" taskId:nil];
+                dispatch_semaphore_wait(replacedSessionInvalidated, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kSessionInvalidationTimeout * NSEC_PER_SEC)));
+                replacedSession = nil;
+                replacedSessionInvalidated = nil;
+            }
             [self sendDebugLog:@"lazyRegisterSession: creating new session" taskId:nil];
             // +sessionWithConfiguration: can raise NSInvalidArgumentException (the same
             // failure mode as issues #161/#170). This is the one choke point every entry
@@ -495,8 +509,10 @@ RCT_EXPORT_METHOD(setLogsEnabled:(BOOL)enabled) {
                         && self->pendingDownloads.count == 0
                         && self->idToTaskMap.count == 0 && self->idToUploadTaskMap.count == 0;
                     if (self->urlSession == session && idle) {
+                        // The new session is created once this one is gone
+                        self->replacedSession = session;
+                        self->replacedSessionInvalidated = dispatch_semaphore_create(0);
                         [self unregisterSession];
-                        [self lazyRegisterSession];
                     }
                 }
             }];
@@ -1433,6 +1449,21 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
     }
 }
 #endif
+
+#pragma mark - NSURLSessionDelegate methods
+
+- (void)URLSession:(NSURLSession *)session didBecomeInvalidWithError:(NSError *)error {
+    // Set before the session was invalidated, so they're safe to read here. Signal before
+    // taking the lock: -lazyRegisterSession may be holding it while it waits for this.
+    dispatch_semaphore_t invalidated = replacedSessionInvalidated;
+    if (session != replacedSession || invalidated == nil) {
+        return;
+    }
+    DLog(nil, @"[RNBackgroundDownloader] - [didBecomeInvalidWithError] replaced session invalidated");
+    dispatch_semaphore_signal(invalidated);
+    // Create its replacement now, unless something needed the session first
+    [self lazyRegisterSession];
+}
 
 #pragma mark - NSURLSessionDownloadDelegate methods
 - (void)URLSession:(nonnull NSURLSession *)session downloadTask:(nonnull NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(nonnull NSURL *)location {
