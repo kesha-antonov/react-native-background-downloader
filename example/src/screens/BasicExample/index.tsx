@@ -171,6 +171,8 @@ interface ActionSpec {
   icon: React.ComponentProps<typeof Ionicons>['name']
   // Takes precedence over `icon`: Ionicons has no "download again" glyph
   mciIcon?: React.ComponentProps<typeof MaterialCommunityIcons>['name']
+  // A small badge in the corner, e.g. "again" on download again
+  badge?: React.ComponentProps<typeof MaterialCommunityIcons>['name']
   tone: 'primary' | 'warning' | 'neutral' | 'danger'
   disabled?: boolean
 }
@@ -199,7 +201,8 @@ const getRowActions = (row: RowModel): [ActionSpec, ActionSpec] => {
       action: 'start',
       label: 'Start',
       icon: 'download-outline',
-      mciIcon: row.status === 'idle' ? 'download' : 'cloud-refresh-variant-outline',
+      mciIcon: 'download',
+      badge: row.status === 'idle' ? undefined : 'sync',
       tone: 'primary',
     }
   else
@@ -250,6 +253,11 @@ const IconButton = ({ spec, rowId, onPress }: IconButtonProps) => {
       {spec.mciIcon
         ? <MaterialCommunityIcons name={spec.mciIcon} size={22} color={fg} />
         : <Ionicons name={spec.icon} size={20} color={fg} />}
+      {spec.badge && (
+        <View style={[styles.iconBadge, { backgroundColor: fg }]}>
+          <MaterialCommunityIcons name={spec.badge} size={12} color={bg} />
+        </View>
+      )}
     </Pressable>
   )
 }
@@ -1485,6 +1493,16 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBadge: {
+    position: 'absolute',
+    right: 2,
+    bottom: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
