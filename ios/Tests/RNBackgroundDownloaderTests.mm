@@ -21,6 +21,7 @@
 - (void)updateProgressIfNeeded:(RNBGDTaskConfig *)taskConfig bytesWritten:(int64_t)bytesWritten bytesTotal:(int64_t)bytesTotal;
 - (void)trackTerminalEvent:(NSString *)eventName body:(id)body;
 - (void)completeHandler:(NSString *)jobId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)handleBridgeHotReload:(NSNotification *)note;
 #ifndef RCT_NEW_ARCH_ENABLED
 - (void)download:(NSDictionary *)options;
 #endif
@@ -461,6 +462,44 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
         [self.module updateProgressIfNeeded:config bytesWritten:50 bytesTotal:100];
         XCTAssertNil(self.progressReports[identifier]);
     }
+}
+
+#pragma mark - JS reload
+
+- (void)testAReloadHandsTheSessionToTheNewModuleWithoutCancellingTransfers
+{
+    // A request that stays in flight: nothing answers at this address
+    NSString *identifier = [self uniqueId:@"reload"];
+    [self download:@{
+        @"id": identifier,
+        @"url": @"http://10.255.255.1/file.zip",
+        @"destination": [self documentsPath:identifier],
+        @"metadata": @"{}",
+        @"isAllowedOverRoaming": @NO,
+        @"isAllowedOverMetered": @YES,
+    }];
+    [self waitFor:^BOOL { return [self taskForId:identifier] != nil; } description:@"download task created"];
+    NSURLSessionDownloadTask *task = [self taskForId:identifier];
+    NSURLSession *session = self.session;
+    id sessionDelegate = [NSClassFromString(@"RNBGDSessionDelegate") valueForKey:@"shared"];
+
+    // What a JS reload does: the old module hears about it, then a new one is created
+    [self.module handleBridgeHotReload:nil];
+    RNBGDRecordingDownloader *reloaded = [RNBGDRecordingDownloader new];
+    reloaded.failures = [NSMutableArray new];
+    [self drainSession:session];
+
+    XCTAssertEqual([reloaded valueForKey:@"urlSession"], session);
+    XCTAssertEqual(task.state, NSURLSessionTaskStateRunning);
+    XCTAssertEqual([sessionDelegate valueForKey:@"target"], reloaded);
+    // The new module knows the download from the saved state
+    NSDictionary *configs = [reloaded valueForKey:@"taskToConfigMap"];
+    @synchronized ([reloaded valueForKey:@"sharedLock"]) {
+        XCTAssertEqualObjects(((RNBGDTaskConfig *)configs[@(task.taskIdentifier)]).id, identifier);
+    }
+
+    // Back to the module the other tests use
+    [sessionDelegate setValue:self.module forKey:@"target"];
 }
 
 #pragma mark - Background completion handler

@@ -43,6 +43,42 @@ static const NSTimeInterval kSessionInvalidationTimeout = 5.0; // Max wait for a
 #define DLogStatic( taskId, s, ... ) do { } while(0)
 #endif
 
+// The background session's delegate. A JS reload creates a new module instance, but the
+// session must outlive the old one: invalidating it cancels every transfer in it, and its
+// delegate can't be changed. So the delegate is this object, which hands every call to
+// the newest module instance.
+@interface RNBGDSessionDelegate : NSObject
+@property (atomic, strong) RNBackgroundDownloader *target;
++ (instancetype)shared;
+@end
+
+@implementation RNBGDSessionDelegate
+
++ (instancetype)shared
+{
+    static RNBGDSessionDelegate *shared;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        shared = [RNBGDSessionDelegate new];
+    });
+    return shared;
+}
+
+- (BOOL)respondsToSelector:(SEL)selector
+{
+    return [super respondsToSelector:selector] || [RNBackgroundDownloader instancesRespondToSelector:selector];
+}
+
+- (id)forwardingTargetForSelector:(SEL)selector
+{
+    return self.target;
+}
+
+@end
+
+// The session every module instance uses, guarded by the RNBGDSessionDelegate class
+static NSURLSession *sharedSession;
+
 // The system's completion handler for a background launch, and what it waits for. Only
 // touched on the main queue.
 static CompletionHandler storedCompletionHandler;
@@ -105,6 +141,10 @@ static void callCompletionHandlerIfDone(void) {
     // This prevents crashes (std::bad_function_call / SIGABRT) when NSURLSession delegate
     // callbacks fire before JS has registered event listeners.
     NSMutableArray<NSDictionary *> *pendingEmitEvents;
+#else
+    // Events waiting for the bridge, in the order they were sent (see -sendEventWithName:body:)
+    NSMutableArray<NSDictionary *> *pendingBridgeEvents;
+    int bridgeRetryCount;
 #endif
 
     // Upload-specific instance variables
@@ -186,25 +226,53 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 // Check if bridge is valid and loaded before sending events
 - (void)sendEventWithName:(NSString *)eventName body:(id)body {
     [self trackTerminalEvent:eventName body:body];
-    [self sendEventWithName:eventName body:body retryCount:0];
+    @synchronized (pendingBridgeEvents) {
+        // While events wait for the bridge, later ones wait behind them, so JS gets them in
+        // order (e.g. begin before progress, progress before complete)
+        if (pendingBridgeEvents.count > 0 || ![self isBridgeReady]) {
+            DLog(nil, @"[RNBackgroundDownloader] - Bridge not ready, queueing event: %@", eventName);
+            [pendingBridgeEvents addObject:@{@"name": eventName, @"body": body ?: [NSNull null]}];
+            if (pendingBridgeEvents.count == 1) {
+                bridgeRetryCount = 0;
+                [self scheduleBridgeEventsFlush];
+            }
+            return;
+        }
+        [super sendEventWithName:eventName body:body];
+    }
 }
 
-- (void)sendEventWithName:(NSString *)eventName body:(id)body retryCount:(int)retryCount {
-    // Check if bridge is available and loaded
-    // This prevents crashes on first app install when events fire before JS is ready
-    if (self.bridge == nil || !self.bridge.isValid) {
-        if (retryCount < kMaxEventRetries) {
-            DLog(nil, @"[RNBackgroundDownloader] - Bridge not ready (attempt %d), queueing event: %@", retryCount + 1, eventName);
-            // Queue the event to be sent when bridge becomes available
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [self sendEventWithName:eventName body:body retryCount:retryCount + 1];
-            });
-        } else {
-            DLog(nil, @"[RNBackgroundDownloader] - Bridge not ready after %d attempts, dropping event: %@", kMaxEventRetries, eventName);
+// This prevents crashes on first app install when events fire before JS is ready
+- (BOOL)isBridgeReady {
+    return self.bridge != nil && self.bridge.isValid;
+}
+
+- (void)scheduleBridgeEventsFlush {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self flushBridgeEvents];
+    });
+}
+
+- (void)flushBridgeEvents {
+    @synchronized (pendingBridgeEvents) {
+        if (pendingBridgeEvents.count == 0) {
+            return;
         }
-        return;
+        if (![self isBridgeReady]) {
+            if (++bridgeRetryCount < kMaxEventRetries) {
+                [self scheduleBridgeEventsFlush];
+            } else {
+                DLog(nil, @"[RNBackgroundDownloader] - Bridge not ready after %d attempts, dropping %lu events", kMaxEventRetries, (unsigned long)pendingBridgeEvents.count);
+                [pendingBridgeEvents removeAllObjects];
+            }
+            return;
+        }
+        for (NSDictionary *event in pendingBridgeEvents) {
+            id body = event[@"body"];
+            [super sendEventWithName:event[@"name"] body:body == [NSNull null] ? nil : body];
+        }
+        [pendingBridgeEvents removeAllObjects];
     }
-    [super sendEventWithName:eventName body:body];
 }
 #endif
 
@@ -288,6 +356,8 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
 #ifdef RCT_NEW_ARCH_ENABLED
         pendingEmitEvents = [[NSMutableArray alloc] init];
+#else
+        pendingBridgeEvents = [[NSMutableArray alloc] init];
 #endif
 
         // Initialize upload-specific data structures
@@ -315,16 +385,32 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     return self;
 }
 
+// The session isn't invalidated here or on reload: that would cancel every transfer. The
+// next module instance takes it over (see -lazyRegisterSession).
 - (void)dealloc {
     DLog(nil, @"[RNBackgroundDownloader] - [dealloc]");
-    [self unregisterSession];
     [self unregisterBridgeListener];
 }
 
 - (void)handleBridgeHotReload:(NSNotification *) note {
     DLog(nil, @"[RNBackgroundDownloader] - [handleBridgeHotReload]");
-    [self unregisterSession];
     [self unregisterBridgeListener];
+}
+
+// The shared session, created if there's none yet. The session's events go to this
+// instance from now on. Must hold sharedLock.
+- (NSURLSession *)attachSession {
+    @synchronized ([RNBGDSessionDelegate class]) {
+        // Set first: events can arrive as soon as the session exists, and this instance's
+        // state is loaded by now
+        [RNBGDSessionDelegate shared].target = self;
+        if (sharedSession == nil) {
+            sharedSession = [NSURLSession sessionWithConfiguration:sessionConfig
+                                                          delegate:(id<NSURLSessionDelegate>)[RNBGDSessionDelegate shared]
+                                                     delegateQueue:nil];
+        }
+        return sharedSession;
+    }
 }
 
 - (void)lazyRegisterSession {
@@ -349,7 +435,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
             // thread. Callers already degrade on a nil session (download queues, the
             // getExisting* methods reject with ERR_SESSION_NIL).
             @try {
-                urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+                urlSession = [self attachSession];
                 // Activate the session by calling getTasksWithCompletionHandler
                 // This forces iOS to fully initialize the background session
                 // On fresh installs, the session may not be ready to process tasks immediately
@@ -388,12 +474,21 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     }];
 }
 
+// Forgets the shared session, so the next -attachSession creates a new one
+- (void)dropSharedSession:(NSURLSession *)session {
+    @synchronized ([RNBGDSessionDelegate class]) {
+        if (sharedSession == session) {
+            sharedSession = nil;
+        }
+    }
+}
+
+// Invalidates the session, cancelling everything in it. Only for replacing an idle one.
 - (void)unregisterSession {
     DLog(nil, @"[RNBackgroundDownloader] - [unregisterSession]");
-    // Called from the main thread on JS reload too, while the session's queue may be
-    // draining pendingDownloads under this lock
     @synchronized (sharedLock) {
         if (urlSession) {
+            [self dropSharedSession:urlSession];
             [urlSession invalidateAndCancel];
             urlSession = nil;
         }
@@ -744,7 +839,8 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 
         // Recreate the background session directly (do not call unregisterSession,
         // which would invalidateAndCancel and drop queued downloads).
-        urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+        [self dropSharedSession:urlSession];
+        urlSession = [self attachSession];
         isSessionActivated = YES;
 
         @try {
@@ -771,7 +867,8 @@ RCT_EXPORT_METHOD(download: (NSDictionary *) options) {
 
         // Recreate the background session directly (do not call unregisterSession,
         // which would invalidateAndCancel and drop queued downloads).
-        urlSession = [NSURLSession sessionWithConfiguration:sessionConfig delegate:self delegateQueue:nil];
+        [self dropSharedSession:urlSession];
+        urlSession = [self attachSession];
         isSessionActivated = YES;
 
         @try {
