@@ -10,6 +10,13 @@
 
 - **`setConfig({ allowsCellularAccess })` is now the default for each task's `isAllowedOverMetered`:** before, tasks always sent `isAllowedOverMetered: true` unless set, which overrode the global setting - on Android `allowsCellularAccess: false` never took effect for a task created without the option. A task without the option now follows the global setting, on both platforms, for downloads and uploads, and the setting applies to tasks created after the call
 - **iOS: cellular is enforced per request, the session always allows it:** a request can only reliably narrow its session's access, so with the session closed to cellular a task's `isAllowedOverMetered: true` couldn't widen it. Now a task's option works in both directions, as on Android, and `setConfig({ allowsCellularAccess })` no longer recreates the background session. Apps that pass `isAllowedOverMetered: false` will now wait for Wi-Fi on iOS too. Downloads started by an earlier version while the global setting was `false` can use cellular after the update until they finish. Before, the setting wasn't saved natively either: each launch opened the session to cellular until `setConfig` ran
+- **iOS: the background completion handler now waits for every finished task:** before, the first `completeHandler()` call released it, whatever the `jobId`, so after a background launch with several finished downloads the app could be suspended before it handled the rest. Now it's called once iOS has delivered all of the launch's events and every task that finished in it has been passed to `completeHandler`, or after 25 seconds at the latest (it was 30, about the whole background window). Call `completeHandler(jobId)` in both `done` and `error`: a task left out holds it until the 25 seconds are up
+- **`begin` fires once per task:** Android sent it again for each new transfer of a download (a resume in a new Android 14+ job, a job rescheduled by the system) and of an upload, unlike iOS
+- **No `begin` or `progress` after the app paused or stopped a task, or after `done` or `error`:** late events no longer run the handlers or set a paused task back to downloading
+- **Android: a stalled transfer now fails with `errorCode` -1001 (the iOS timeout code):** a read or connect timeout on the library's own downloader (Android 14+ jobs, the foreground service, Android 16+) ended the transfer without any event, and the task stayed downloading for good
+- **`task.errorCode` is set when `error` fires;** it stayed 0
+- **iOS: `done`'s `location` is where the file was saved:** after an app update the app's container path changes, and `location` still had the old path given at the start, which no longer exists
+- **Android 14+: a download that finished while the app wasn't running is listed as done on the next launch:** it was listed as paused, and resuming it failed
 
 ### 🐛 Bug Fixes
 
@@ -36,6 +43,11 @@
 - **JS: `cleanup()` left the iOS new-architecture event listeners attached,** so every re-initialization doubled each event
 - **`groupId`, `groupName` and `notificationTitle` passed to `createDownloadTask` were ignored:** native reads them from `metadata`, so they're now copied there
 - **Expo: the config plugin did nothing for projects with `AppDelegate.mm`**
+- **Progress after a resume that restarts a transfer from zero was missing until it passed the old percentage** (iOS downloads restarted after a header change or without resume data, Android uploads); progress now starts again from 0
+- **Progress buffered for a paused, stopped or finished task went out with another task's next batch**
+- **iOS: starting a download or upload delayed every task's progress events,** so starting them often stopped progress altogether
+- **Android: a paused download could be set back to downloading, and a stopped or finished one listed again on every launch,** when the size request for it finished late
+- **Android: `progressMinBytes` couldn't be set back to 0**
 
 ## v4.6.4
 

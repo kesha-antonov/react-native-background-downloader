@@ -346,6 +346,8 @@ let task = createDownloadTask({
   completeHandler(jobId)
 }).error(({ error, errorCode }) => {
   console.log('Download canceled due to error: ', { error, errorCode });
+
+  completeHandler(jobId)
 })
 
 // starts download
@@ -445,6 +447,8 @@ let task = createUploadTask({
   completeHandler(jobId)
 }).error(({ error, errorCode }) => {
   console.log('Upload canceled due to error: ', { error, errorCode })
+
+  completeHandler(jobId)
 })
 
 // starts upload
@@ -1051,7 +1055,7 @@ On iOS the actual transfer is handed to the system `nsurlsessiond` daemon and **
 
 1. **Did you force-quit the app?** If the user swipes the app away in the app switcher, iOS halts *that app's* background transfers until it's relaunched. This is an OS policy and cannot be worked around by any library.
 2. **You won't get live `progress` events while locked.** Your JavaScript isn't running while the app is suspended, so `begin` / `progress` / `complete` callbacks fire when the app resumes or is relaunched - not in real time. Re-attach with `getExistingDownloadTasks()` on launch.
-3. **AppDelegate wiring.** Make sure `handleEventsForBackgroundURLSession` is implemented (see [Installation](#-installation)) and that you call `completeHandler(jobId)` from JS in your `complete`/`error` handlers, or iOS will throttle future background time.
+3. **AppDelegate wiring.** Make sure `handleEventsForBackgroundURLSession` is implemented (see [Installation](#-installation)) and that you call `completeHandler(jobId)` from JS in your `done` and `error` handlers, for every task. After a background launch the library tells iOS it's finished once every task that finished in it has been passed to `completeHandler` (or after 25 seconds), so it doesn't get suspended while you're still processing them.
 4. **Data Protection (the one this library handles).** On a passcoded, locked device, files protected with `NSFileProtectionComplete` can't be written, so a download that *finishes* while locked could previously fail to save. The library now writes the file with `NSFileProtectionCompleteUntilFirstUserAuthentication` by default (writable while locked after the first unlock since boot), and if the move still can't happen because the device is locked it stages the bytes and completes the save automatically when the device is next unlocked - emitting `complete` then. You can change the level with `setConfig({ iosDataProtection })` or per task (see Advanced Configuration).
 5. **Test on a real device.** The iOS Simulator's background-transfer behavior is unreliable; verify on hardware.
 </details>

@@ -226,7 +226,7 @@ After finishing download in background you have some time to process your JS log
 
 - `jobId` (String) - The ID of the download task to complete
 
-> **Note:** This should be called after processing your download in the `done` callback to properly signal completion to the OS.
+> **Note:** Call it for every task, in both the `done` and the `error` callback, once you've processed the result. On iOS, after a background launch the library tells the OS it's finished when iOS has delivered all of the launch's events and every task that finished in it has been passed to `completeHandler`, or after 25 seconds at the latest. On Android it does nothing.
 
 ---
 
@@ -253,7 +253,7 @@ Use these methods to stay updated on what's happening with the task. All callbac
 
 | Function   | Callback Arguments                | Description |
 | ---------- | --------------------------------- | ----------- |
-| `begin`    | `{ expectedBytes: number, headers: Record<string, string \| null> }` | Called when the first byte is received. 💡 This is a good place to check if the device has enough storage space for this download |
+| `begin`    | `{ expectedBytes: number, headers: Record<string, string \| null> }` | Called once, when the first byte is received; not again on resume. 💡 This is a good place to check if the device has enough storage space for this download |
 | `progress` | `{ bytesDownloaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly. **Note:** `bytesTotal` will be `-1` if the server does not provide a `Content-Length` header |
 | `done`     | `{ location: string, bytesDownloaded: number, bytesTotal: number }` | Called when the download is done, the file is at the destination you've set. `location` is the final file path. **Note:** `bytesTotal` will be `-1` if the server did not provide a `Content-Length` header |
 | `error`    | `{ error: string, errorCode: number }` | Called when the download stops due to an error |
@@ -332,7 +332,7 @@ A class representing an upload task created by `createUploadTask()`.
 
 | Function   | Callback Arguments                | Description |
 | ---------- | --------------------------------- | ----------- |
-| `begin`    | `{ expectedBytes: number }` | Called when upload starts |
+| `begin`    | `{ expectedBytes: number }` | Called once, when the upload starts; not again on resume |
 | `progress` | `{ bytesUploaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly |
 | `done`     | `{ responseCode: number, responseBody: string, bytesUploaded: number, bytesTotal: number }` | Called when the upload is done. Includes server response code and body |
 | `error`    | `{ error: string, errorCode: number }` | Called when the upload stops due to an error |
