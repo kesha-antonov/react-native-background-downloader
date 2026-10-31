@@ -13,7 +13,13 @@ object DownloadConstants {
     const val CONNECT_TIMEOUT_MS = 30_000  // 30 seconds
 
     /** Timeout for reading HTTP response (milliseconds) */
-    const val READ_TIMEOUT_MS = 30_000  // 30 seconds
+    const val READ_TIMEOUT_MS = 20_000  // 20 seconds without data: the transfer has stalled
+
+    /**
+     * Waits before each retry of a transfer the network cut off (timeout, reset, lost
+     * connection). The count starts over whenever a retry gets data through.
+     */
+    val NETWORK_RETRY_DELAYS_MS = longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000)
 
     /** Timeout for HEAD requests when fetching headers (milliseconds) */
     const val HEAD_REQUEST_READ_TIMEOUT_MS = 60_000  // 60 seconds
@@ -24,7 +30,9 @@ object DownloadConstants {
     // ========== Download Buffer ==========
 
     /** Size of buffer for reading download data (bytes) */
-    const val BUFFER_SIZE = 8192  // 8KB
+    // Each read reports progress, so on a fast connection a small buffer means thousands
+    // of reports a second
+    const val BUFFER_SIZE = 64 * 1024  // 64KB
 
     // ========== Progress Reporting ==========
 

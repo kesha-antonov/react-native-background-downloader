@@ -17,8 +17,10 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class ResumableDownloader {
 
-  // How long a transfer may stall before it fails; shorter in tests
+  // How long a transfer may stall before it's retried, and the waits before each retry;
+  // shorter in tests
   internal var readTimeoutMs = DownloadConstants.READ_TIMEOUT_MS
+  internal var networkRetryDelaysMs = DownloadConstants.NETWORK_RETRY_DELAYS_MS
 
   companion object {
     private const val TAG = "ResumableDownloader"
@@ -393,7 +395,31 @@ class ResumableDownloader {
   fun getBytesTotal(id: String): Long = activeDownloads[id]?.bytesTotal ?: -1
 
   private fun downloadWithResume(state: DownloadState, listener: DownloadListener, expectedSessionId: Long) {
-    val result = executeDownload(state, listener, expectedSessionId)
+    var result = executeDownload(state, listener, expectedSessionId)
+
+    // A transfer the network cut off continues from the partial file after a short wait,
+    // as DownloadManager and iOS do, instead of failing the download
+    var retries = 0
+    while (result is DownloadResult.Error && result.isNetworkFailure) {
+      // A redirect replaces the state
+      val current = activeDownloads[state.id] ?: state
+      val bytesBefore = current.bytesDownloaded.get()
+      if (retries >= networkRetryDelaysMs.size) {
+        RNBackgroundDownloaderModuleImpl.logE(TAG, "Download error after $retries retries: ${result.message}")
+        listener.onError(result.id, result.message, result.errorCode)
+        return
+      }
+      RNBackgroundDownloaderModuleImpl.logW(TAG, "Network failure for ${state.id} (${result.message}), retry ${retries + 1} at $bytesBefore bytes")
+      if (!waitBeforeRetry(current, expectedSessionId, networkRetryDelaysMs[retries])) {
+        RNBackgroundDownloaderModuleImpl.logD(TAG, "Retry abandoned, download paused or cancelled: ${state.id}")
+        return
+      }
+      // The file holds exactly what was received; continue from there
+      current.bytesDownloaded.set(File(current.destination).let { if (it.exists()) it.length() else 0L })
+      result = executeDownload(current, listener, expectedSessionId)
+      val progressed = (activeDownloads[state.id] ?: current).bytesDownloaded.get() > bytesBefore
+      retries = if (progressed) 0 else retries + 1
+    }
 
     // Handle the result by notifying the listener
     when (result) {
@@ -417,6 +443,30 @@ class ResumableDownloader {
       }
     }
   }
+
+  // False if the download was paused, cancelled or restarted meanwhile
+  private fun waitBeforeRetry(state: DownloadState, expectedSessionId: Long, delayMs: Long): Boolean {
+    val deadline = System.currentTimeMillis() + delayMs
+    while (true) {
+      if (state.sessionId.get() != expectedSessionId || state.isCancelled.get() || state.isPaused.get()) {
+        return false
+      }
+      val remaining = deadline - System.currentTimeMillis()
+      if (remaining <= 0) return true
+      try {
+        Thread.sleep(minOf(remaining, 200L))
+      } catch (e: InterruptedException) {
+        return false
+      }
+    }
+  }
+
+  private fun isNetworkFailure(e: Exception): Boolean =
+    e is java.net.SocketException ||
+      e is java.net.UnknownHostException ||
+      e is java.io.EOFException ||
+      // "unexpected end of stream" when the connection drops mid-body
+      e is java.net.ProtocolException
 
   /**
    * Execute the download and return a DownloadResult.
@@ -643,6 +693,16 @@ class ResumableDownloader {
       val bytesDownloaded = state.bytesDownloaded.get()
       val bytesTotal = state.bytesTotal
 
+      // The connection closed before the whole body arrived (some servers and proxies end
+      // it without an error): not done, the rest has to be fetched
+      if (bytesTotal > 0 && bytesDownloaded < bytesTotal) {
+        return DownloadResult.Error(
+          state.id,
+          "Connection closed at $bytesDownloaded of $bytesTotal bytes",
+          isNetworkFailure = true
+        )
+      }
+
       activeDownloads.remove(state.id)
       listener.onComplete(state.id, state.destination, bytesDownloaded, bytesTotal)
       return DownloadResult.Success(state.id, state.destination, bytesDownloaded, bytesTotal)
@@ -664,13 +724,10 @@ class ResumableDownloader {
         state.isCancelled.get() -> DownloadResult.Cancelled(state.id)
         state.isPaused.get() -> DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
         else -> {
-          // Not a pause or cancel, so a real failure: a read or connect timeout
-          // (SocketTimeoutException is an InterruptedIOException) must reach JS
-          RNBackgroundDownloaderModuleImpl.logE(TAG, "Download error: ${e.message}")
+          // Not a pause or cancel, so a read or connect timeout (SocketTimeoutException is an
+          // InterruptedIOException). downloadWithResume retries it, then reports it
           val errorCode = if (e is java.net.SocketTimeoutException) DownloadConstants.ERR_TIMED_OUT else -1
-          val error = DownloadResult.fromException(state.id, e, errorCode)
-          listener.onError(state.id, error.message, error.errorCode)
-          error
+          DownloadResult.fromException(state.id, e, errorCode).copy(isNetworkFailure = true)
         }
       }
     } catch (e: Exception) {
@@ -687,6 +744,10 @@ class ResumableDownloader {
         state.isPaused.get() -> {
           RNBackgroundDownloaderModuleImpl.logD(TAG, "Download stopped (paused): ${state.id} - ${e.message}")
           DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
+        }
+        isNetworkFailure(e) -> {
+          // downloadWithResume retries it, then reports it
+          DownloadResult.fromException(state.id, e).copy(isNetworkFailure = true)
         }
         else -> {
           // Unexpected error - log with stack trace and report to listener

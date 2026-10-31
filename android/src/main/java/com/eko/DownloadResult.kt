@@ -52,7 +52,9 @@ sealed class DownloadResult {
         val id: String,
         val message: String,
         val errorCode: Int = -1,
-        val cause: Throwable? = null
+        val cause: Throwable? = null,
+        // The network cut the transfer off. Not reported yet: the downloader retries it first
+        val isNetworkFailure: Boolean = false
     ) : DownloadResult()
 
     /**

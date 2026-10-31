@@ -2,8 +2,6 @@ package com.eko
 
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableArray
-import com.facebook.react.bridge.WritableMap
-import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -30,12 +28,15 @@ class ProgressReporter(
     // Per-download tracking state
     private val configIdToPercent = ConcurrentHashMap<String, Double>()
     private val configIdToLastBytes = ConcurrentHashMap<String, Long>()
-    private val progressReports = ConcurrentHashMap<String, WritableMap>()
+    // Plain values: this runs for every chunk read, and a React map is a native object.
+    // The maps are made when a batch goes out.
+    private class Report(val bytes: Long, val bytesTotal: Long)
+    private val progressReports = ConcurrentHashMap<String, Report>()
 
     // Batching configuration
     private var progressInterval: Long = 0
     private var progressMinBytes: Long = 0
-    private var lastProgressReportedAt = Date()
+    private var lastProgressReportedAt = System.currentTimeMillis()
 
     /**
      * Configure the progress reporting thresholds.
@@ -86,11 +87,7 @@ class ProgressReporter(
         // Report progress if either threshold is met, or if total bytes unknown (for realtime streams)
         // bytesTotal <= 0 means unknown size (-1) or zero
         if (percentThresholdMet || bytesThresholdMet || bytesTotal <= 0) {
-            val params = Arguments.createMap()
-            params.putString("id", configId)
-            params.putDouble(bytesFieldName, bytesDownloaded.toDouble())
-            params.putDouble("bytesTotal", bytesTotal.toDouble())
-            progressReports[configId] = params
+            progressReports[configId] = Report(bytesDownloaded, bytesTotal)
             configIdToPercent[configId] = percent
             configIdToLastBytes[configId] = bytesDownloaded
         }
@@ -103,8 +100,8 @@ class ProgressReporter(
      * Check if the time interval has passed and emit any pending reports.
      */
     private fun emitBatchedReportsIfNeeded() {
-        val now = Date()
-        val isReportTimeDifference = now.time - lastProgressReportedAt.time > progressInterval
+        val now = System.currentTimeMillis()
+        val isReportTimeDifference = now - lastProgressReportedAt > progressInterval
         val isReportNotEmpty = progressReports.isNotEmpty()
 
         if (isReportTimeDifference && isReportNotEmpty) {
@@ -118,11 +115,14 @@ class ProgressReporter(
      */
     private fun emitBatchedReports() {
         // Create a copy to avoid concurrent modification
-        val reportsList = progressReports.values.toList()
         val reportsArray = Arguments.createArray()
 
-        for (report in reportsList) {
-            reportsArray.pushMap(report.copy())
+        for ((configId, report) in progressReports.toMap()) {
+            val params = Arguments.createMap()
+            params.putString("id", configId)
+            params.putDouble(bytesFieldName, report.bytes.toDouble())
+            params.putDouble("bytesTotal", report.bytesTotal.toDouble())
+            reportsArray.pushMap(params)
         }
 
         onEmitProgress(reportsArray)
@@ -165,25 +165,4 @@ class ProgressReporter(
         configIdToPercent[configId] = 0.0
         configIdToLastBytes[configId] = 0L
     }
-}
-
-/**
- * Extension function to copy a WritableMap.
- * React Native's WritableMap can only be consumed once, so we need to copy it.
- */
-fun WritableMap.copy(): WritableMap {
-    val copy = Arguments.createMap()
-    val iterator = this.keySetIterator()
-    while (iterator.hasNextKey()) {
-        val key = iterator.nextKey()
-        when (this.getType(key)) {
-            com.facebook.react.bridge.ReadableType.Null -> copy.putNull(key)
-            com.facebook.react.bridge.ReadableType.Boolean -> copy.putBoolean(key, this.getBoolean(key))
-            com.facebook.react.bridge.ReadableType.Number -> copy.putDouble(key, this.getDouble(key))
-            com.facebook.react.bridge.ReadableType.String -> copy.putString(key, this.getString(key))
-            com.facebook.react.bridge.ReadableType.Map -> copy.putMap(key, this.getMap(key))
-            com.facebook.react.bridge.ReadableType.Array -> copy.putArray(key, this.getArray(key))
-        }
-    }
-    return copy
 }
