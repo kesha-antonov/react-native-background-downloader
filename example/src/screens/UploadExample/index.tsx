@@ -219,7 +219,9 @@ const Header = React.memo(({ onCreateFiles, onClearFiles, onResetTasks, filesCou
         <ToolbarButton
           label='Clear tasks'
           accessibilityLabel='Clear all tasks'
-          icon='stop-circle-outline'
+          // Forgets every task (finished ones too), stopping any still running: a clear
+          // icon, not a stop one, which read as "tasks are running"
+          icon='close-circle-outline'
           onPress={onResetTasks}
           disabled={tasksCount === 0}
         />
