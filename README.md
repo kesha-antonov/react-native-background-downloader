@@ -1,5 +1,9 @@
 <p align="center">
-  <img width="300" src="https://github.com/user-attachments/assets/25e89808-9eb7-42b2-8031-b48d8c24796c" />
+  <img src="docs/images/example-main-dark.png" width="250" alt="Example app: main screen" />
+  &nbsp;
+  <img src="docs/images/example-download-dark.png" width="250" alt="Example app: downloads, one in progress" />
+  &nbsp;
+  <img src="docs/images/example-upload-dark.png" width="250" alt="Example app: uploads" />
 </p>
 
 <p align="center">
@@ -1081,14 +1085,6 @@ Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) sectio
 ## 🧪 Example App
 
 The repository includes a full example app demonstrating all features:
-
-<p align="center">
-  <img src="docs/images/example-main-dark.png" width="250" alt="Example app: main screen" />
-  &nbsp;
-  <img src="docs/images/example-download-dark.png" width="250" alt="Example app: downloads, one in progress" />
-  &nbsp;
-  <img src="docs/images/example-upload-dark.png" width="250" alt="Example app: uploads" />
-</p>
 
 ```bash
 cd example
