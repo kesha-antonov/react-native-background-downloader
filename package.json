@@ -79,7 +79,7 @@
   "scripts": {
     "bump": "npm version patch",
     "lint": "eslint .",
-    "typecheck": "tsc src/*.ts --noEmit --strict --skipLibCheck",
+    "typecheck": "tsc src/*.ts types/*.d.ts --noEmit --strict --skipLibCheck --module node16 --moduleResolution node16",
     "build": "rm -rf lib && tsc -p tsconfig.build.json",
     "prepare": "npm run build && npm run build-plugin",
     "prepublishOnly": "npm run build-plugin && npm run build && npm run typecheck && jest && npm run lint",
@@ -93,7 +93,7 @@
     "*.js": "eslint --cache"
   },
   "jest": {
-    "preset": "react-native",
+    "preset": "@react-native/jest-preset",
     "setupFiles": [
       "./__mocks__/RNBackgroundDownloader.js",
       "./__mocks__/NativeEventEmitter.js"
@@ -114,10 +114,11 @@
     "@babel/preset-env": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
     "@babel/runtime": "^7.28.4",
-    "@expo/config-plugins": "^54.0.2",
-    "@react-native/babel-preset": "^0.81.5",
-    "@react-native/eslint-config": "^0.81.5",
-    "@react-native/metro-config": "^0.81.5",
+    "@expo/config-plugins": "^58.0.11",
+    "@react-native/babel-preset": "^0.88.1",
+    "@react-native/eslint-config": "^0.88.1",
+    "@react-native/jest-preset": "^0.88.1",
+    "@react-native/metro-config": "^0.88.1",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "babel-jest": "^29.7.0",
@@ -136,11 +137,11 @@
     "jest": "^29.7.0",
     "lint-staged": ">=16",
     "metro-react-native-babel-preset": "^0.77.0",
-    "react": "19.1.0",
-    "react-native": "0.81.5",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
     "react-native-fs": "^2.20.0",
     "react-native-vector-icons": "^10.3.0",
-    "react-test-renderer": "19.2.0",
+    "react-test-renderer": "19.3.0",
     "typescript": "5.9.3"
   },
   "peerDependencies": {

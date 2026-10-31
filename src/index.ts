@@ -1,4 +1,4 @@
-import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter, NativeModule } from 'react-native'
+import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter } from 'react-native'
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
 import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
@@ -14,6 +14,20 @@ type RNBackgroundDownloaderModule = Spec & {
   TaskCanceling: number
   TaskCompleted: number
   documents: string
+}
+
+// What NativeEventEmitter needs from a native module. React Native 0.88's strict
+// TypeScript API no longer exports the NativeModule type
+type NativeModule = {
+  addListener: (eventType: string) => void
+  removeListeners: (count: number) => void
+}
+
+// The emitter's listener types differ between React Native versions, so the
+// payload types are named in each handler instead
+type EventEmitterWithPayloads = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  addListener: (eventType: string, listener: (data: any) => void) => { remove: () => void }
 }
 
 // Lazy initialization state
@@ -32,7 +46,7 @@ function ensureNativeModuleInitialized (): RNBackgroundDownloaderModule & Native
     return RNBackgroundDownloader
 
   // Try TurboModules first
-  turboModule = TurboModuleRegistry.get<Spec>('RNBackgroundDownloader')
+  turboModule = TurboModuleRegistry.get<Spec>('RNBackgroundDownloader') ?? null
   // Check if iOS new architecture event emitters are available
   // On Android, we always use NativeEventEmitter because Android uses RCTDeviceEventEmitter
   isIOSNewArchitecture = Platform.OS === 'ios' && turboModule != null && typeof turboModule.onDownloadBegin === 'function'
@@ -246,7 +260,7 @@ function initializeEventListeners () {
     // RCTEventEmitter on native side requires NativeEventEmitter on JS side
     // RNBackgroundDownloader is guaranteed to be non-null here since initializeEventListeners
     // is only called after ensureNativeModuleInitialized() succeeds
-    const eventEmitter = new NativeEventEmitter(RNBackgroundDownloader!)
+    const eventEmitter: EventEmitterWithPayloads = new NativeEventEmitter(RNBackgroundDownloader!)
 
     eventSubscriptions.push(
       eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {

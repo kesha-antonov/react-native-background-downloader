@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       # website/ is a separate Yarn project, so it installs on its own. The
       # pages themselves are generated from README.md, docs/ and MIGRATION.md
