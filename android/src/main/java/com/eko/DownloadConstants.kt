@@ -86,6 +86,9 @@ object DownloadConstants {
     /** Other/unknown error */
     const val ERR_OTHERS = 100
 
+    /** The server stalled or the connection timed out; the same code as iOS (NSURLErrorTimedOut) */
+    const val ERR_TIMED_OUT = -1001
+
     // ========== Service Configuration ==========
 
     /** Notification channel ID for foreground service */

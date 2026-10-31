@@ -15,6 +15,7 @@ import com.eko.uidt.UIDTJobRegistry
 import com.eko.uidt.UIDTNotificationIds
 import com.eko.uidt.UIDTNotificationManager
 import com.eko.utils.ProgressUtils
+import com.eko.utils.StorageManager
 import org.json.JSONObject
 import java.io.File
 
@@ -486,8 +487,14 @@ class UIDTDownloadJobService : JobService() {
                 // took its ID from this offset, so it can go back to the pool
                 UIDTNotificationIds.release(id)
 
-                // Notify external listener
-                UIDTJobRegistry.downloadListener?.onComplete(id, location, bytesDownloaded, bytesTotal)
+                // Notify external listener. With none (the job ran in a process without the
+                // app), record it so the next launch reports it as done, not as paused
+                val listener = UIDTJobRegistry.downloadListener
+                if (listener != null) {
+                    listener.onComplete(id, location, bytesDownloaded, bytesTotal)
+                } else {
+                    recordFinishedWithoutApp(id, bytesDownloaded)
+                }
             }
 
             override fun onError(id: String, error: String, errorCode: Int) {
@@ -532,6 +539,14 @@ class UIDTDownloadJobService : JobService() {
                 UIDTJobRegistry.downloadListener?.onError(id, error, errorCode)
             }
         }
+    }
+
+    // The download's recovery snapshot (saved while the app was running) gets its final size,
+    // which recovery on the next launch takes as a finished download
+    private fun recordFinishedWithoutApp(configId: String, bytesDownloaded: Long) {
+        val storage = StorageManager(this, RNBackgroundDownloaderModuleImpl.NAME)
+        val snapshot = storage.loadActiveDownloads()[configId] ?: return
+        storage.saveActiveDownload(snapshot.copy(bytesDownloaded = bytesDownloaded, bytesTotal = bytesDownloaded))
     }
 
     private fun acquireWakeLock() {

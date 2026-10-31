@@ -17,6 +17,9 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class ResumableDownloader {
 
+  // How long a transfer may stall before it fails; shorter in tests
+  internal var readTimeoutMs = DownloadConstants.READ_TIMEOUT_MS
+
   companion object {
     private const val TAG = "ResumableDownloader"
 
@@ -443,7 +446,7 @@ class ResumableDownloader {
       // Store connection reference so it can be disconnected on cancel
       state.connection = connection
       connection.connectTimeout = DownloadConstants.CONNECT_TIMEOUT_MS
-      connection.readTimeout = DownloadConstants.READ_TIMEOUT_MS
+      connection.readTimeout = readTimeoutMs
       connection.requestMethod = "GET"
 
       // Check again after connection setup
@@ -660,7 +663,15 @@ class ResumableDownloader {
         state.sessionId.get() != expectedSessionId -> DownloadResult.SessionInvalidated(state.id)
         state.isCancelled.get() -> DownloadResult.Cancelled(state.id)
         state.isPaused.get() -> DownloadResult.Paused(state.id, state.bytesDownloaded.get(), state.bytesTotal)
-        else -> DownloadResult.SessionInvalidated(state.id)
+        else -> {
+          // Not a pause or cancel, so a real failure: a read or connect timeout
+          // (SocketTimeoutException is an InterruptedIOException) must reach JS
+          RNBackgroundDownloaderModuleImpl.logE(TAG, "Download error: ${e.message}")
+          val errorCode = if (e is java.net.SocketTimeoutException) DownloadConstants.ERR_TIMED_OUT else -1
+          val error = DownloadResult.fromException(state.id, e, errorCode)
+          listener.onError(state.id, error.message, error.errorCode)
+          error
+        }
       }
     } catch (e: Exception) {
       // Determine result based on state - expected exceptions vs real errors

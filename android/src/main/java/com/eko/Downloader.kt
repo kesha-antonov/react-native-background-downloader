@@ -45,6 +45,10 @@ class Downloader(private val context: Context, private val storageManager: com.e
   // This is loaded from persistent storage and synchronized with it
   private val pausedDownloads = ConcurrentHashMap<String, PausedDownloadInfo>()
 
+  // Downloads that finished while the app wasn't running, found on recovery. Reported once
+  // as completed by getExistingDownloadTasks (takeFinishedDownloads)
+  private val finishedDownloads = ConcurrentHashMap<String, PausedDownloadInfo>()
+
   // Track download IDs that are being intentionally cancelled (to ignore broadcast events)
   // The value indicates the cancellation intent: PAUSING or STOPPING
   enum class CancelIntent { PAUSING, STOPPING }
@@ -516,6 +520,12 @@ class Downloader(private val context: Context, private val storageManager: com.e
     return pausedDownloads.toMap()
   }
 
+  fun takeFinishedDownloads(): Map<String, PausedDownloadInfo> {
+    val finished = finishedDownloads.toMap()
+    finished.keys.forEach { finishedDownloads.remove(it) }
+    return finished
+  }
+
   /**
    * Get all in-progress resumable downloads tracked by the foreground service.
    * On Android 14+ active downloads run as UIDT jobs instead and are not included here.
@@ -576,6 +586,14 @@ class Downloader(private val context: Context, private val storageManager: com.e
 
       val destFile = File(info.destination)
       val fileLength = if (destFile.exists()) destFile.length() else 0L
+
+      // Finished with no app to report to: a job that completes in a process without the
+      // app records its final size. Report it as done once, not as paused (resuming a
+      // complete file fails with 416)
+      if (info.bytesTotal > 0 && fileLength >= info.bytesTotal) {
+        finishedDownloads[configId] = info.copy(bytesDownloaded = fileLength)
+        continue
+      }
 
       // Use the on-disk length as the authoritative resume offset. A length of 0
       // is still recoverable (restart from the beginning) - e.g. a download that

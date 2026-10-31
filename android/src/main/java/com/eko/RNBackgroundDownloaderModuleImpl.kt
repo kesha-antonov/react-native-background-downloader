@@ -12,6 +12,7 @@ import android.util.Log
 import com.eko.handlers.OnBegin
 import com.eko.handlers.OnProgress
 import com.eko.handlers.OnProgressState
+import com.eko.interfaces.BeginCallback
 import com.eko.utils.HeaderUtils
 import com.eko.utils.ReadableConverters
 import com.eko.utils.RedirectResolver
@@ -473,6 +474,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     }
   }
 
+  // False once the download was paused, stopped or finished: all of them remove it
+  private fun isTracked(downloadId: Long, config: RNBGDTaskConfig): Boolean =
+    synchronized(sharedLock) { downloadIdToConfig[downloadId] === config }
+
   private fun resumeTasks(downloadId: Long, config: RNBGDTaskConfig) {
     Thread {
       try {
@@ -481,7 +486,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
         if (!config.reportedBegin) {
           val requestHeaders = synchronized(sharedLock) { configIdToHeaders[config.id] } ?: emptyMap()
-          val onBeginCallable = OnBegin(config, this::onBeginDownload, requestHeaders)
+          // The HEAD request can take a while; a download that ended meanwhile gets no begin
+          val onBegin = BeginCallback { configId, headers, expectedBytes ->
+            if (isTracked(downloadId, config)) onBeginDownload(configId, headers, expectedBytes)
+          }
+          val onBeginCallable = OnBegin(config, onBegin, requestHeaders)
           try {
             bytesTotal = cachedExecutorPool.submit(onBeginCallable).get().expectedBytes
           } catch (e: Exception) {
@@ -489,12 +498,13 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
             // GET URLs). Report begin with an unknown size and still track progress.
             logW(NAME, "resumeTasks: HEAD request failed for ${config.id}: ${e.message}")
             bytesTotal = -1
-            onBeginDownload(config.id, Arguments.createMap(), -1)
+            onBegin.onBegin(config.id, Arguments.createMap(), -1)
           }
 
           synchronized(sharedLock) {
+            // Writing it back would list a stopped or finished download again on every launch
+            if (downloadIdToConfig[downloadId] !== config) return@Thread
             config.reportedBegin = true
-            downloadIdToConfig[downloadId] = config
             saveDownloadIdToConfigMap()
           }
         }
@@ -507,9 +517,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
           bytesTotal,
           this::onProgressDownload
         )
-        val onProgressFuture = cachedExecutorPool.submit(onProgressCallable)
         synchronized(sharedLock) {
-          configIdToProgressFuture[config.id] = onProgressFuture
+          if (downloadIdToConfig[downloadId] !== config) return@Thread
+          configIdToProgressFuture[config.id] = cachedExecutorPool.submit(onProgressCallable)
         }
       } catch (e: Exception) {
         logE(NAME, "resumeTasks: ${Log.getStackTraceString(e)}")
@@ -648,10 +658,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     } else null
 
     val progressIntervalScope = options.getInt("progressInterval")
-    val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
-    if (progressIntervalScope > 0 || progressMinBytesScope > 0) {
+    // 0 is a valid value (percentage only), so it has to be applied too
+    val progressMinBytesScope = if (options.hasKey("progressMinBytes")) options.getDouble("progressMinBytes").toLong() else -1L
+    if (progressIntervalScope > 0 || progressMinBytesScope >= 0) {
       val newInterval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else progressReporter.getProgressInterval()
-      val newMinBytes = if (progressMinBytesScope > 0) progressMinBytesScope else progressReporter.getProgressMinBytes()
+      val newMinBytes = if (progressMinBytesScope >= 0) progressMinBytesScope else progressReporter.getProgressMinBytes()
       progressReporter.configure(newInterval, newMinBytes)
       // Sync notification update interval with progress interval for Android 14+
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -847,6 +858,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   // If it's already using ResumableDownloader, it pauses the HTTP connection.
   fun pauseTask(configId: String) {
     synchronized(sharedLock) {
+      // Progress buffered before the pause would otherwise go out with another task's batch
+      progressReporter.clearPendingReport(configId)
       // First check if it's an active resumable download
       if (downloader.isResumableDownload(configId)) {
         // Get state before pausing - check both UIDT jobs and regular service
@@ -1188,6 +1201,25 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         processedIds.add(configId)
       }
 
+      // Phase 3b: Downloads that finished while the app wasn't running (Android 14+ jobs
+      // restarted in a process without the app). Reported once, as completed
+      for ((configId, info) in downloader.takeFinishedDownloads()) {
+        if (processedIds.contains(configId)) {
+          continue
+        }
+
+        val params = Arguments.createMap()
+        params.putString("id", configId)
+        params.putString("metadata", info.metadata)
+        params.putInt("state", DownloadConstants.TASK_COMPLETED)
+        params.putDouble("bytesDownloaded", info.bytesDownloaded.toDouble())
+        params.putDouble("bytesTotal", info.bytesDownloaded.toDouble())
+        params.putString("destination", info.destination)
+
+        foundTasks.pushMap(params)
+        processedIds.add(configId)
+      }
+
       // Phase 4: Add active resumable downloads (in-progress via ResumableDownloader).
       // These run in the foreground service (Android < 14) and are invisible to
       // DownloadManager, so without this phase getExistingDownloadTasks misses them
@@ -1375,6 +1407,8 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       synchronized(sharedLock) {
         uploadConfigs[id]?.state = DownloadConstants.TASK_COMPLETED
         uploadConfigs.remove(id)
+        // Progress still buffered must not arrive after uploadComplete
+        uploadProgressReporter.clearDownloadState(id)
         // Remove from persistent storage on completion
         storageManager.saveUploadConfigs(uploadConfigs)
       }
@@ -1385,6 +1419,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       synchronized(sharedLock) {
         uploadConfigs[id]?.state = DownloadConstants.TASK_CANCELING
         uploadConfigs.remove(id)
+        uploadProgressReporter.clearDownloadState(id)
         // Remove from persistent storage on error
         storageManager.saveUploadConfigs(uploadConfigs)
       }
@@ -1445,10 +1480,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     // Progress settings
     val progressIntervalScope = options.getInt("progressInterval")
-    val progressMinBytesScope = options.getDouble("progressMinBytes").toLong()
-    if (progressIntervalScope > 0 || progressMinBytesScope > 0) {
+    // 0 is a valid value (percentage only), so it has to be applied too
+    val progressMinBytesScope = if (options.hasKey("progressMinBytes")) options.getDouble("progressMinBytes").toLong() else -1L
+    if (progressIntervalScope > 0 || progressMinBytesScope >= 0) {
       val newInterval = if (progressIntervalScope > 0) progressIntervalScope.toLong() else uploadProgressReporter.getProgressInterval()
-      val newMinBytes = if (progressMinBytesScope > 0) progressMinBytesScope else uploadProgressReporter.getProgressMinBytes()
+      val newMinBytes = if (progressMinBytesScope >= 0) progressMinBytesScope else uploadProgressReporter.getProgressMinBytes()
       uploadProgressReporter.configure(newInterval, newMinBytes)
     }
 
@@ -1482,6 +1518,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
   fun pauseUploadTask(configId: String) {
     synchronized(sharedLock) {
       uploadConfigs[configId]?.state = DownloadConstants.TASK_SUSPENDED
+      uploadProgressReporter.clearPendingReport(configId)
       // Persist state change
       storageManager.saveUploadConfigs(uploadConfigs)
     }
@@ -1494,6 +1531,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       uploadConfigs[configId]?.state = DownloadConstants.TASK_RUNNING
       // Persist state change
       storageManager.saveUploadConfigs(uploadConfigs)
+      // A resumed upload starts over, so progress thresholds start from 0 too
+      uploadProgressReporter.clearDownloadState(configId)
+      uploadProgressReporter.initializeDownload(configId)
       uploadConfigs[configId]
     }
     if (!uploader.resume(configId, uploadListener) && config != null && uploader.getState(configId) == null) {
