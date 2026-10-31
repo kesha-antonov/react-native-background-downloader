@@ -619,7 +619,8 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
         if (taskInfo.errorCode === -999) {
           task.state = 'PAUSED'
         } else {
-          task.stop()
+          // Not awaited: the task is dropped either way, so a failed stop isn't actionable
+          task.stop().catch(() => {})
           return undefined
         }
         break

@@ -32,6 +32,7 @@
 - **Android 14+: Cancel on the notification of a download waiting for the network sent no event to JS;** and pausing or cancelling now updates or removes the group summary notification
 - **Android: multipart uploads garbled non-ASCII field values and file names;** relative redirect locations lost the port and path; the downloader's wake lock wasn't taken again after it expired; and recovery snapshots could bring back a finished download
 - **JS: `setConfig` reset options that weren't passed:** a later `setConfig({ allowsCellularAccess: false })` dropped the headers, turned logging off and reset the progress interval
+- **JS: restoring a canceled download or upload could raise an unhandled promise rejection** when stopping it natively failed
 - **JS: `cleanup()` left the iOS new-architecture event listeners attached,** so every re-initialization doubled each event
 - **`groupId`, `groupName` and `notificationTitle` passed to `createDownloadTask` were ignored:** native reads them from `metadata`, so they're now copied there
 - **Expo: the config plugin did nothing for projects with `AppDelegate.mm`**
