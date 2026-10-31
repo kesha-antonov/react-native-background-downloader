@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Platform } from 'react-native'
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Alert, FlatList, ListRenderItemInfo, Platform, Text, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
   getExistingUploadTasks,
@@ -9,11 +9,27 @@ import {
   directories,
 } from '@kesha-antonov/react-native-background-downloader'
 import type { UploadTask } from '@kesha-antonov/react-native-background-downloader'
-import { ExButton } from '../../components/commons'
-import { toast, uuid } from '../../utils'
+import { formatBytes, toast, uuid } from '../../utils'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import {
+  Card,
+  ToolbarButton,
+  ToolbarCard,
+  TransferRow,
+  describeProgress,
+  type ActionSpec,
+  type IoniconName,
+} from '../../components'
+import { createThemedStyles, useTheme } from '../../theme'
 
 const UPLOADS_SUBDIR = 'uploads'
+
+// Use httpbin.org for testing - it accepts POST with files
+// The response will contain the uploaded file info
+const UPLOAD_URL = 'https://httpbin.org/post'
+
+// Details show the start of the response, not all of it
+const RESPONSE_PREVIEW_LENGTH = 600
 
 setConfig({
   isLogsEnabled: true,
@@ -27,108 +43,152 @@ interface UploadItemData {
   task: UploadTask | null
 }
 
-interface UploadItemProps {
-  item: UploadItemData
-  onStart: (item: UploadItemData) => void
-  onStop: (id: string) => void
-  onPause: (id: string) => void
-  onResume: (id: string) => void
+interface UploadResponse {
+  code: number
+  body: string
 }
 
-const UploadItem = React.memo(({ item, onStart, onStop, onPause, onResume }: UploadItemProps) => {
-  const { task, fileName, fileSize } = item
-  const state = task?.state ?? 'IDLE'
-  const isUploading = state === 'UPLOADING'
-  const isPaused = state === 'PAUSED'
-  const isDone = state === 'DONE'
-  const isFailed = state === 'FAILED'
-  const isStopped = state === 'STOPPED'
-  const isEnded = isDone || isFailed || isStopped
+// ---------------------------------------------------------------------------
+// Row status
+// ---------------------------------------------------------------------------
 
-  const bytesUploaded = task?.bytesUploaded ?? 0
-  const bytesTotal = task?.bytesTotal ?? fileSize
-  const isTotalUnknown = bytesTotal <= 0
-  const progress = isTotalUnknown ? 0 : bytesUploaded / bytesTotal
-  const progressPercent = isTotalUnknown ? 0 : Math.round(progress * 100)
+type RowStatus = 'idle' | 'pending' | 'uploading' | 'paused' | 'done' | 'failed' | 'stopped'
 
-  // Animated progress bar using reanimated
-  const progressAnim = useSharedValue(0)
+// Colors come from the theme (statusColors); this only names and draws each state
+const STATUS_STYLES: Record<RowStatus, { label: string, icon: IoniconName }> = {
+  idle: { label: 'Not uploaded', icon: 'cloud-upload-outline' },
+  pending: { label: 'Starting…', icon: 'hourglass-outline' },
+  uploading: { label: 'Uploading', icon: 'arrow-up' },
+  paused: { label: 'Paused', icon: 'pause' },
+  done: { label: 'Uploaded', icon: 'checkmark' },
+  failed: { label: 'Failed', icon: 'alert' },
+  stopped: { label: 'Stopped', icon: 'stop' },
+}
 
-  useEffect(() => {
-    progressAnim.value = withTiming(progress, { duration: 300 })
-  }, [progress])
+const isActiveStatus = (status: RowStatus) =>
+  status === 'pending' || status === 'uploading' || status === 'paused'
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    width: `${progressAnim.value * 100}%`,
-  }))
+const statusFromTask = (task: UploadTask | null): RowStatus => {
+  switch (task?.state) {
+    case 'PENDING': return 'pending'
+    case 'UPLOADING': return 'uploading'
+    case 'PAUSED': return 'paused'
+    case 'DONE': return 'done'
+    case 'FAILED': return 'failed'
+    case 'STOPPED': return 'stopped'
+    default: return 'idle'
+  }
+}
 
-  const stateColor = useMemo(() => {
-    switch (state) {
-      case 'UPLOADING': return '#4CAF50'
-      case 'PAUSED': return '#FF9800'
-      case 'DONE': return '#2196F3'
-      case 'FAILED': return '#F44336'
-      case 'STOPPED': return '#9E9E9E'
-      default: return '#666'
+// ---------------------------------------------------------------------------
+// Row model: one row per test file, plus restored tasks that no file claims
+// ---------------------------------------------------------------------------
+
+type RowKind =
+  | 'file' // a generated test file, can be (re)uploaded
+  | 'task' // a task restored by getExistingUploadTasks that no test file claims
+
+// Only primitives, so React.memo can compare rows field by field
+interface RowModel {
+  key: string
+  id: string
+  kind: RowKind
+  title: string
+  subtitle: string
+  status: RowStatus
+  bytesUploaded: number
+  bytesTotal: number
+  hasTask: boolean
+  fileName: string | null
+  fileSize: number
+  errorCode: number | null
+  responseCode: number | null
+}
+
+type RowAction = 'start' | 'pause' | 'resume' | 'stop' | 'delete' | 'remove' | 'details'
+
+// Two action slots per row, swapped in place so the row keeps its footprint
+const getRowActions = (row: RowModel): [ActionSpec<RowAction>, ActionSpec<RowAction>] => {
+  const active = isActiveStatus(row.status)
+
+  let primary: ActionSpec<RowAction>
+  if (row.status === 'uploading')
+    // Upload pause is iOS-only in this example
+    primary = { action: 'pause', label: 'Pause', icon: 'pause', tone: 'warning', disabled: Platform.OS !== 'ios' }
+  else if (row.status === 'pending')
+    primary = { action: 'pause', label: 'Pause', icon: 'pause', tone: 'warning', disabled: true }
+  else if (row.status === 'paused')
+    primary = { action: 'resume', label: 'Resume', icon: 'play', tone: 'primary' }
+  else if (row.kind === 'file' && row.status !== 'done')
+    primary = {
+      action: 'start',
+      label: 'Start',
+      icon: 'cloud-upload-outline',
+      mciIcon: 'upload',
+      badge: row.status === 'idle' ? undefined : 'sync',
+      tone: 'primary',
     }
-  }, [state])
+  else
+    // Done: the response is in the details
+    primary = { action: 'details', label: 'Details', icon: 'information', tone: 'neutral' }
+
+  let secondary: ActionSpec<RowAction>
+  if (active)
+    secondary = { action: 'stop', label: 'Stop', icon: 'stop', tone: 'neutral' }
+  else if (row.kind === 'file')
+    secondary = { action: 'delete', label: 'Delete', icon: 'trash-outline', tone: 'danger' }
+  else
+    secondary = { action: 'remove', label: 'Remove', icon: 'close', tone: 'neutral' }
+
+  return [primary, secondary]
+}
+
+// ---------------------------------------------------------------------------
+// Components
+// ---------------------------------------------------------------------------
+
+const rowsEqual = (a: RowModel, b: RowModel) => {
+  for (const key of Object.keys(a) as (keyof RowModel)[])
+    if (a[key] !== b[key]) return false
+
+  return true
+}
+
+interface UploadRowProps {
+  row: RowModel
+  onAction: (action: RowAction, key: string) => void
+}
+
+const UploadRow = React.memo(({ row, onAction }: UploadRowProps) => {
+  const status = STATUS_STYLES[row.status]
+  const { progress, indeterminate, bytesText, percentText } =
+    describeProgress(row.status, row.bytesUploaded, row.bytesTotal)
+
+  let stateLabel = status.label
+  if (row.status === 'failed' && row.errorCode)
+    stateLabel = `${status.label} · ${row.errorCode}`
+  else if (row.status === 'done' && row.responseCode)
+    stateLabel = `${status.label} · HTTP ${row.responseCode}`
 
   return (
-    <View style={styles.uploadItem}>
-      <Text style={styles.itemId}>{item.id}</Text>
-      <Text style={styles.itemFileName}>📄 {fileName}</Text>
-      <Text style={styles.itemFileSize}>{formatBytes(fileSize)}</Text>
-
-      {/* Progress Section */}
-      {task && (
-        <View style={styles.progressContainer}>
-          <View style={styles.progressHeader}>
-            <Text style={[styles.stateText, { color: stateColor }]}>{state}</Text>
-            <Text style={styles.progressPercent}>{isTotalUnknown ? '—' : `${progressPercent}%`}</Text>
-          </View>
-
-          {/* Progress Bar */}
-          <View style={styles.progressBarContainer}>
-            <Animated.View style={[styles.progressBarFill, isTotalUnknown ? { width: '100%', backgroundColor: stateColor, opacity: 0.3 } : [animatedStyle, { backgroundColor: stateColor }]]} />
-          </View>
-
-          <Text style={styles.progressText}>
-            {formatBytes(bytesUploaded)}{isTotalUnknown ? '' : ` / ${formatBytes(bytesTotal)}`}
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.buttonRow}>
-        {(!task || isFailed || isStopped) && (
-          <ExButton title="Upload" onPress={() => onStart(item)} />
-        )}
-        {task && !isEnded && (
-          <>
-            <ExButton title="Stop" onPress={() => onStop(item.id)} />
-            {isUploading && Platform.OS === 'ios' && (
-              <ExButton title="Pause" onPress={() => onPause(item.id)} />
-            )}
-            {isPaused && (
-              <ExButton title="Resume" onPress={() => onResume(item.id)} />
-            )}
-          </>
-        )}
-        {isDone && (
-          <Text style={styles.successText}>✓ Upload Complete</Text>
-        )}
-      </View>
-    </View>
+    <TransferRow
+      id={row.id}
+      title={row.title}
+      subtitle={row.subtitle}
+      status={row.status}
+      statusIcon={status.icon}
+      stateLabel={stateLabel}
+      bytesText={bytesText}
+      percentText={percentText}
+      progress={progress}
+      indeterminate={indeterminate}
+      actions={getRowActions(row)}
+      onAction={action => onAction(action, row.key)}
+      onDetails={() => onAction('details', row.key)}
+      detailsHint='Shows the file, the server response and errors'
+    />
   )
-})
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 0) return 'Unknown'
-  if (!bytes || bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
-}
+}, (prev, next) => prev.onAction === next.onAction && rowsEqual(prev.row, next.row))
 
 interface HeaderProps {
   onCreateFiles: () => void
@@ -136,38 +196,95 @@ interface HeaderProps {
   onResetTasks: () => void
   filesCount: number
   tasksCount: number
+  activeCount: number
+  doneCount: number
 }
 
-const Header = React.memo(({ onCreateFiles, onClearFiles, onResetTasks, filesCount, tasksCount }: HeaderProps) => {
+const Header = React.memo(({ onCreateFiles, onClearFiles, onResetTasks, filesCount, tasksCount, activeCount, doneCount }: HeaderProps) => {
+  const styles = useStyles()
   return (
-    <View style={styles.headerWrapper}>
-      <View style={styles.headerInfo}>
-        <Text style={styles.headerTitle}>Upload Example</Text>
-        <Text style={styles.headerSubtitle}>
-          Upload files to httpbin.org (test server)
-        </Text>
-      </View>
-      <View style={styles.headerButtons}>
-        <ExButton title="Create Test Files" onPress={onCreateFiles} />
-        {filesCount > 0 && (
-          <ExButton title="Delete Files" onPress={onClearFiles} />
-        )}
-        {tasksCount > 0 && (
-          <ExButton title="Reset Tasks" onPress={onResetTasks} />
-        )}
-      </View>
+    <View style={styles.header}>
+      <ToolbarCard
+        title='Uploads'
+        stats={`${filesCount} files · ${activeCount} active · ${doneCount} uploaded`}
+        caption='POST to httpbin.org/post (test server)'
+      >
+        <ToolbarButton
+          label='Create files'
+          accessibilityLabel='Create test files'
+          icon='add-circle-outline'
+          variant='filled'
+          onPress={onCreateFiles}
+        />
+        <ToolbarButton
+          label='Clear tasks'
+          accessibilityLabel='Clear all tasks'
+          icon='stop-circle-outline'
+          onPress={onResetTasks}
+          disabled={tasksCount === 0}
+        />
+        <ToolbarButton
+          label='Delete files'
+          accessibilityLabel='Delete all files'
+          icon='trash-outline'
+          onPress={onClearFiles}
+          disabled={filesCount === 0}
+        />
+      </ToolbarCard>
     </View>
   )
 })
 
+const EmptyState = () => {
+  const theme = useTheme()
+  const styles = useStyles()
+  return (
+    <Card style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <Ionicons name='document-outline' size={22} color={theme.colors.textSecondary} />
+      </View>
+      <Text style={styles.emptyTitle}>No test files yet</Text>
+      <Text style={styles.emptyText}>Tap Create files to generate 4 files (1 KB – 800 KB) to upload</Text>
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+
 const UploadExampleScreen = () => {
   const insets = useSafeAreaInsets()
+  const styles = useStyles()
 
   const [uploadTasks, setUploadTasks] = useState<Map<string, UploadTask>>(new Map())
   const [testFiles, setTestFiles] = useState<UploadItemData[]>([])
+  // Server responses of finished uploads, shown in the row's details
+  const [responses, setResponses] = useState<Map<string, UploadResponse>>(new Map())
+
+  // Latest values for the row action handler, which stays stable so
+  // rows don't all re-render on every progress tick
+  const tasksRef = useRef(uploadTasks)
+  tasksRef.current = uploadTasks
+  const responsesRef = useRef(responses)
+  responsesRef.current = responses
 
   const updateTask = useCallback((task: UploadTask) => {
     setUploadTasks(prev => new Map(prev).set(task.id, task))
+  }, [])
+
+  const forgetTask = useCallback((id: string) => {
+    setUploadTasks(prev => {
+      const newMap = new Map(prev)
+      newMap.delete(id)
+      return newMap
+    })
+    setResponses(prev => {
+      if (!prev.has(id)) return prev
+      const newMap = new Map(prev)
+      newMap.delete(id)
+      return newMap
+    })
   }, [])
 
   const getUploadsDir = useCallback(() => {
@@ -175,17 +292,17 @@ const UploadExampleScreen = () => {
   }, [])
 
   const getUploadsDirPath = useCallback(() => {
-    if (directories.documents) {
+    if (directories.documents)
       return directories.documents + '/' + UPLOADS_SUBDIR
-    }
+
     return Paths.document.uri.replace('file://', '') + '/' + UPLOADS_SUBDIR
   }, [])
 
   const ensureUploadsDirExists = useCallback(() => {
     const uploadsDir = getUploadsDir()
-    if (!uploadsDir.exists) {
+    if (!uploadsDir.exists)
       uploadsDir.create()
-    }
+
     return uploadsDir
   }, [getUploadsDir])
 
@@ -230,11 +347,12 @@ const UploadExampleScreen = () => {
         task: null,
       })
 
-      // Create 1MB test file
+      // Create the largest test file. 800 KB: httpbin.org cuts off bodies of 1 MB
+      // (connection reset), so a 1 MB file could never upload
       const xlFileId = uuid()
       const xlFile = new File(uploadsDir, `${xlFileId}.bin`)
       // Create binary-like content
-      const xlContent = 'X'.repeat(1024 * 1024) // 1 MB
+      const xlContent = 'X'.repeat(800 * 1000) // 800 KB
       xlFile.write(xlContent)
       files.push({
         id: xlFileId,
@@ -261,6 +379,7 @@ const UploadExampleScreen = () => {
       }
       setTestFiles([])
       setUploadTasks(new Map())
+      setResponses(new Map())
       toast('All files deleted')
     } catch (error) {
       console.warn('clearFiles error:', error)
@@ -269,11 +388,12 @@ const UploadExampleScreen = () => {
   }, [getUploadsDir])
 
   const resetTasks = useCallback(() => {
-    uploadTasks.forEach(task => task.stop())
+    tasksRef.current.forEach(task => task.stop())
     setUploadTasks(new Map())
+    setResponses(new Map())
     // Reset task references in testFiles
     setTestFiles(prev => prev.map(item => ({ ...item, task: null })))
-  }, [uploadTasks])
+  }, [])
 
   const processTask = useCallback((task: UploadTask) => {
     return task
@@ -288,6 +408,7 @@ const UploadExampleScreen = () => {
       .done(({ responseCode, responseBody, bytesUploaded, bytesTotal }) => {
         console.log('upload: done', { id: task.id, responseCode, bytesUploaded, bytesTotal })
         console.log('upload: responseBody length:', responseBody?.length ?? 0)
+        setResponses(prev => new Map(prev).set(task.id, { code: responseCode, body: responseBody ?? '' }))
         updateTask(task)
         toast(`Upload complete! Status: ${responseCode}`)
       })
@@ -304,13 +425,9 @@ const UploadExampleScreen = () => {
 
     console.log('Starting upload with source:', source)
 
-    // Use httpbin.org for testing - it accepts POST with files
-    // The response will contain the uploaded file info
-    const uploadUrl = 'https://httpbin.org/post'
-
     const task = createUploadTask({
       id: item.id,
-      url: uploadUrl,
+      url: UPLOAD_URL,
       source,
       method: 'POST',
       fieldName: 'file',
@@ -334,28 +451,80 @@ const UploadExampleScreen = () => {
   }, [processTask, getUploadsDirPath])
 
   const stopUpload = useCallback((id: string) => {
-    const task = uploadTasks.get(id)
+    const task = tasksRef.current.get(id)
     if (task) {
       task.stop()
       updateTask(task)
     }
-  }, [uploadTasks, updateTask])
+  }, [updateTask])
 
   const pauseUpload = useCallback((id: string) => {
-    const task = uploadTasks.get(id)
+    const task = tasksRef.current.get(id)
     if (task) {
       task.pause()
       updateTask(task)
     }
-  }, [uploadTasks, updateTask])
+  }, [updateTask])
 
   const resumeUpload = useCallback((id: string) => {
-    const task = uploadTasks.get(id)
+    const task = tasksRef.current.get(id)
     if (task) {
       task.resume()
       updateTask(task)
     }
-  }, [uploadTasks, updateTask])
+  }, [updateTask])
+
+  // Deletes one test file from disk and drops its row
+  const deleteFile = useCallback((row: RowModel) => {
+    try {
+      if (row.fileName) {
+        const file = new File(getUploadsDir(), row.fileName)
+        if (file.exists) {
+          file.delete()
+          toast('File deleted')
+        } else {
+          toast('File not found')
+        }
+      }
+      setTestFiles(prev => prev.filter(item => item.id !== row.id))
+      forgetTask(row.id)
+    } catch (error) {
+      console.warn('deleteFile error:', error)
+      toast('Error deleting file')
+    }
+  }, [getUploadsDir, forgetTask])
+
+  // Stops a restored task and drops it from the list
+  const removeTask = useCallback((id: string) => {
+    const task = tasksRef.current.get(id)
+    if (task)
+      task.stop()
+    forgetTask(id)
+  }, [forgetTask])
+
+  const showDetails = useCallback((row: RowModel) => {
+    const response = responsesRef.current.get(row.id)
+    let body: string | null = null
+    if (response?.body)
+      body = response.body.length > RESPONSE_PREVIEW_LENGTH
+        ? `${response.body.slice(0, RESPONSE_PREVIEW_LENGTH)}… (${formatBytes(response.body.length)})`
+        : response.body
+
+    const lines = [
+      `ID: ${row.id}`,
+      `State: ${STATUS_STYLES[row.status].label}`,
+      row.fileName ? `File: ${row.fileName} · ${formatBytes(row.fileSize)}` : null,
+      row.fileName ? `Source: ${getUploadsDirPath()}/${row.fileName}` : null,
+      `URL: ${UPLOAD_URL}`,
+      row.status !== 'idle'
+        ? `Bytes: ${formatBytes(row.bytesUploaded)}${row.bytesTotal > 0 ? ` / ${formatBytes(row.bytesTotal)}` : ''}`
+        : null,
+      response ? `Response: HTTP ${response.code}` : null,
+      body,
+      row.errorCode ? `Error code: ${row.errorCode}` : null,
+    ].filter(Boolean)
+    Alert.alert(row.title, lines.join('\n\n'))
+  }, [getUploadsDirPath])
 
   const resumeExistingTasks = useCallback(async () => {
     try {
@@ -377,180 +546,174 @@ const UploadExampleScreen = () => {
 
   useEffect(() => {
     resumeExistingTasks()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const uploadItems = useMemo<UploadItemData[]>(() =>
-    testFiles.map(item => ({
-      ...item,
+  // Test files first (fixed order), then restored tasks no file claims
+  const rows = useMemo<RowModel[]>(() => {
+    const fileIds = new Set(testFiles.map(item => item.id))
+
+    const buildRow = (base: {
+      key: string
+      id: string
+      kind: RowKind
+      title: string
+      task: UploadTask | null
+      fileName: string | null
+      fileSize: number
+    }): RowModel => {
+      const { task } = base
+      const status = statusFromTask(task)
+      const bytesTotal = task && task.bytesTotal > 0 ? task.bytesTotal : base.fileSize
+
+      const subtitleParts = [base.id]
+      if (base.fileSize > 0) subtitleParts.push(formatBytes(base.fileSize))
+
+      return {
+        key: base.key,
+        id: base.id,
+        kind: base.kind,
+        title: base.title,
+        subtitle: subtitleParts.join(' · '),
+        status,
+        bytesUploaded: task?.bytesUploaded ?? 0,
+        bytesTotal,
+        hasTask: !!task,
+        fileName: base.fileName,
+        fileSize: base.fileSize,
+        errorCode: task && status === 'failed' && task.errorCode ? task.errorCode : null,
+        responseCode: status === 'done' ? responses.get(base.id)?.code ?? null : null,
+      }
+    }
+
+    const result: RowModel[] = testFiles.map(item => buildRow({
+      key: item.id,
+      id: item.id,
+      kind: 'file',
+      title: item.fileName,
       task: uploadTasks.get(item.id) || item.task,
+      fileName: item.fileName,
+      fileSize: item.fileSize,
     }))
-  , [testFiles, uploadTasks])
 
-  const keyExtractor = useCallback((item: UploadItemData) => item.id, [])
+    uploadTasks.forEach(task => {
+      if (fileIds.has(task.id)) return
+      const fileName = (task.metadata as { fileName?: string } | undefined)?.fileName ?? null
+      result.push(buildRow({
+        key: `task:${task.id}`,
+        id: task.id,
+        kind: 'task',
+        title: fileName ?? task.id,
+        task,
+        fileName,
+        fileSize: 0,
+      }))
+    })
 
-  const renderItem = useCallback(({ item }: ListRenderItemInfo<UploadItemData>) => (
-    <UploadItem
-      item={item}
-      onStart={startUpload}
-      onStop={stopUpload}
-      onPause={pauseUpload}
-      onResume={resumeUpload}
-    />
-  ), [startUpload, stopUpload, pauseUpload, resumeUpload])
+    return result
+  }, [testFiles, uploadTasks, responses])
 
-  const renderHeader = useCallback(() => (
+  const rowsRef = useRef<Map<string, RowModel>>(new Map())
+  rowsRef.current = useMemo(() => new Map(rows.map(row => [row.key, row])), [rows])
+  const testFilesRef = useRef(testFiles)
+  testFilesRef.current = testFiles
+
+  // Stable across renders: everything it needs is read from refs
+  const handleRowAction = useCallback((action: RowAction, key: string) => {
+    const row = rowsRef.current.get(key)
+    if (!row) return
+
+    switch (action) {
+      case 'start': {
+        const item = testFilesRef.current.find(file => file.id === row.id)
+        if (item) startUpload(item)
+        break
+      }
+      case 'pause': pauseUpload(row.id); break
+      case 'resume': resumeUpload(row.id); break
+      case 'stop': stopUpload(row.id); break
+      case 'delete': deleteFile(row); break
+      case 'remove': removeTask(row.id); break
+      case 'details': showDetails(row); break
+    }
+  }, [startUpload, pauseUpload, resumeUpload, stopUpload, deleteFile, removeTask, showDetails])
+
+  const keyExtractor = useCallback((row: RowModel) => row.key, [])
+
+  const renderItem = useCallback(({ item }: ListRenderItemInfo<RowModel>) => (
+    <UploadRow row={item} onAction={handleRowAction} />
+  ), [handleRowAction])
+
+  const activeCount = useMemo(() => rows.filter(row => isActiveStatus(row.status)).length, [rows])
+  const doneCount = useMemo(() => rows.filter(row => row.status === 'done').length, [rows])
+
+  // Pass an element, not a render function: a new function identity on every
+  // progress update would be a new component type to React and remount the header
+  const headerElement = (
     <Header
       onCreateFiles={createTestFiles}
       onClearFiles={clearFiles}
       onResetTasks={resetTasks}
       filesCount={testFiles.length}
       tasksCount={uploadTasks.size}
+      activeCount={activeCount}
+      doneCount={doneCount}
     />
-  ), [createTestFiles, clearFiles, resetTasks, testFiles.length, uploadTasks.size])
-
-  const renderEmpty = useCallback(() => (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyText}>No test files yet</Text>
-      <Text style={styles.emptySubtext}>Tap "Create Test Files" to generate files for upload testing</Text>
-    </View>
-  ), [])
+  )
 
   return (
     <FlatList
       style={styles.list}
-      data={uploadItems}
+      data={rows}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
-      ListHeaderComponent={renderHeader}
-      ListEmptyComponent={renderEmpty}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 20, flexGrow: 1 }}
+      ListHeaderComponent={headerElement}
+      ListEmptyComponent={EmptyState}
+      contentContainerStyle={{
+        paddingTop: 12,
+        paddingBottom: insets.bottom + 16,
+        paddingLeft: insets.left + 16,
+        paddingRight: insets.right + 16,
+      }}
     />
   )
 }
 
 export default UploadExampleScreen
 
-const styles = StyleSheet.create({
-  headerWrapper: {
-    padding: 16,
-    backgroundColor: '#f5f5f5',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  headerInfo: {
-    marginBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#666',
-  },
-  headerButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+const useStyles = createThemedStyles(theme => ({
   list: {
     flex: 1,
-    marginTop: 8,
+    backgroundColor: theme.colors.background,
   },
-  uploadItem: {
-    padding: 16,
-    marginHorizontal: 12,
-    marginVertical: 8,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+  header: {
+    gap: 12,
+    marginBottom: 12,
   },
-  itemId: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#999',
-    marginBottom: 4,
-  },
-  itemFileName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 4,
-  },
-  itemFileSize: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
-  },
-  progressContainer: {
-    marginVertical: 8,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  empty: {
     alignItems: 'center',
-    marginBottom: 6,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    gap: 6,
   },
-  stateText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  progressPercent: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-  },
-  progressBarContainer: {
-    height: 8,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  progressText: {
-    fontSize: 11,
-    color: '#888',
-    textAlign: 'right',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
+  emptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-  },
-  successText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#4CAF50',
-  },
-  emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
+    backgroundColor: theme.colors.control,
+    marginBottom: 6,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.text,
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#666',
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.colors.textSecondary,
     textAlign: 'center',
   },
-})
+}))

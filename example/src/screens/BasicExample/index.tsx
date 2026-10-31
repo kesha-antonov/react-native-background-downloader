@@ -1,17 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { StyleSheet, View, Text, FlatList, ListRenderItemInfo, Pressable, Switch, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
-import Animated, {
-  type SharedValue,
-  Easing,
-  cancelAnimation,
-  interpolate,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated'
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
+import { View, Text, FlatList, ListRenderItemInfo, Platform, PermissionsAndroid, Alert, Linking } from 'react-native'
 import { Directory, File, Paths } from 'expo-file-system'
 import {
   completeHandler,
@@ -21,7 +9,18 @@ import {
   directories,
 } from '@kesha-antonov/react-native-background-downloader'
 import type { DownloadTask } from '@kesha-antonov/react-native-background-downloader'
-import { toast, uuid } from '../../utils'
+import { baseName, formatBytes, toast, uuid } from '../../utils'
+import {
+  CollapsibleCard,
+  SettingRow,
+  ToolbarButton,
+  ToolbarCard,
+  TransferRow,
+  describeProgress,
+  type ActionSpec,
+  type IoniconName,
+} from '../../components'
+import { createThemedStyles } from '../../theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { createMMKV } from 'react-native-mmkv'
 
@@ -73,44 +72,20 @@ const TaskIdStorage = {
 }
 
 // ---------------------------------------------------------------------------
-// Design tokens
+// Row status
 // ---------------------------------------------------------------------------
-
-const colors = {
-  background: '#F3F4F6',
-  surface: '#FFFFFF',
-  border: '#E5E7EB',
-  divider: '#F1F5F9',
-  text: '#0F172A',
-  textSecondary: '#64748B',
-  textMuted: '#94A3B8',
-  primary: '#2563EB',
-  primarySoft: '#DBEAFE',
-  primaryText: '#1D4ED8',
-  track: '#E5E7EB',
-  disabledBg: '#F8FAFC',
-  disabledIcon: '#CBD5E1',
-}
 
 type RowStatus = 'idle' | 'pending' | 'downloading' | 'paused' | 'done' | 'failed' | 'stopped'
 
-interface StatusStyle {
-  label: string
-  icon: React.ComponentProps<typeof Ionicons>['name']
-  // Strong color: bar fill, state label, badge icon
-  color: string
-  // Soft color: badge background
-  soft: string
-}
-
-const STATUS_STYLES: Record<RowStatus, StatusStyle> = {
-  idle: { label: 'Not downloaded', icon: 'cloud-download-outline', color: '#64748B', soft: '#F1F5F9' },
-  pending: { label: 'Starting…', icon: 'hourglass-outline', color: '#2563EB', soft: '#DBEAFE' },
-  downloading: { label: 'Downloading', icon: 'arrow-down', color: '#2563EB', soft: '#DBEAFE' },
-  paused: { label: 'Paused', icon: 'pause', color: '#D97706', soft: '#FEF3C7' },
-  done: { label: 'Downloaded', icon: 'checkmark', color: '#16A34A', soft: '#DCFCE7' },
-  failed: { label: 'Failed', icon: 'alert', color: '#DC2626', soft: '#FEE2E2' },
-  stopped: { label: 'Stopped', icon: 'stop', color: '#6B7280', soft: '#F3F4F6' },
+// Colors come from the theme (statusColors); this only names and draws each state
+const STATUS_STYLES: Record<RowStatus, { label: string, icon: IoniconName }> = {
+  idle: { label: 'Not downloaded', icon: 'cloud-download-outline' },
+  pending: { label: 'Starting…', icon: 'hourglass-outline' },
+  downloading: { label: 'Downloading', icon: 'arrow-down' },
+  paused: { label: 'Paused', icon: 'pause' },
+  done: { label: 'Downloaded', icon: 'checkmark' },
+  failed: { label: 'Failed', icon: 'alert' },
+  stopped: { label: 'Stopped', icon: 'stop' },
 }
 
 const isActiveStatus = (status: RowStatus) =>
@@ -127,17 +102,6 @@ const statusFromTask = (task: DownloadTask): RowStatus => {
     default: return 'idle'
   }
 }
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 0) return 'Unknown'
-  if (!bytes || bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
-}
-
-const baseName = (path: string) => path.split('/').pop() || path
 
 // ---------------------------------------------------------------------------
 // Row model: one row per download, whatever its lifecycle stage
@@ -175,31 +139,12 @@ interface RowModel {
 
 type RowAction = 'start' | 'pause' | 'resume' | 'stop' | 'delete' | 'remove' | 'details'
 
-interface ActionSpec {
-  action: RowAction
-  label: string
-  icon: React.ComponentProps<typeof Ionicons>['name']
-  // Takes precedence over `icon`: Ionicons has no "download again" glyph
-  mciIcon?: React.ComponentProps<typeof MaterialCommunityIcons>['name']
-  // A small badge in the corner, e.g. "again" on download again
-  badge?: React.ComponentProps<typeof MaterialCommunityIcons>['name']
-  tone: 'primary' | 'warning' | 'neutral' | 'danger'
-  disabled?: boolean
-}
-
-const TONES: Record<ActionSpec['tone'], { bg: string, fg: string }> = {
-  primary: { bg: colors.primarySoft, fg: colors.primaryText },
-  warning: { bg: '#FEF3C7', fg: '#B45309' },
-  neutral: { bg: '#F1F5F9', fg: '#334155' },
-  danger: { bg: '#FEE2E2', fg: '#B91C1C' },
-}
-
 // Two action slots per row. The slots never appear or disappear: their
 // content is swapped in place, so the row keeps the same footprint in every state
-const getRowActions = (row: RowModel): [ActionSpec, ActionSpec] => {
+const getRowActions = (row: RowModel): [ActionSpec<RowAction>, ActionSpec<RowAction>] => {
   const active = isActiveStatus(row.status)
 
-  let primary: ActionSpec
+  let primary: ActionSpec<RowAction>
   if (row.status === 'downloading')
     primary = { action: 'pause', label: 'Pause', icon: 'pause', tone: 'warning' }
   else if (row.status === 'pending')
@@ -218,7 +163,7 @@ const getRowActions = (row: RowModel): [ActionSpec, ActionSpec] => {
   else
     primary = { action: 'details', label: 'Details', icon: 'information', tone: 'neutral' }
 
-  let secondary: ActionSpec
+  let secondary: ActionSpec<RowAction>
   if (active)
     secondary = { action: 'stop', label: 'Stop', icon: 'stop', tone: 'neutral' }
   else if (row.hasFile)
@@ -235,224 +180,6 @@ const getRowActions = (row: RowModel): [ActionSpec, ActionSpec] => {
 // Components
 // ---------------------------------------------------------------------------
 
-interface IconButtonProps {
-  spec: ActionSpec
-  rowId: string
-  onPress: () => void
-}
-
-const IconButton = React.memo(({ spec, rowId, onPress }: IconButtonProps) => {
-  const tone = TONES[spec.tone]
-  const bg = spec.disabled ? colors.disabledBg : tone.bg
-  const fg = spec.disabled ? colors.disabledIcon : tone.fg
-
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={spec.disabled}
-      accessibilityRole='button'
-      accessibilityLabel={`${spec.label} ${rowId}`}
-      accessibilityState={{ disabled: !!spec.disabled }}
-      android_ripple={{ color: 'rgba(15, 23, 42, 0.12)', borderless: true, radius: 22 }}
-      style={({ pressed }) => [
-        styles.iconButton,
-        pressed && Platform.OS === 'ios' && styles.pressed,
-      ]}
-    >
-      {/* The color is on this view: with android_ripple, a Pressable can keep its
-          first background on Android, e.g. Delete's red on the Stop that replaces it */}
-      <View style={[styles.iconButtonFill, { backgroundColor: bg }]} />
-      <View style={styles.iconButtonContent}>
-        {spec.mciIcon
-          ? <MaterialCommunityIcons name={spec.mciIcon} size={22} color={fg} />
-          : <Ionicons name={spec.icon} size={20} color={fg} />}
-        {spec.badge && (
-          <View style={[styles.iconBadge, { backgroundColor: fg }]}>
-            <MaterialCommunityIcons name={spec.badge} size={12} color={bg} />
-          </View>
-        )}
-      </View>
-    </Pressable>
-  )
-}, (prev, next) =>
-  // onPress is a new arrow on every row render but only calls the row's action;
-  // skipping it keeps progress ticks from re-rendering the button mid-animation
-  prev.rowId === next.rowId && (Object.keys(next.spec) as (keyof ActionSpec)[]).every(key => prev.spec[key] === next.spec[key])
-    && Object.keys(prev.spec).length === Object.keys(next.spec).length)
-
-interface ProgressBarProps {
-  progress: number
-  indeterminate: boolean
-  // Downloading now: the fill shimmers, so a slow download still looks alive
-  active: boolean
-  color: string
-}
-
-const SHIMMER_WIDTH = 0.35 // of the track
-
-interface BarViewsProps {
-  progress: SharedValue<number>
-  sweep: SharedValue<number>
-  trackWidth: SharedValue<number>
-  color: SharedValue<string>
-  // 1 or 0: shared values, so the views never re-render (see ProgressBar)
-  indeterminate: SharedValue<number>
-  moving: SharedValue<number>
-}
-
-// The bar's views take only shared values and never re-render: a React commit of an
-// animated view re-applies a stale copy of its animated style, which froze the bar part
-// way (or made it lag) whenever the row re-rendered, e.g. on each progress event
-const BarViews = React.memo(({ progress, sweep, trackWidth, color, indeterminate, moving }: BarViewsProps) => {
-  // Scaled rather than sized from the left edge
-  const fillStyle = useAnimatedStyle(() => ({
-    backgroundColor: color.value,
-    opacity: indeterminate.value ? 0 : 1,
-    transform: [{ scaleX: progress.value }],
-  }))
-
-  // A light band crossing the fill, ending at its edge so it never shows on the empty track
-  const shimmerStyle = useAnimatedStyle(() => {
-    const width = trackWidth.value * SHIMMER_WIDTH
-    const end = trackWidth.value * progress.value - width
-    return {
-      width,
-      opacity: !indeterminate.value && moving.value ? 1 : 0,
-      transform: [{ translateX: interpolate(sweep.value, [0, 1], [-width, end]) }],
-    }
-  })
-
-  // For an unknown size: a segment crossing the whole track
-  const segmentStyle = useAnimatedStyle(() => {
-    const width = trackWidth.value * SHIMMER_WIDTH
-    return {
-      width,
-      backgroundColor: color.value,
-      opacity: indeterminate.value && moving.value ? 1 : 0,
-      transform: [{ translateX: interpolate(sweep.value, [0, 1], [-width, trackWidth.value]) }],
-    }
-  })
-
-  return (
-    <>
-      <Animated.View style={[styles.progressFill, fillStyle]} />
-      <Animated.View style={[styles.progressShimmer, shimmerStyle]} />
-      <Animated.View style={[styles.progressSegment, segmentStyle]} />
-    </>
-  )
-})
-
-const ProgressBar = ({ progress, indeterminate, active, color }: ProgressBarProps) => {
-  // Start from the current value so a row that mounts mid-download
-  // doesn't animate from zero
-  const progressAnim = useSharedValue(progress)
-  const trackWidth = useSharedValue(0)
-  const sweep = useSharedValue(0)
-  const colorValue = useSharedValue(color)
-  const indeterminateValue = useSharedValue(indeterminate ? 1 : 0)
-  const movingValue = useSharedValue(0)
-  const reduceMotion = useReducedMotion()
-  const moving = (active || indeterminate) && !reduceMotion
-
-  useEffect(() => {
-    colorValue.value = color
-    indeterminateValue.value = indeterminate ? 1 : 0
-    movingValue.value = moving ? 1 : 0
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [color, indeterminate, moving])
-
-  // Progress arrives in steps (one event per progressInterval). Gliding linearly to
-  // each new value over the time the last step took keeps the bar moving at the
-  // download's pace until the next event, instead of jumping and then standing still
-  const lastUpdateAt = useRef(Date.now())
-  useEffect(() => {
-    const now = Date.now()
-    const sinceLastUpdate = now - lastUpdateAt.current
-    lastUpdateAt.current = now
-    if (progress < progressAnim.value) {
-      // Started over: no animating backwards
-      progressAnim.value = progress
-      return
-    }
-    const duration = progress >= 1 ? 250 : Math.min(Math.max(sinceLastUpdate, 150), 1500)
-    progressAnim.value = withTiming(progress, { duration, easing: Easing.linear })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress])
-
-  useEffect(() => {
-    cancelAnimation(sweep)
-    sweep.value = 0
-    if (moving)
-      sweep.value = withRepeat(
-        withTiming(1, { duration: indeterminate ? 1100 : 1400, easing: Easing.inOut(Easing.quad) }),
-        -1,
-        false
-      )
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moving, indeterminate])
-
-  return (
-    <View
-      style={styles.progressTrack}
-      onLayout={event => { trackWidth.value = event.nativeEvent.layout.width }}
-    >
-      <BarViews
-        progress={progressAnim}
-        sweep={sweep}
-        trackWidth={trackWidth}
-        color={colorValue}
-        indeterminate={indeterminateValue}
-        moving={movingValue}
-      />
-    </View>
-  )
-}
-
-// The badge acts out its state: the arrow keeps falling while downloading, the
-// hourglass turns while starting, and the pause icon breathes
-const StateBadge = React.memo(({ status }: { status: RowStatus }) => {
-  const style = STATUS_STYLES[status]
-  const reduceMotion = useReducedMotion()
-  const loop = useSharedValue(0)
-
-  useEffect(() => {
-    cancelAnimation(loop)
-    loop.value = 0
-    if (reduceMotion) return
-
-    if (status === 'downloading')
-      loop.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.in(Easing.quad) }), -1, false)
-    else if (status === 'pending')
-      loop.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.linear }), -1, false)
-    else if (status === 'paused')
-      loop.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }), -1, true)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, reduceMotion])
-
-  const iconStyle = useAnimatedStyle(() => {
-    const t = loop.value
-    if (status === 'downloading')
-      return {
-        opacity: interpolate(t, [0, 0.25, 0.75, 1], [0, 1, 1, 0]),
-        transform: [{ translateY: interpolate(t, [0, 1], [-12, 12]) }],
-      }
-    if (status === 'pending')
-      return { opacity: 1, transform: [{ rotate: `${t * 360}deg` }] }
-    if (status === 'paused')
-      return { opacity: interpolate(t, [0, 1], [1, 0.4]) }
-    return { opacity: 1 }
-  })
-
-  return (
-    <View style={[styles.badge, { backgroundColor: style.soft }]}>
-      <Animated.View style={iconStyle}>
-        <Ionicons name={style.icon} size={20} color={style.color} />
-      </Animated.View>
-    </View>
-  )
-})
-
 const rowsEqual = (a: RowModel, b: RowModel) => {
   for (const key of Object.keys(a) as (keyof RowModel)[])
     if (a[key] !== b[key]) return false
@@ -467,129 +194,32 @@ interface DownloadRowProps {
 
 const DownloadRow = React.memo(({ row, onAction }: DownloadRowProps) => {
   const status = STATUS_STYLES[row.status]
-  const [primary, secondary] = getRowActions(row)
-
-  const isTotalUnknown = row.bytesTotal <= 0
-  const showsBytes = row.status !== 'idle' && row.status !== 'pending'
-  const progress = row.status === 'done'
-    ? 1
-    : isTotalUnknown ? 0 : Math.min(1, row.bytesDownloaded / row.bytesTotal)
-  const indeterminate = row.status === 'downloading' && isTotalUnknown
-
-  let bytesText = ''
-  if (showsBytes)
-    bytesText = row.status === 'done' || isTotalUnknown
-      ? formatBytes(row.bytesDownloaded)
-      : `${formatBytes(row.bytesDownloaded)} / ${formatBytes(row.bytesTotal)}`
-
-  const percentText = showsBytes && (row.status === 'done' || !isTotalUnknown)
-    ? `${Math.round(progress * 100)}%`
-    : ''
+  const { progress, indeterminate, bytesText, percentText } =
+    describeProgress(row.status, row.bytesDownloaded, row.bytesTotal)
 
   const stateLabel = row.status === 'failed' && row.errorCode
     ? `${status.label} · ${row.errorCode}`
     : status.label
 
   return (
-    <View style={styles.row}>
-      <View style={styles.rowHeader}>
-        <Pressable
-          style={styles.rowInfo}
-          onPress={() => onAction('details', row.key)}
-          accessibilityRole='button'
-          accessibilityLabel={`Details ${row.id}`}
-          accessibilityHint='Shows the URL and file path'
-        >
-          <StateBadge status={row.status} />
-          <View style={styles.rowText}>
-            <Text style={styles.rowTitle} numberOfLines={1}>{row.title}</Text>
-            <Text style={styles.rowSubtitle} numberOfLines={1}>{row.subtitle}</Text>
-          </View>
-        </Pressable>
-        <View style={styles.rowActions}>
-          <IconButton spec={primary} rowId={row.id} onPress={() => onAction(primary.action, row.key)} />
-          <IconButton spec={secondary} rowId={row.id} onPress={() => onAction(secondary.action, row.key)} />
-        </View>
-      </View>
-
-      {/* Progress area is always rendered, so the row height never changes */}
-      <ProgressBar
-        progress={progress}
-        indeterminate={indeterminate}
-        active={row.status === 'downloading'}
-        color={row.status === 'idle' ? colors.track : status.color}
-      />
-      <View style={styles.metaRow}>
-        <Text style={[styles.metaState, { color: status.color }]} numberOfLines={1}>
-          {stateLabel}
-        </Text>
-        <Text style={styles.metaBytes} numberOfLines={1}>
-          {bytesText}
-          {bytesText && percentText ? '  ·  ' : ''}
-          {percentText ? <Text style={styles.metaPercent}>{percentText}</Text> : null}
-        </Text>
-      </View>
-    </View>
+    <TransferRow
+      id={row.id}
+      title={row.title}
+      subtitle={row.subtitle}
+      status={row.status}
+      statusIcon={status.icon}
+      stateLabel={stateLabel}
+      bytesText={bytesText}
+      percentText={percentText}
+      progress={progress}
+      indeterminate={indeterminate}
+      actions={getRowActions(row)}
+      onAction={action => onAction(action, row.key)}
+      onDetails={() => onAction('details', row.key)}
+      detailsHint='Shows the URL and file path'
+    />
   )
 }, (prev, next) => prev.onAction === next.onAction && rowsEqual(prev.row, next.row))
-
-interface ToolbarButtonProps {
-  label: string
-  accessibilityLabel: string
-  icon: React.ComponentProps<typeof Ionicons>['name']
-  onPress: () => void
-  variant?: 'filled' | 'plain'
-  disabled?: boolean
-}
-
-const ToolbarButton = ({ label, accessibilityLabel, icon, onPress, variant = 'plain', disabled }: ToolbarButtonProps) => {
-  const filled = variant === 'filled'
-  const fg = disabled ? colors.disabledIcon : filled ? '#FFFFFF' : colors.text
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole='button'
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled: !!disabled }}
-      android_ripple={{ color: filled ? 'rgba(255,255,255,0.25)' : 'rgba(15,23,42,0.08)' }}
-      style={({ pressed }) => [
-        styles.toolbarButton,
-        filled ? styles.toolbarButtonFilled : styles.toolbarButtonPlain,
-        disabled && styles.toolbarButtonDisabled,
-        pressed && Platform.OS === 'ios' && styles.pressed,
-      ]}
-    >
-      <Ionicons name={icon} size={18} color={fg} />
-      <Text style={[styles.toolbarButtonText, { color: fg }]} numberOfLines={1}>{label}</Text>
-    </Pressable>
-  )
-}
-
-interface SettingRowProps {
-  label: string
-  description: string
-  value: boolean
-  onValueChange: (value: boolean) => void
-  disabled?: boolean
-}
-
-const SettingRow = ({ label, description, value, onValueChange, disabled }: SettingRowProps) => (
-  <View style={[styles.settingRow, disabled && styles.settingRowDisabled]}>
-    <View style={styles.settingInfo}>
-      <Text style={styles.settingLabel}>{label}</Text>
-      <Text style={styles.settingDescription}>{description}</Text>
-    </View>
-    <Switch
-      value={value}
-      onValueChange={onValueChange}
-      disabled={disabled}
-      accessibilityLabel={label}
-      trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
-      thumbColor={value ? colors.primary : '#F8FAFC'}
-    />
-  </View>
-)
 
 interface NotificationSettingsProps {
   showNotificationsEnabled: boolean
@@ -606,35 +236,7 @@ interface NotificationSettingsProps {
 
 // Developer settings, collapsed by default so the list comes first
 const NotificationSettingsCard = (props: NotificationSettingsProps) => {
-  const [isOpen, setIsOpen] = useState(false)
-  // 0 closed … 1 open; drives the body's height, its fade and the chevron together
-  const openness = useSharedValue(0)
-  // The body's natural height, measured while it's laid out outside the clip
-  const bodyHeight = useSharedValue(0)
-  const reduceMotion = useReducedMotion()
-
-  const toggle = useCallback(() => setIsOpen(open => !open), [])
-
-  useEffect(() => {
-    const target = isOpen ? 1 : 0
-    openness.value = reduceMotion
-      ? target
-      : withTiming(target, { duration: 280, easing: Easing.out(Easing.cubic) })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, reduceMotion])
-
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${openness.value * 180}deg` }],
-  }))
-
-  const bodyClipStyle = useAnimatedStyle(() => ({
-    height: bodyHeight.value * openness.value,
-  }))
-
-  const bodyContentStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(openness.value, [0, 0.4, 1], [0, 0, 1]),
-    transform: [{ translateY: interpolate(openness.value, [0, 1], [-8, 0]) }],
-  }))
+  const styles = useStyles()
 
   const summary = useMemo(() => {
     if (!props.showNotificationsEnabled) return 'Off'
@@ -653,77 +255,47 @@ const NotificationSettingsCard = (props: NotificationSettingsProps) => {
       : 'Start 5 shows individual notifications.'
 
   return (
-    <View style={styles.card}>
-      <Pressable
-        onPress={toggle}
-        style={styles.settingsHeader}
-        accessibilityRole='button'
-        accessibilityLabel='Notification settings'
-        accessibilityState={{ expanded: isOpen }}
-        android_ripple={{ color: 'rgba(15,23,42,0.06)' }}
-      >
-        <View style={[styles.badgeSmall, { backgroundColor: '#EEF2FF' }]}>
-          <Ionicons name='notifications-outline' size={18} color='#4F46E5' />
-        </View>
-        <View style={styles.rowText}>
-          <Text style={styles.settingsTitle}>Notification settings</Text>
-          <Text style={styles.rowSubtitle} numberOfLines={1}>Android · {summary}</Text>
-        </View>
-        <Animated.View style={chevronStyle}>
-          <Ionicons name='chevron-down' size={20} color={colors.textSecondary} />
-        </Animated.View>
-      </Pressable>
-
-      {/* Always rendered: the clip's height unfolds it. Hidden from accessibility and
-          touches while closed */}
-      <Animated.View
-        style={[styles.settingsClip, bodyClipStyle]}
-        pointerEvents={isOpen ? 'auto' : 'none'}
-        accessibilityElementsHidden={!isOpen}
-        importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
-      >
-        <Animated.View
-          style={[styles.settingsBody, styles.settingsMeasured, bodyContentStyle]}
-          onLayout={event => { bodyHeight.value = event.nativeEvent.layout.height }}
-        >
-          <SettingRow
-            label='Show notifications'
-            description='Display download progress notifications'
-            value={props.showNotificationsEnabled}
-            onValueChange={props.onShowNotificationsEnabledChange}
-          />
-          <SettingRow
-            label='Group notifications'
-            description='Group multiple downloads under one notification'
-            value={props.notificationGroupingEnabled}
-            onValueChange={props.onNotificationGroupingChange}
-            disabled={!props.showNotificationsEnabled}
-          />
-          <SettingRow
-            label='Summary only mode'
-            description='Show only 1 summary notification with aggregate progress'
-            value={props.summaryOnlyMode}
-            onValueChange={props.onSummaryOnlyModeChange}
-            disabled={!props.showNotificationsEnabled || !props.notificationGroupingEnabled}
-          />
-          <SettingRow
-            label='Cancel action (Android 14+)'
-            description='Add a Cancel button to the download notification'
-            value={props.showCancelAction}
-            onValueChange={props.onShowCancelActionChange}
-            disabled={!props.showNotificationsEnabled}
-          />
-          <SettingRow
-            label='Completion notification (Android 14+)'
-            description='Notify when a download finishes; tap it to open the file'
-            value={props.showCompletionNotification}
-            onValueChange={props.onShowCompletionNotificationChange}
-            disabled={!props.showNotificationsEnabled}
-          />
-          <Text style={styles.settingsHint}>{batchHint}</Text>
-        </Animated.View>
-      </Animated.View>
-    </View>
+    <CollapsibleCard
+      title='Notification settings'
+      subtitle={`Android · ${summary}`}
+      icon='notifications-outline'
+    >
+      <SettingRow
+        label='Show notifications'
+        description='Display download progress notifications'
+        value={props.showNotificationsEnabled}
+        onValueChange={props.onShowNotificationsEnabledChange}
+      />
+      <SettingRow
+        label='Group notifications'
+        description='Group multiple downloads under one notification'
+        value={props.notificationGroupingEnabled}
+        onValueChange={props.onNotificationGroupingChange}
+        disabled={!props.showNotificationsEnabled}
+      />
+      <SettingRow
+        label='Summary only mode'
+        description='Show only 1 summary notification with aggregate progress'
+        value={props.summaryOnlyMode}
+        onValueChange={props.onSummaryOnlyModeChange}
+        disabled={!props.showNotificationsEnabled || !props.notificationGroupingEnabled}
+      />
+      <SettingRow
+        label='Cancel action (Android 14+)'
+        description='Add a Cancel button to the download notification'
+        value={props.showCancelAction}
+        onValueChange={props.onShowCancelActionChange}
+        disabled={!props.showNotificationsEnabled}
+      />
+      <SettingRow
+        label='Completion notification (Android 14+)'
+        description='Notify when a download finishes; tap it to open the file'
+        value={props.showCompletionNotification}
+        onValueChange={props.onShowCompletionNotificationChange}
+        disabled={!props.showNotificationsEnabled}
+      />
+      <Text style={styles.settingsHint}>{batchHint}</Text>
+    </CollapsibleCard>
   )
 }
 
@@ -737,16 +309,14 @@ interface HeaderProps extends NotificationSettingsProps {
   onDeleteFiles: () => void
 }
 
-const Header = React.memo(({ rowCount, activeCount, taskCount, fileCount, onBatchDownload, onClearTasks, onDeleteFiles, ...settings }: HeaderProps) => (
-  <View style={styles.header}>
-    <View style={styles.card}>
-      <View style={styles.toolbarSummary}>
-        <Text style={styles.toolbarTitle}>Downloads</Text>
-        <Text style={styles.toolbarStats} numberOfLines={1}>
-          {rowCount} items · {activeCount} active · {fileCount} on disk
-        </Text>
-      </View>
-      <View style={styles.toolbarActions}>
+const Header = React.memo(({ rowCount, activeCount, taskCount, fileCount, onBatchDownload, onClearTasks, onDeleteFiles, ...settings }: HeaderProps) => {
+  const styles = useStyles()
+  return (
+    <View style={styles.header}>
+      <ToolbarCard
+        title='Downloads'
+        stats={`${rowCount} items · ${activeCount} active · ${fileCount} on disk`}
+      >
         <ToolbarButton
           label='Start 5'
           accessibilityLabel='Start 5 Downloads'
@@ -768,12 +338,12 @@ const Header = React.memo(({ rowCount, activeCount, taskCount, fileCount, onBatc
           onPress={onDeleteFiles}
           disabled={fileCount === 0}
         />
-      </View>
-    </View>
+      </ToolbarCard>
 
-    {Platform.OS === 'android' && <NotificationSettingsCard {...settings} />}
-  </View>
-))
+      {Platform.OS === 'android' && <NotificationSettingsCard {...settings} />}
+    </View>
+  )
+})
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -781,6 +351,7 @@ const Header = React.memo(({ rowCount, activeCount, taskCount, fileCount, onBatc
 
 const BasicExampleScreen = () => {
   const insets = useSafeAreaInsets()
+  const styles = useStyles()
 
   // URL definitions - static, no storage access
   const urlDefinitions = useMemo(() => [
@@ -1488,276 +1059,18 @@ const BasicExampleScreen = () => {
 
 export default BasicExampleScreen
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles(theme => ({
   list: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: theme.colors.background,
   },
-  pressed: {
-    opacity: 0.6,
-  },
-
-  // Header
   header: {
     gap: 12,
     marginBottom: 12,
   },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  toolbarSummary: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  toolbarTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  toolbarStats: {
-    flexShrink: 1,
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontVariant: ['tabular-nums'],
-  },
-  toolbarActions: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  toolbarButton: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 8,
-    overflow: 'hidden',
-  },
-  toolbarButtonFilled: {
-    backgroundColor: colors.primary,
-  },
-  toolbarButtonPlain: {
-    backgroundColor: '#F1F5F9',
-  },
-  toolbarButtonDisabled: {
-    backgroundColor: colors.disabledBg,
-  },
-  toolbarButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Settings
-  settingsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    minHeight: 60,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  settingsTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  settingsClip: {
-    overflow: 'hidden',
-  },
-  // Absolute, so it keeps its natural height (measured for the clip) at any clip height
-  settingsMeasured: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-  },
-  settingsBody: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 56,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.divider,
-  },
-  settingRowDisabled: {
-    opacity: 0.5,
-  },
-  settingInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  settingLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.text,
-  },
-  settingDescription: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
   settingsHint: {
     fontSize: 12,
-    color: colors.textSecondary,
+    color: theme.colors.textSecondary,
     marginTop: 12,
   },
-
-  // Row
-  row: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
-    marginBottom: 8,
-  },
-  rowHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 44,
-  },
-  rowInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    height: 44,
-  },
-  badge: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // The falling arrow enters and leaves through the edges
-    overflow: 'hidden',
-  },
-  badgeSmall: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  rowTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  rowSubtitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: colors.textSecondary,
-  },
-  rowActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginLeft: 8,
-  },
-  iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconBadge: {
-    position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.track,
-    overflow: 'hidden',
-    marginTop: 12,
-  },
-  progressFill: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 2,
-    transformOrigin: 'left',
-  },
-  progressShimmer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
-    borderRadius: 2,
-  },
-  progressSegment: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    borderRadius: 2,
-  },
-  iconButtonFill: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 22,
-  },
-  iconButtonContent: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 8,
-    height: 16,
-  },
-  metaState: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
-  },
-  metaBytes: {
-    flexShrink: 1,
-    fontSize: 12,
-    lineHeight: 16,
-    color: colors.textSecondary,
-    fontVariant: ['tabular-nums'],
-    textAlign: 'right',
-  },
-  metaPercent: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-})
+}))
