@@ -3,6 +3,7 @@ package com.eko
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import com.eko.utils.NetworkRequestUtils
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -60,6 +61,9 @@ class UnmeteredNetworkGate(
   private val running = mutableMapOf<String, Network>()
   // Unmetered networks currently known to be available
   private val unmeteredNetworks = mutableSetOf<Network>()
+  // The app's default network
+  private var defaultNetwork: Network? = null
+  private var defaultCapabilities: NetworkCapabilities? = null
   @Volatile
   private var networkCallback: ConnectivityManager.NetworkCallback? = null
   private val executor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -87,7 +91,7 @@ class UnmeteredNetworkGate(
       waiting.add(id)
       // The onAvailable replay only fires when the callback is first
       // registered - drain explicitly for networks we already know about
-      unmeteredNetworks.firstOrNull()?.let { startWaitingLocked(it) }
+      pickNetworkLocked()?.let { startWaitingLocked(it) }
       return true
     }
   }
@@ -111,7 +115,7 @@ class UnmeteredNetworkGate(
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Resume of $id waits for an unmetered network")
       waiting.add(id)
       // See parkNewDownload: drain explicitly for already-known networks
-      unmeteredNetworks.firstOrNull()?.let { startWaitingLocked(it) }
+      pickNetworkLocked()?.let { startWaitingLocked(it) }
       return true
     }
   }
@@ -209,7 +213,7 @@ class UnmeteredNetworkGate(
       waiting.add(id)
       ensureCallbackLocked()
       // If another unmetered network is already up, restart right away
-      unmeteredNetworks.firstOrNull()?.let { startWaitingLocked(it) }
+      pickNetworkLocked()?.let { startWaitingLocked(it) }
       return true
     }
   }
@@ -240,7 +244,7 @@ class UnmeteredNetworkGate(
           RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network available: $network")
           synchronized(lock) {
             unmeteredNetworks.add(network)
-            startWaitingLocked(network)
+            pickNetworkLocked()?.let { startWaitingLocked(it) }
           }
           host.onGateStateChanged()
         }
@@ -261,13 +265,57 @@ class UnmeteredNetworkGate(
     }
 
     return try {
+      connectivityManager.registerDefaultNetworkCallback(defaultNetworkCallback)
       connectivityManager.registerNetworkCallback(NetworkRequestUtils.internetRequest(requireUnmetered = true), callback)
       networkCallback = callback
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Registered unmetered network callback")
       true
     } catch (e: Exception) {
       RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to register network callback: ${e.message}")
+      runCatching { connectivityManager.unregisterNetworkCallback(defaultNetworkCallback) }
       false
+    }
+  }
+
+  // Tracks the app's default network. onCapabilitiesChanged also follows
+  // onAvailable, including when the default switches to another network.
+  private val defaultNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+      runOnExecutor {
+        synchronized(lock) {
+          defaultNetwork = network
+          defaultCapabilities = capabilities
+          pickNetworkLocked()?.let { startWaitingLocked(it) }
+        }
+        host.onGateStateChanged()
+      }
+    }
+
+    override fun onLost(network: Network) {
+      runOnExecutor {
+        synchronized(lock) {
+          if (defaultNetwork == network) {
+            defaultNetwork = null
+            defaultCapabilities = null
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * The network to start waiting downloads on, or null to keep waiting. Caller
+   * must hold the lock. Prefers the default network, since that's where the
+   * app's traffic goes. A metered VPN means waiting: binding to the network
+   * underneath a VPN fails with EPERM (and Android 14+'s JobScheduler waits too).
+   */
+  private fun pickNetworkLocked(): Network? {
+    val capabilities = defaultCapabilities
+    return when {
+      capabilities == null -> unmeteredNetworks.firstOrNull()
+      NetworkRequestUtils.isUnmetered(capabilities) -> defaultNetwork
+      capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> null
+      else -> unmeteredNetworks.firstOrNull()
     }
   }
 
@@ -286,7 +334,10 @@ class UnmeteredNetworkGate(
     val callback = networkCallback ?: return
     networkCallback = null
     unmeteredNetworks.clear()
+    defaultNetwork = null
+    defaultCapabilities = null
     try {
+      connectivityManager.unregisterNetworkCallback(defaultNetworkCallback)
       connectivityManager.unregisterNetworkCallback(callback)
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Unregistered unmetered network callback")
     } catch (e: Exception) {
@@ -356,7 +407,7 @@ class UnmeteredNetworkGate(
     if (movedToWaiting) {
       // Another unmetered network may still be up (e.g. ethernet next to WiFi) -
       // its onAvailable already fired, so re-drain the waiting set explicitly
-      unmeteredNetworks.firstOrNull()?.let { startWaitingLocked(it) }
+      pickNetworkLocked()?.let { startWaitingLocked(it) }
     }
   }
 
