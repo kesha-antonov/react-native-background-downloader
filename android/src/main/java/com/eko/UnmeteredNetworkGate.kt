@@ -66,6 +66,9 @@ class UnmeteredNetworkGate(
   private var defaultCapabilities: NetworkCapabilities? = null
   @Volatile
   private var networkCallback: ConnectivityManager.NetworkCallback? = null
+  // Registered together with networkCallback
+  private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
+  private var callbackGeneration = 0
   private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
   private val connectivityManager by lazy {
@@ -183,7 +186,7 @@ class UnmeteredNetworkGate(
         Thread.currentThread().interrupt()
       }
       lostUnmetered = !isNetworkUnmetered(boundNetwork) ||
-        synchronized(lock) { !unmeteredNetworks.contains(boundNetwork) }
+        synchronized(lock) { !isBindableLocked(boundNetwork) }
     }
 
     synchronized(lock) {
@@ -229,8 +232,9 @@ class UnmeteredNetworkGate(
   }
 
   /**
-   * Register the shared callback for unmetered networks (idempotent). Caller must
-   * hold the lock. Returns false when registration failed.
+   * Register the shared callback for unmetered networks and the default network
+   * callback (idempotent). Caller must hold the lock. Returns false when
+   * registration failed.
    *
    * registerNetworkCallback immediately replays onAvailable for networks that
    * already satisfy the request, which arms the initial drain.
@@ -238,11 +242,17 @@ class UnmeteredNetworkGate(
   private fun ensureCallbackLocked(): Boolean {
     if (networkCallback != null) return true
 
+    // Callback bodies run on the executor and can still be queued when the
+    // callbacks are unregistered - the generation lets them drop themselves
+    // instead of writing stale networks into a freshly cleared state
+    val generation = ++callbackGeneration
+
     val callback = object : ConnectivityManager.NetworkCallback() {
       override fun onAvailable(network: Network) {
         runOnExecutor {
-          RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network available: $network")
           synchronized(lock) {
+            if (generation != callbackGeneration) return@runOnExecutor
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network available: $network")
             unmeteredNetworks.add(network)
             pickNetworkLocked()?.let { startWaitingLocked(it) }
           }
@@ -254,53 +264,93 @@ class UnmeteredNetworkGate(
         // Also delivered when a network stops satisfying the request
         // (e.g. WiFi becomes metered), not only on disconnect
         runOnExecutor {
-          RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network lost: $network")
           synchronized(lock) {
+            if (generation != callbackGeneration) return@runOnExecutor
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network lost: $network")
             unmeteredNetworks.remove(network)
-            pauseRunningOnLocked(network)
+            pauseRunningLocked("Unmetered network lost") { it == network }
           }
           host.onGateStateChanged()
         }
       }
     }
 
+    // Tracks the app's default network. onCapabilitiesChanged also follows
+    // onAvailable, including when the default switches to another network.
+    val defaultCallback = object : ConnectivityManager.NetworkCallback() {
+      override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+        runOnExecutor {
+          synchronized(lock) {
+            if (generation != callbackGeneration) return@runOnExecutor
+            val changed = network != defaultNetwork ||
+              defaultKind(capabilities) != defaultKind(defaultCapabilities)
+            defaultNetwork = network
+            defaultCapabilities = capabilities
+            // Capabilities change on every signal strength update - only act
+            // (and refresh the notification) when something the gate uses changed
+            if (!changed) return@runOnExecutor
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Default network changed: $network")
+            // A VPN that came up mid-transfer makes the network underneath it
+            // unusable for binding - move those transfers over to the VPN
+            pauseRunningLocked("Default network changed") { !isBindableLocked(it) }
+            pickNetworkLocked()?.let { startWaitingLocked(it) }
+          }
+          host.onGateStateChanged()
+        }
+      }
+
+      override fun onLost(network: Network) {
+        runOnExecutor {
+          synchronized(lock) {
+            if (generation != callbackGeneration) return@runOnExecutor
+            if (defaultNetwork == network) {
+              defaultNetwork = null
+              defaultCapabilities = null
+            }
+          }
+        }
+      }
+    }
+
     return try {
-      connectivityManager.registerDefaultNetworkCallback(defaultNetworkCallback)
+      connectivityManager.registerDefaultNetworkCallback(defaultCallback)
+      defaultNetworkCallback = defaultCallback
       connectivityManager.registerNetworkCallback(NetworkRequestUtils.internetRequest(requireUnmetered = true), callback)
       networkCallback = callback
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Registered unmetered network callback")
       true
     } catch (e: Exception) {
       RNBackgroundDownloaderModuleImpl.logE(TAG, "Failed to register network callback: ${e.message}")
-      runCatching { connectivityManager.unregisterNetworkCallback(defaultNetworkCallback) }
+      defaultNetworkCallback?.let { runCatching { connectivityManager.unregisterNetworkCallback(it) } }
+      defaultNetworkCallback = null
+      callbackGeneration++
       false
     }
   }
 
-  // Tracks the app's default network. onCapabilitiesChanged also follows
-  // onAvailable, including when the default switches to another network.
-  private val defaultNetworkCallback = object : ConnectivityManager.NetworkCallback() {
-    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-      runOnExecutor {
-        synchronized(lock) {
-          defaultNetwork = network
-          defaultCapabilities = capabilities
-          pickNetworkLocked()?.let { startWaitingLocked(it) }
-        }
-        host.onGateStateChanged()
-      }
-    }
+  /** What the gate cares about in the default network's capabilities. */
+  private fun defaultKind(capabilities: NetworkCapabilities?): Pair<Boolean, Boolean>? {
+    capabilities ?: return null
+    return Pair(
+      NetworkRequestUtils.isUnmetered(capabilities),
+      capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+    )
+  }
 
-    override fun onLost(network: Network) {
-      runOnExecutor {
-        synchronized(lock) {
-          if (defaultNetwork == network) {
-            defaultNetwork = null
-            defaultCapabilities = null
-          }
-        }
-      }
+  private fun isDefaultVpnLocked(): Boolean {
+    return defaultCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+  }
+
+  /**
+   * Whether a transfer may stay bound to the network. Caller must hold the lock.
+   * While the default network is a VPN, only the VPN itself qualifies: binding
+   * to the network underneath it fails with EPERM.
+   */
+  private fun isBindableLocked(network: Network): Boolean {
+    if (isDefaultVpnLocked()) {
+      return network == defaultNetwork && NetworkRequestUtils.isUnmetered(defaultCapabilities)
     }
+    return unmeteredNetworks.contains(network)
   }
 
   /**
@@ -332,12 +382,15 @@ class UnmeteredNetworkGate(
   private fun maybeUnregisterCallbackLocked() {
     if (waiting.isNotEmpty() || running.isNotEmpty()) return
     val callback = networkCallback ?: return
+    val defaultCallback = defaultNetworkCallback
     networkCallback = null
+    defaultNetworkCallback = null
+    callbackGeneration++
     unmeteredNetworks.clear()
     defaultNetwork = null
     defaultCapabilities = null
     try {
-      connectivityManager.unregisterNetworkCallback(defaultNetworkCallback)
+      defaultCallback?.let { connectivityManager.unregisterNetworkCallback(it) }
       connectivityManager.unregisterNetworkCallback(callback)
       RNBackgroundDownloaderModuleImpl.logD(TAG, "Unregistered unmetered network callback")
     } catch (e: Exception) {
@@ -387,16 +440,17 @@ class UnmeteredNetworkGate(
   }
 
   /**
-   * Pause gated downloads bound to a network that is no longer unmetered/available
-   * and put them back into the waiting set. If another unmetered network is still
-   * available they restart on it immediately. Caller must hold the lock.
+   * Pause gated downloads whose bound network matches `shouldPause` (lost, no
+   * longer unmetered, or unusable under a VPN) and put them back into the
+   * waiting set. If another usable network is up they restart on it immediately.
+   * Caller must hold the lock.
    */
-  private fun pauseRunningOnLocked(network: Network) {
+  private fun pauseRunningLocked(reason: String, shouldPause: (Network) -> Boolean) {
     var movedToWaiting = false
     for ((id, boundNetwork) in running.entries.toList()) {
-      if (boundNetwork != network) continue
+      if (!shouldPause(boundNetwork)) continue
       running.remove(id)
-      RNBackgroundDownloaderModuleImpl.logD(TAG, "Unmetered network lost, pausing gated download $id")
+      RNBackgroundDownloaderModuleImpl.logD(TAG, "$reason, pausing gated download $id")
       resumableDownloader.pause(id)
       resumableDownloader.getState(id)?.network = null
       // Back to waiting: auto-restarts when an unmetered network is available again
