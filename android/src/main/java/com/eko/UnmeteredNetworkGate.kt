@@ -221,6 +221,18 @@ class UnmeteredNetworkGate(
     }
   }
 
+  /** The registered (unmetered, default network) callbacks; for tests. */
+  internal fun registeredCallbacks(): Pair<ConnectivityManager.NetworkCallback?, ConnectivityManager.NetworkCallback?> {
+    synchronized(lock) {
+      return Pair(networkCallback, defaultNetworkCallback)
+    }
+  }
+
+  /** Wait until callback bodies queued so far have run; for tests. */
+  internal fun awaitCallbacks() {
+    executor.submit {}.get()
+  }
+
   /** Tear the gate down (service destroy). */
   fun shutdown() {
     synchronized(lock) {
