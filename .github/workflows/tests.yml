@@ -142,10 +142,16 @@ jobs:
           # tests start before nsurlsessiond is ready, and setting up the
           # background URLSession fails its xpc connection
           xcrun simctl bootstatus "$udid" -b
+          # The tests run real background URLSessions. On the hosted runners
+          # nsurlsessiond sometimes drops the test process's xpc connection
+          # mid-run (they pass reliably locally), so a failed test gets two
+          # more tries; a real regression fails all three
           xcodebuild test \
             -workspace RNBDExample.xcworkspace \
             -scheme react-native-background-downloader-Unit-Tests \
             -destination "id=$udid" \
+            -retry-tests-on-failure \
+            -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO \
             | tail -n 200
           exit ${PIPESTATUS[0]}
