@@ -23,7 +23,6 @@
 - (void)completeHandler:(NSString *)jobId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)handleBridgeHotReload:(NSNotification *)note;
 - (void)restartStalledDownloads;
-- (void)lazyRegisterSession;
 #ifndef RCT_NEW_ARCH_ENABLED
 - (void)download:(NSDictionary *)options;
 #endif
@@ -143,19 +142,14 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     return [self ivar:@"urlSession"];
 }
 
-// Tests that need nsurlsessiond to answer the session (create a task through download:,
-// cancel a live one) call this first. On the GitHub-hosted Mac runners the daemon refuses
-// this app-less test process ("connection ... invalidated from this process"), so the
-// session never activates there; the test is skipped instead of timing out. Where the
-// daemon works (any developer Mac) it runs in full.
-- (BOOL)backgroundSessionAnswers
+// Tests that need nsurlsessiond to create, cancel or pause real tasks. On the GitHub-hosted
+// Mac runners the daemon invalidates this app-less test process's connection, so those
+// calls never get an answer there and the tests would time out. CI sets this variable
+// (TEST_RUNNER_ prefixed in the workflow) to skip them; everywhere else they run in full.
+- (BOOL)backgroundSessionTestsSkipped
 {
-    [self.module lazyRegisterSession];
-    NSPredicate *activated = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
-        return [[self.module valueForKey:@"isSessionActivated"] boolValue];
-    }];
-    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc] initWithPredicate:activated object:nil];
-    return [XCTWaiter waitForExpectations:@[expectation] timeout:5] == XCTWaiterResultCompleted;
+    const char *skip = getenv("RNBD_SKIP_BACKGROUND_SESSION_TESTS");
+    return skip != NULL && strcmp(skip, "1") == 0;
 }
 
 - (id)lock
@@ -238,7 +232,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testDownloadKeepsItsCellularSettingOnTheRequestAndConfig
 {
-    XCTSkipUnless([self backgroundSessionAnswers], @"nsurlsessiond doesn't answer this test process's background session");
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     NSString *identifier = [self uniqueId:@"cellular"];
 
     [self download:@{
@@ -475,7 +469,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testPausingADownloadDropsItsBufferedProgressAndIgnoresDataInFlight
 {
-    XCTSkipUnless([self backgroundSessionAnswers], @"nsurlsessiond doesn't answer this test process's background session");
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     RNBGDTaskConfig *config = nil;
     NSString *identifier = [self addLiveDownload:@"pause-progress" config:&config];
     @synchronized ([self lock]) {
@@ -497,7 +491,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testAReloadHandsTheSessionToTheNewModuleWithoutCancellingTransfers
 {
-    XCTSkipUnless([self backgroundSessionAnswers], @"nsurlsessiond doesn't answer this test process's background session");
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     // A request that stays in flight: nothing answers at this address
     NSString *identifier = [self uniqueId:@"reload"];
     [self download:@{

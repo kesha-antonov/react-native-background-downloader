@@ -135,6 +135,10 @@ jobs:
         working-directory: example/ios
         env:
           SKIP_BUNDLING: '1'
+          # Passed into the test process without the prefix: the hosted runners'
+          # nsurlsessiond refuses the test process, so tests that need it to
+          # create, cancel or pause real tasks skip themselves here
+          TEST_RUNNER_RNBD_SKIP_BACKGROUND_SESSION_TESTS: '1'
         run: |
           udid=$(xcrun simctl list devices available --json \
             | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
@@ -142,8 +146,6 @@ jobs:
           # tests start before nsurlsessiond is ready, and setting up the
           # background URLSession fails its xpc connection
           xcrun simctl bootstatus "$udid" -b
-          # Tests that need nsurlsessiond to answer skip themselves when it
-          # refuses the test process, as it does on the hosted runners
           xcodebuild test \
             -workspace RNBDExample.xcworkspace \
             -scheme react-native-background-downloader-Unit-Tests \
