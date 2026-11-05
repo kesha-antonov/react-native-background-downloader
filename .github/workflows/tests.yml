@@ -77,9 +77,13 @@ jobs:
 
   ios:
     name: iOS build and unit tests
-    runs-on: macos-15
+    # Expo SDK 58's expo-modules-jsi needs Swift 6.2 (Xcode 26+)
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      - name: Show the Xcode version
+        run: xcodebuild -version
 
       - uses: actions/setup-node@v4
         with:
@@ -111,6 +115,7 @@ jobs:
           SKIP_BUNDLING: '1'
         run: |
           workspace=$(ls -d *.xcworkspace | head -1)
+          status=0
           xcodebuild build \
             -workspace "$workspace" \
             -scheme "${workspace%.xcworkspace}" \
@@ -118,8 +123,11 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
-            | tail -n 200
-          exit ${PIPESTATUS[0]}
+            > build.log 2>&1 || status=$?
+          # A failing script phase prints its error far above the summary
+          grep -E "error:|warning: .*failed|\\*\\* BUILD" build.log | head -n 50
+          tail -n 100 build.log
+          exit $status
 
       # The library's XCTest target (the podspec's test spec), on the first
       # available iPhone simulator
