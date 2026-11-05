@@ -44,7 +44,21 @@ class Uploader(private val context: Context) {
     interface UploadListener {
         fun onBegin(id: String, expectedBytes: Long)
         fun onProgress(id: String, bytesUploaded: Long, bytesTotal: Long)
-        fun onComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long)
+        /** A part of an upload with partUrls was accepted (persist it, so a resume skips it). */
+        fun onPartComplete(id: String, part: UploadPartResult)
+        /**
+         * [responseCode], [responseBody] and [responseHeaders] are the last part's for an
+         * upload with partUrls; [parts] lists every part in order then.
+         */
+        fun onComplete(
+            id: String,
+            responseCode: Int,
+            responseBody: String,
+            responseHeaders: Map<String, String>,
+            parts: List<UploadPartResult>?,
+            bytesUploaded: Long,
+            bytesTotal: Long
+        )
         fun onError(id: String, error: String, errorCode: Int)
     }
 
@@ -182,6 +196,11 @@ class Uploader(private val context: Context) {
                 return
             }
 
+            if (config.partUrls != null) {
+                executePartUpload(state, listener)
+                return
+            }
+
             val file = File(config.source)
             val fileSize = file.length()
             state.bytesTotal = fileSize
@@ -255,16 +274,13 @@ class Uploader(private val context: Context) {
 
             // Get response
             val responseCode = connection.responseCode
-            val responseBody = try {
-                BufferedReader(InputStreamReader(
-                    if (responseCode in 200..299) connection.inputStream else connection.errorStream
-                )).use { readCapped(it, DownloadConstants.MAX_UPLOAD_RESPONSE_CHARS) }
-            } catch (e: Exception) {
-                ""
-            }
+            val responseBody = readResponseBody(connection, responseCode)
 
             if (responseCode in 200..299) {
-                listener.onComplete(config.id, responseCode, responseBody, state.bytesUploaded.get(), state.bytesTotal)
+                listener.onComplete(
+                    config.id, responseCode, responseBody, lowercasedResponseHeaders(connection), null,
+                    state.bytesUploaded.get(), state.bytesTotal
+                )
             } else {
                 listener.onError(config.id, "HTTP error: $responseCode - $responseBody", responseCode)
             }
@@ -294,6 +310,138 @@ class Uploader(private val context: Context) {
                 // Ignore
             }
         }
+    }
+
+    /**
+     * Upload the source in byte ranges, one request per part URL, in order. Parts the
+     * server already accepted (config.completedParts, kept across pause and restart) are
+     * skipped. Any part that isn't accepted fails the whole upload.
+     */
+    private fun executePartUpload(state: UploadState, listener: UploadListener) {
+        val config = state.config
+        val partUrls = config.partUrls ?: return
+        val file = File(config.source)
+        val fileSize = file.length()
+        val ranges = uploadPartRanges(fileSize, partUrls.size, config.partSize)
+        if (ranges == null) {
+            val sizeNote = if (config.partSize > 0) " of ${config.partSize} bytes" else ""
+            listener.onError(state.id, "The file ($fileSize bytes) can't be split into ${partUrls.size} parts$sizeNote", -1)
+            activeUploads.remove(state.id)
+            return
+        }
+
+        val results = config.completedParts.orEmpty().toMutableList()
+        state.bytesTotal = fileSize
+        state.bytesUploaded.set(results.sumOf { it.bytes })
+        if (!state.hasReportedBegin) {
+            state.hasReportedBegin = true
+            listener.onBegin(state.id, fileSize)
+        }
+
+        for ((index, range) in ranges.withIndex()) {
+            val partNumber = index + 1
+            if (results.any { it.partNumber == partNumber }) continue
+            if (state.isCancelled.get() || state.isPaused.get()) return
+
+            val part = uploadPart(state, listener, file, partUrls[index], partNumber, range) ?: return
+            if (part.responseCode !in 200..299) {
+                listener.onError(
+                    state.id,
+                    "Part $partNumber failed: HTTP ${part.responseCode} - ${part.responseBody}",
+                    part.responseCode
+                )
+                activeUploads.remove(state.id)
+                return
+            }
+            results.add(part)
+            listener.onPartComplete(state.id, part)
+        }
+
+        val parts = results.sortedBy { it.partNumber }
+        val last = parts.last()
+        listener.onComplete(
+            state.id, last.responseCode, last.responseBody, last.responseHeaders, parts,
+            state.bytesUploaded.get(), state.bytesTotal
+        )
+        activeUploads.remove(state.id)
+    }
+
+    /** Send one part as the raw body. Null when the upload was paused or cancelled meanwhile. */
+    private fun uploadPart(
+        state: UploadState,
+        listener: UploadListener,
+        file: File,
+        url: String,
+        partNumber: Int,
+        range: LongRange
+    ): UploadPartResult? {
+        val config = state.config
+        val length = range.last - range.first + 1
+        val connection = URL(url).openConnection() as HttpURLConnection
+        state.connection = connection
+        try {
+            connection.requestMethod = config.method
+            connection.doOutput = true
+            connection.doInput = true
+            connection.useCaches = false
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = READ_TIMEOUT_MS
+            config.headers?.forEach { (key, value) -> connection.setRequestProperty(key, value) }
+            connection.setRequestProperty("Content-Type", config.mimeType ?: "application/octet-stream")
+            connection.setFixedLengthStreamingMode(length)
+            RNBackgroundDownloaderModuleImpl.logD(TAG, "Uploading part $partNumber of ${config.id}: bytes ${range.first}-${range.last}")
+
+            // Partial progress of this part is dropped if it has to be sent again
+            val bytesBefore = state.bytesUploaded.get()
+            java.io.RandomAccessFile(file, "r").use { input ->
+                input.seek(range.first)
+                connection.outputStream.use { output ->
+                    val buffer = ByteArray(BUFFER_SIZE)
+                    var remaining = length
+                    while (remaining > 0) {
+                        if (state.isCancelled.get() || state.isPaused.get()) {
+                            state.bytesUploaded.set(bytesBefore)
+                            return null
+                        }
+                        val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                        if (read == -1) throw java.io.EOFException("Source file shrank while uploading part $partNumber")
+                        output.write(buffer, 0, read)
+                        remaining -= read
+                        listener.onProgress(state.id, state.bytesUploaded.addAndGet(read.toLong()), state.bytesTotal)
+                    }
+                }
+            }
+            if (state.isCancelled.get() || state.isPaused.get()) {
+                state.bytesUploaded.set(bytesBefore)
+                return null
+            }
+
+            val responseCode = connection.responseCode
+            return UploadPartResult(
+                partNumber = partNumber,
+                responseCode = responseCode,
+                responseBody = readResponseBody(connection, responseCode),
+                responseHeaders = lowercasedResponseHeaders(connection),
+                bytes = length
+            )
+        } finally {
+            try {
+                connection.disconnect()
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    private fun readResponseBody(connection: HttpURLConnection, responseCode: Int): String = try {
+        val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
+        stream?.let {
+            BufferedReader(InputStreamReader(it)).use { reader ->
+                readCapped(reader, DownloadConstants.MAX_UPLOAD_RESPONSE_CHARS)
+            }
+        } ?: ""
+    } catch (e: Exception) {
+        ""
     }
 
     private fun calculateMultipartSize(config: RNBGDUploadTaskConfig, file: File, boundary: String): Long {
@@ -419,4 +567,17 @@ internal fun readCapped(reader: java.io.Reader, maxChars: Int): String {
         response.append(buffer, 0, read)
     }
     return response.toString()
+}
+
+/** Response headers with lowercased names; repeated headers are joined with ", ". */
+internal fun lowercasedResponseHeaders(connection: HttpURLConnection): Map<String, String> {
+    val headers = mutableMapOf<String, String>()
+    for ((name, values) in connection.headerFields.orEmpty()) {
+        // The status line comes with a null name
+        if (name == null || values == null) continue
+        val key = name.lowercase()
+        val value = values.joinToString(", ")
+        headers[key] = headers[key]?.let { "$it, $value" } ?: value
+    }
+    return headers
 }

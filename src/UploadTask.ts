@@ -15,6 +15,7 @@ import {
   Metadata,
   UnsafeObject,
   Headers,
+  UploadPartResult,
 } from './types'
 import { config } from './config'
 import { log } from './logger'
@@ -43,6 +44,12 @@ export class UploadTask {
 
   uploadParams?: UploadParams
 
+  // Set once the upload is done
+  responseCode?: number
+  responseBody?: string
+  responseHeaders?: Record<string, string>
+  parts?: UploadPartResult[]
+
   beginHandler?: UploadBeginHandler
   progressHandler?: UploadProgressHandler
   doneHandler?: UploadDoneHandler
@@ -62,6 +69,13 @@ export class UploadTask {
       this.bytesTotal = (taskParams as UploadTaskInfoNative).bytesTotal
 
     this.metadata = this.tryParseJson(taskParams.metadata) ?? {}
+
+    // A finished upload restored by getExistingUploadTasks carries its response
+    const nativeInfo = taskParams as UploadTaskInfoNative
+    if (nativeInfo.responseCode != null) this.responseCode = nativeInfo.responseCode
+    if (nativeInfo.responseBody != null) this.responseBody = nativeInfo.responseBody
+    if (nativeInfo.responseHeaders != null) this.responseHeaders = nativeInfo.responseHeaders
+    if (nativeInfo.parts != null) this.parts = nativeInfo.parts
 
     // A restored task that already has data has begun; so has one this replaces
     this.hasBegun = (originalTask instanceof UploadTask && originalTask.hasBegun) || this.bytesUploaded > 0
@@ -135,6 +149,10 @@ export class UploadTask {
     this.state = 'DONE'
     this.bytesUploaded = params.bytesUploaded
     this.bytesTotal = params.bytesTotal
+    this.responseCode = params.responseCode
+    this.responseBody = params.responseBody
+    this.responseHeaders = params.responseHeaders
+    this.parts = params.parts
     this.doneHandler?.(params)
   }
 
@@ -194,13 +212,17 @@ export class UploadTask {
     this.state = 'UPLOADING'
 
     // kick-off upload after returning the task
+    const { partUrls } = this.uploadParams
     nativeModule.upload({
       id: this.id,
       metadata: JSON.stringify(this.metadata),
       progressInterval: config.progressInterval,
       progressMinBytes: config.progressMinBytes,
       ...this.uploadParams,
-      method: this.uploadParams.method ?? 'POST',
+      // The native spec requires a url; with partUrls native uses those instead
+      url: this.uploadParams.url ?? partUrls?.[0] ?? '',
+      // S3 UploadPart (and similar part APIs) take PUT
+      method: this.uploadParams.method ?? (partUrls ? 'PUT' : 'POST'),
       headers: this.headersToUnsafeObject(this.uploadParams.headers),
       isAllowedOverRoaming: this.uploadParams.isAllowedOverRoaming ?? false,
       isAllowedOverMetered: this.uploadParams.isAllowedOverMetered ?? config.allowsCellularAccess,
