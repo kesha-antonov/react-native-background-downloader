@@ -125,7 +125,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             > build.log 2>&1 || status=$?
           # A failing script phase prints its error far above the summary
-          grep -E "error:|warning: .*failed|\\*\\* BUILD" build.log | head -n 50
+          grep -E "error:|warning: .*failed|\\*\\* BUILD" build.log | head -n 50 || true
           tail -n 100 build.log
           exit $status
 
