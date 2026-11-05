@@ -694,6 +694,7 @@ setConfig({
 - The `logCallback` function is called for each native debug log (iOS only sends logs to callback currently)
 - Logs include detailed information about download lifecycle, session management, and errors
 - In production builds, logs are only printed when explicitly enabled via `isLogsEnabled`
+- Logs include URLs but not header values or upload response bodies; see [Security Notes](docs/PLATFORM_NOTES.md#security-notes) before forwarding them anywhere
 
 </details>
 
@@ -750,6 +751,7 @@ task.start()
 - Uses HEAD requests to resolve redirects efficiently
 - Falls back to original URL if redirect resolution fails
 - Respects the same headers and timeouts as the main download
+- While `Authorization`, `Cookie` or `Proxy-Authorization` is set, stops before a redirect to another origin, so the credentials aren't sent there; never follows a redirect to a non-http(s) URL or from https to http
 
 </details>
 
