@@ -37,6 +37,8 @@ static const NSTimeInterval kStallTimeout = 20.0;
 static const NSTimeInterval kStallCheckInterval = 5.0;
 // Times in a row a download cut off by the network continues from its resume data
 static const NSInteger kMaxNetworkResumes = 5;
+// Upload response bodies past this are cut off before they reach JS
+static const NSUInteger kMaxUploadResponseBytes = 1024 * 1024;
 
 // DLog accepts taskId as first parameter to help debugging
 // Only logs if isLogsEnabled is true (works in both DEBUG and RELEASE builds)
@@ -751,6 +753,9 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
             [idToNetworkResumeCount removeObjectForKey:taskConfig.id];
             // Clean up decode error retry tracking to prevent memory leak
             [decodeErrorRetriedIds removeObject:taskConfig.id];
+            // The task is over: its resume data (which embeds the request headers,
+            // tokens included) must not stay on disk
+            [self deleteResumeDataForTaskId:taskConfig.id];
         }
     }
 }
@@ -1665,7 +1670,11 @@ RCT_EXPORT_METHOD(getExistingDownloadTasks: (RCTPromiseResolveBlock)resolve reje
 
     NSURL *fileURL = [self resumeDataFileURLForTaskId:taskId];
     NSError *error = nil;
-    BOOL success = [resumeData writeToURL:fileURL options:NSDataWritingAtomic error:&error];
+    // Resume data embeds the request with its headers: keep it encrypted at rest while still
+    // writable when a network drop saves it on a locked device
+    BOOL success = [resumeData writeToURL:fileURL
+                                  options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
+                                    error:&error];
 
     if (!success) {
         DLog(taskId, @"[RNBackgroundDownloader] - [saveResumeData] failed to save resume data: %@", error.localizedDescription);
@@ -2292,7 +2301,11 @@ RCT_EXPORT_METHOD(upload:(NSDictionary *)options) {
 
                 // Write body to temp file for background upload
                 NSString *tempPath = [self multipartTempPathForUploadId:identifier];
-                if (![body writeToFile:tempPath atomically:YES]) {
+                // A full copy of the user's file plus form fields: encrypted at rest, still
+                // readable by the background session while the device is locked
+                if (![body writeToFile:tempPath
+                               options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
+                                 error:nil]) {
                     DLog(identifier, @"[RNBackgroundDownloader] - [Error] Could not write multipart body to temp file");
                     [self emitUploadFailed:identifier error:@"Could not write multipart body to temp file" errorCode:NSURLErrorCannotWriteToFile];
                     return;
@@ -2587,7 +2600,13 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
         if (taskConfig.responseData == nil) {
             taskConfig.responseData = [[NSMutableData alloc] init];
         }
-        [taskConfig.responseData appendData:data];
+        // The body goes to JS as one string: cap it, so a hostile or broken server
+        // can't run the app (or its background relaunch) out of memory
+        NSUInteger room = kMaxUploadResponseBytes > taskConfig.responseData.length
+            ? kMaxUploadResponseBytes - taskConfig.responseData.length : 0;
+        if (room > 0) {
+            [taskConfig.responseData appendData:data.length > room ? [data subdataWithRange:NSMakeRange(0, room)] : data];
+        }
     }
 }
 
@@ -2806,18 +2825,20 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
 
 #pragma mark - Locked-device deferred move (issue #101)
 
-// Directory (with NSFileProtectionNone) used to hold finished downloads whose move to the
-// final destination is deferred because the device is locked.
+// Directory used to hold finished downloads whose move to the final destination is deferred
+// because the device is locked. CompleteUntilFirstUserAuthentication can be written while
+// locked (background sessions only run after the first unlock), unlike Complete, without
+// leaving the file unprotected the way None would.
 - (NSURL *)pendingMovesDirectory {
     NSFileManager *fileManager = [NSFileManager defaultManager];
     NSURL *cachesDir = [[fileManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask] firstObject];
     NSURL *dir = [cachesDir URLByAppendingPathComponent:@"RNBGDPendingMoves" isDirectory:YES];
+    NSDictionary *attributes = @{NSFileProtectionKey: NSFileProtectionCompleteUntilFirstUserAuthentication};
     if (![fileManager fileExistsAtPath:dir.path]) {
-        // NSFileProtectionNone so we can write here even while the device is locked.
-        [fileManager createDirectoryAtURL:dir
-              withIntermediateDirectories:YES
-                               attributes:@{NSFileProtectionKey: NSFileProtectionNone}
-                                    error:nil];
+        [fileManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:attributes error:nil];
+    } else {
+        // Older versions created it with NSFileProtectionNone
+        [fileManager setAttributes:attributes ofItemAtPath:dir.path error:nil];
     }
     return dir;
 }
@@ -2834,8 +2855,8 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
         DLog(taskConfig.id, @"[RNBackgroundDownloader] - [stageAndDeferMove] staging failed: %@", stageError.localizedDescription);
         return NO;
     }
-    // Make sure the staged file is readable while locked.
-    [fileManager setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:stagingURL.path error:nil];
+    // Movable while locked, but still encrypted at rest (see pendingMovesDirectory)
+    [fileManager setAttributes:@{NSFileProtectionKey: NSFileProtectionCompleteUntilFirstUserAuthentication} ofItemAtPath:stagingURL.path error:nil];
 
     pendingMoves[taskConfig.id] = @{
         @"id": taskConfig.id,
@@ -3023,11 +3044,13 @@ RCT_EXPORT_METHOD(getExistingUploadTasks:(RCTPromiseResolveBlock)resolve rejecte
     NSString *dataPath = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject] stringByDeletingLastPathComponent];
     NSString *dataPathWithoutUuid = [self getPathWithoutSuffixUuid:dataPath];
 
-    if ([path hasPrefix:bundlePathWithoutUuid]) {
+    // A path shorter than the container (e.g. ".../Data/Application" itself) would make
+    // substringFromIndex: throw outside any @try, crashing the app
+    if ([path hasPrefix:bundlePathWithoutUuid] && path.length >= bundlePath.length) {
         return [path substringFromIndex:[bundlePath length]];
     }
 
-    if ([path hasPrefix:dataPathWithoutUuid]) {
+    if ([path hasPrefix:dataPathWithoutUuid] && path.length >= dataPath.length) {
         return [path substringFromIndex:[dataPath length]];
     }
 

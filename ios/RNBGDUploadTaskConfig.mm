@@ -7,6 +7,24 @@
     return YES;
 }
 
+static NSString *_Nullable RNBGDStringOrNil(id value)
+{
+    if ([value isKindOfClass:[NSString class]]) return value;
+    if (value == nil || value == [NSNull null]) return nil;
+    return [value description];
+}
+
+static NSDictionary<NSString *, NSString *> *_Nullable RNBGDStringParameters(id value)
+{
+    if (![value isKindOfClass:[NSDictionary class]]) return nil;
+    NSMutableDictionary<NSString *, NSString *> *parameters = [NSMutableDictionary dictionary];
+    [(NSDictionary *)value enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        NSString *string = RNBGDStringOrNil(obj);
+        if ([key isKindOfClass:[NSString class]] && string != nil) parameters[key] = string;
+    }];
+    return parameters;
+}
+
 - (instancetype)initWithDictionary:(NSDictionary *)dict
 {
     self = [super init];
@@ -17,9 +35,11 @@
         self.source = dict[@"source"];
         self.method = dict[@"method"] ?: @"POST";
         self.metadata = dict[@"metadata"] ?: @"{}";
-        self.fieldName = dict[@"fieldName"];
-        self.mimeType = dict[@"mimeType"];
-        self.parameters = dict[@"parameters"];
+        // NSNull (a missing option) or a number would be archived as is, and then the
+        // whole saved upload map fails to decode with the NSString/NSDictionary allowlist
+        self.fieldName = RNBGDStringOrNil(dict[@"fieldName"]);
+        self.mimeType = RNBGDStringOrNil(dict[@"mimeType"]);
+        self.parameters = RNBGDStringParameters(dict[@"parameters"]);
         self.reportedBegin = NO;
         self.bytesUploaded = 0;
         self.bytesTotal = 0;
