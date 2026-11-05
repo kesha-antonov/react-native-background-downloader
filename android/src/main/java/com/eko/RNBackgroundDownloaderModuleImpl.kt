@@ -46,6 +46,10 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     private val sharedLock = Any()
 
+    // Signature permission held by DownloadProvider, the only legitimate sender
+    // of DOWNLOAD_COMPLETE
+    private const val DOWNLOAD_COMPLETE_PERMISSION = "android.permission.SEND_DOWNLOAD_COMPLETED_INTENTS"
+
     // Controls whether debug logs are enabled
     @Volatile
     private var isLogsEnabled = false
@@ -396,68 +400,75 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
 
     downloadReceiver = object : BroadcastReceiver() {
       override fun onReceive(context: Context, intent: Intent) {
-        val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+        handleDownloadEnded(context, intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1))
+      }
+    }
+    downloader.downloadEndedHandler = { downloadId -> handleDownloadEnded(reactContext, downloadId) }
 
-        // Check if this download is being intentionally cancelled (paused or stopped)
-        val cancelIntent = downloader.getCancelIntent(downloadId)
-        if (cancelIntent != null) {
-          downloader.clearCancelIntent(downloadId)
-          logD(NAME, "Ignoring broadcast for ${cancelIntent.name.lowercase()} download: $downloadId")
-          return
+    // DOWNLOAD_COMPLETE isn't a protected broadcast on every Android version, and
+    // the receiver has to be exported for DownloadManager to reach it. Requiring
+    // DownloadProvider's signature permission keeps other apps from sending a fake
+    // one, which would end (and remove) a download that is still running.
+    compatRegisterReceiver(reactContext, downloadReceiver!!, filter, true, DOWNLOAD_COMPLETE_PERMISSION)
+    isReceiverRegistered = true
+  }
+
+  private fun handleDownloadEnded(context: Context, downloadId: Long) {
+    // Check if this download is being intentionally cancelled (paused or stopped)
+    val cancelIntent = downloader.getCancelIntent(downloadId)
+    if (cancelIntent != null) {
+      downloader.clearCancelIntent(downloadId)
+      logD(NAME, "Ignoring broadcast for ${cancelIntent.name.lowercase()} download: $downloadId")
+      return
+    }
+
+    val config = downloadIdToConfig[downloadId]
+
+    if (config != null) {
+      if (!synchronized(sharedLock) { endedDownloadIds.add(downloadId) }) {
+        logD(NAME, "Ignoring repeated broadcast for download: $downloadId")
+        return
+      }
+      val downloadStatus = downloader.checkDownloadStatus(downloadId)
+      val status = downloadStatus.getInt("status")
+      val localUri = downloadStatus.getString("localUri")
+
+      stopTaskProgress(config.id)
+
+      synchronized(sharedLock) {
+        // Drop any buffered progress that slipped past stopTaskProgress's clearPendingReport
+        // (the polling thread may have re-added it between clearPendingReport and this lock)
+        progressReporter.clearPendingReport(config.id)
+        when (status) {
+          DownloadManager.STATUS_SUCCESSFUL -> {
+            onSuccessfulDownload(config, downloadStatus)
+          }
+          DownloadManager.STATUS_FAILED -> {
+            onFailedDownload(config, downloadStatus)
+          }
         }
 
-        val config = downloadIdToConfig[downloadId]
-
-        if (config != null) {
-          if (!synchronized(sharedLock) { endedDownloadIds.add(downloadId) }) {
-            logD(NAME, "Ignoring repeated broadcast for download: $downloadId")
-            return
-          }
-          val downloadStatus = downloader.checkDownloadStatus(downloadId)
-          val status = downloadStatus.getInt("status")
-          val localUri = downloadStatus.getString("localUri")
-
-          stopTaskProgress(config.id)
-
-          synchronized(sharedLock) {
-            // Drop any buffered progress that slipped past stopTaskProgress's clearPendingReport
-            // (the polling thread may have re-added it between clearPendingReport and this lock)
-            progressReporter.clearPendingReport(config.id)
-            when (status) {
-              DownloadManager.STATUS_SUCCESSFUL -> {
-                onSuccessfulDownload(config, downloadStatus)
-              }
-              DownloadManager.STATUS_FAILED -> {
-                onFailedDownload(config, downloadStatus)
-              }
-            }
-
-            if (localUri != null) {
-              // Prevent memory leaks from MediaScanner.
-              // Download successful, clean task after media scanning.
-              val paths = arrayOf(localUri)
-              MediaScannerConnection.scanFile(context, paths, null) { _, _ ->
-                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                  // Not stopTask: DownloadManager.remove() deletes the downloaded file too
-                  releaseCompletedTask(config.id)
-                } else {
-                  stopTask(config.id)
-                }
-                // Cleaned up: a later broadcast finds no config
-                synchronized(sharedLock) { endedDownloadIds.remove(downloadId) }
-              }
+        if (localUri != null) {
+          // Prevent memory leaks from MediaScanner.
+          // Download successful, clean task after media scanning.
+          val paths = arrayOf(localUri)
+          MediaScannerConnection.scanFile(context, paths, null) { _, _ ->
+            if (status == DownloadManager.STATUS_SUCCESSFUL) {
+              // Not stopTask: DownloadManager.remove() deletes the downloaded file too
+              releaseCompletedTask(config.id)
             } else {
-              // Download failed, clean task.
               stopTask(config.id)
-              endedDownloadIds.remove(downloadId)
             }
+            // Cleaned up: a later broadcast finds no config
+            synchronized(sharedLock) { endedDownloadIds.remove(downloadId) }
           }
+        } else {
+          // Download failed, clean task.
+          stopTask(config.id)
+          endedDownloadIds.remove(downloadId)
         }
       }
     }
-
-    compatRegisterReceiver(reactContext, downloadReceiver!!, filter, true)
-    isReceiverRegistered = true
   }
 
   // TAKEN FROM
@@ -466,20 +477,24 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
     context: Context,
     receiver: BroadcastReceiver,
     filter: IntentFilter,
-    exported: Boolean
+    exported: Boolean,
+    broadcastPermission: String? = null
   ) {
     if (Build.VERSION.SDK_INT >= 34 && context.applicationInfo.targetSdkVersion >= 34) {
       context.registerReceiver(
         receiver,
         filter,
+        broadcastPermission,
+        null,
         if (exported) Context.RECEIVER_EXPORTED else Context.RECEIVER_NOT_EXPORTED
       )
     } else {
-      context.registerReceiver(receiver, filter)
+      context.registerReceiver(receiver, filter, broadcastPermission, null)
     }
   }
 
   private fun unregisterDownloadReceiver() {
+    downloader.downloadEndedHandler = null
     downloadReceiver?.let {
       try {
         reactContext.unregisterReceiver(it)

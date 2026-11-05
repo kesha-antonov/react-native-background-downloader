@@ -58,7 +58,15 @@ object RedirectResolver {
                     // Resolve relative locations against the current URL, keeping its port,
                     // path and scheme (for "//host/path")
                     val previousUrl = currentUrl
-                    currentUrl = URL(URL(currentUrl), location).toString()
+                    val nextUrl = URL(URL(currentUrl), location)
+                    if (!isSafeHop(URL(currentUrl), nextUrl, headers)) {
+                        // Leave this hop to the downloader: the platform's own redirect
+                        // handling drops credentials across hosts and refuses downgrades
+                        RNBackgroundDownloaderModuleImpl.logW(TAG, "Not following redirect from $previousUrl to $nextUrl")
+                        connection.disconnect()
+                        break
+                    }
+                    currentUrl = nextUrl.toString()
 
                     RNBackgroundDownloaderModuleImpl.logD(TAG, "Redirect ${redirectCount + 1}/$maxRedirects: $previousUrl -> $currentUrl")
                     redirectCount++
@@ -86,4 +94,24 @@ object RedirectResolver {
             return originalUrl
         }
     }
+
+    /**
+     * Whether the resolver may probe [next] with the request's headers. Only http(s),
+     * never https -> http, and no other origin while credentials are attached -
+     * every probe resends all headers, and the resolved URL is downloaded with them.
+     */
+    internal fun isSafeHop(current: URL, next: URL, headers: Map<String, String>): Boolean {
+        val scheme = next.protocol.lowercase()
+        if (scheme != "http" && scheme != "https") return false
+        if (current.protocol.equals("https", ignoreCase = true) && scheme == "http") return false
+        val sameOrigin = current.protocol.equals(next.protocol, ignoreCase = true) &&
+            current.host.equals(next.host, ignoreCase = true) &&
+            effectivePort(current) == effectivePort(next)
+        return sameOrigin || headers.keys.none { HeaderUtils.isCredentialHeader(it) }
+    }
+
+    private fun isSafeHop(current: URL, next: URL, headers: ReadableMap?): Boolean =
+        isSafeHop(current, next, HeaderUtils.toMap(headers))
+
+    private fun effectivePort(url: URL): Int = if (url.port != -1) url.port else url.defaultPort
 }

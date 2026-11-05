@@ -10,6 +10,15 @@ import java.net.HttpURLConnection
  */
 object HeaderUtils {
 
+    // Headers that carry credentials and must not be sent to another host
+    private val CREDENTIAL_HEADERS = setOf("authorization", "cookie", "proxy-authorization")
+
+    fun isCredentialHeader(name: String): Boolean = name.lowercase() in CREDENTIAL_HEADERS
+
+    /** The headers without Authorization, Cookie and Proxy-Authorization (case-insensitive). */
+    fun withoutCredentials(headers: Map<String, String>): Map<String, String> =
+        headers.filterKeys { !isCredentialHeader(it) }
+
     /**
      * Check if the provided headers already contain a User-Agent header (case-insensitive).
      */
