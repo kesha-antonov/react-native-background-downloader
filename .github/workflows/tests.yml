@@ -138,6 +138,10 @@ jobs:
         run: |
           udid=$(xcrun simctl list devices available --json \
             | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          # Boot the simulator and wait until it's fully up: on a cold one the
+          # tests start before nsurlsessiond is ready, and setting up the
+          # background URLSession fails its xpc connection
+          xcrun simctl bootstatus "$udid" -b
           xcodebuild test \
             -workspace RNBDExample.xcworkspace \
             -scheme react-native-background-downloader-Unit-Tests \
