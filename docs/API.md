@@ -100,20 +100,31 @@ Upload a file to a server.
 | Property      | Type                                             | Required | Platforms | Description |
 | ------------- | ------------------------------------------------ | :------: | :-------: | ----------- |
 | `id`          | String |    ✅     |    All    | A unique ID to provide for this upload. This ID will help to identify the upload task when the app re-launches |
-| `url`         | String |    ✅     |    All    | URL to upload the file to |
+| `url`         | String |    ✅     |    All    | URL to upload the file to. Not needed with `partUrls` |
 | `source`      | String |    ✅     |    All    | Path to the local file to upload. The 'file://' prefix will be automatically removed if present |
-| `method`      | 'POST' \| 'PUT' \| 'PATCH' |          |    All    | HTTP method for upload. Default is 'POST' |
+| `method`      | 'POST' \| 'PUT' \| 'PATCH' |          |    All    | HTTP method for upload. Default is 'POST', or 'PUT' with `partUrls` |
 | `metadata`    | Record<string, unknown> |           |    All    | Custom data to be preserved across app restarts. Will be serialized to JSON |
 | `headers`     | Record<string, string \| null> |           |    All    | Custom headers to add to the upload request. These are merged with the headers given in `setConfig({ headers: { ... } })`. Headers with null values will be removed |
 | `fieldName`   | String |          |    All    | Name of the multipart form field for the file. Default is 'file' |
 | `mimeType`    | String |          |    All    | MIME type of the file being uploaded. Default is inferred from file extension |
 | `parameters`  | Record<string, string> |          |    All    | Additional form parameters to send with the upload |
+| `partUrls`    | String[] |          |    All    | Upload the file in parts, one URL per part (e.g. S3 multipart upload with a presigned `UploadPart` URL each). Part `i` is sent as the raw body to `partUrls[i]`; can't be combined with `fieldName` or `parameters`. See [Uploading in parts](#uploading-in-parts) |
+| `partSize`    | Number |          |    All    | Bytes per part with `partUrls`, the last part taking what's left. Defaults to `Math.ceil(fileSize / partUrls.length)`. The upload fails if the parts don't cover the file exactly |
 | `isAllowedOverRoaming` | Boolean   |          |  Android  | Whether this upload may proceed over a roaming connection. By default, roaming is allowed |
 | `isAllowedOverMetered` | Boolean   |          |  All  | Whether this upload may proceed over a metered (cellular) network connection. Defaults to the global `allowsCellularAccess` |
 
 ### Returns
 
 `UploadTask` - The upload task to control and monitor this upload. Call `task.start()` to begin the upload.
+
+### Uploading in parts
+
+With `partUrls`, one task uploads the file across the URLs: progress is the sum of the parts against the file size, and `done` fires once every part was accepted, with each part's response (including its `ETag` header) in `parts`. Any part the server doesn't accept (not 2xx) fails the whole upload with that status as `errorCode`.
+
+- **Android** sends the parts one after another, each read straight from its byte range of the file. Accepted parts are saved, so a paused or restarted upload continues with the first part that isn't in yet.
+- **iOS** background sessions upload only from a file, so each part is copied into a temporary file (needing up to the file's size in free space) and uploaded as its own background task, several at a time. Each copy is deleted as soon as its part is accepted.
+
+If an upload finishes while the app isn't running (iOS), its response, `parts` included, is returned by `getExistingUploadTasks()` as a `DONE` task.
 
 ---
 
@@ -125,7 +136,7 @@ Recommended to run at the init stage of the app.
 
 ### Returns
 
-`Promise<UploadTask[]>` - A promise that resolves to an array of upload tasks that were running in the background so you can re-attach callbacks to them.
+`Promise<UploadTask[]>` - A promise that resolves to an array of upload tasks that were running in the background so you can re-attach callbacks to them. On iOS it also returns, once, uploads that finished while the app wasn't running: they have `state: 'DONE'` and carry `responseCode`, `responseBody`, `responseHeaders` and `parts`.
 
 ---
 
@@ -327,6 +338,7 @@ A class representing an upload task created by `createUploadTask()`.
 | `bytesUploaded` | Number | The number of bytes currently uploaded by the task |
 | `bytesTotal`   | Number | The total number bytes to be uploaded by this task |
 | `uploadParams` | UploadParams | The upload parameters set for this task |
+| `responseCode`, `responseBody`, `responseHeaders`, `parts` | | Set once the upload is done; see `done` below |
 
 ### Callback Methods
 
@@ -334,7 +346,7 @@ A class representing an upload task created by `createUploadTask()`.
 | ---------- | --------------------------------- | ----------- |
 | `begin`    | `{ expectedBytes: number }` | Called once, when the upload starts; not again on resume |
 | `progress` | `{ bytesUploaded: number, bytesTotal: number }` | Called based on progressInterval (default: every 1000ms) so you can update your progress bar accordingly |
-| `done`     | `{ responseCode: number, responseBody: string, bytesUploaded: number, bytesTotal: number }` | Called when the upload is done. Includes server response code and body |
+| `done`     | `{ responseCode: number, responseBody: string, responseHeaders: Record<string, string>, parts?: UploadPartResult[], bytesUploaded: number, bytesTotal: number }` | Called when the upload is done. `responseHeaders` has lowercased names (`responseHeaders.etag`). With `partUrls`, `parts` lists each part in order as `{ partNumber, responseCode, responseBody, responseHeaders, bytes }`, and the other response fields are the last part's |
 | `error`    | `{ error: string, errorCode: number }` | Called when the upload stops due to an error |
 
 ### Methods

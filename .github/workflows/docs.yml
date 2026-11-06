@@ -18,10 +18,9 @@ on:
       - .github/workflows/docs.yml
   workflow_dispatch:
 
-# Allow one concurrent deployment, without cancelling a run that is mid-deploy
-concurrency:
-  group: pages
-  cancel-in-progress: false
+# Jobs that need more ask for it themselves
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -29,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -60,6 +61,13 @@ jobs:
     permissions:
       pages: write
       id-token: write
+
+    # One deployment at a time, without cancelling one that is mid-deploy. On
+    # this job only: at the workflow level a pull request's run joined the group
+    # too, and a newer queued run cancels a waiting one - including a deploy.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
 
     environment:
       name: github-pages

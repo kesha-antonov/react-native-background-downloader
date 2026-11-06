@@ -485,6 +485,40 @@ await task.stop()
 </details>
 
 <details>
+<summary><strong>Uploading a large file in parts (S3 multipart upload)</strong></summary>
+
+Pass one presigned URL per part as `partUrls`: the library sends each byte range of the file to its URL under one task, with combined progress, and hands back every part's `ETag` for `CompleteMultipartUpload`. No part files are created on Android; on iOS each part is copied to a temporary file while it uploads.
+
+```javascript
+import { createUploadTask, directories } from '@kesha-antonov/react-native-background-downloader'
+
+// From your backend: CreateMultipartUpload, then a presigned UploadPart URL per part
+const { uploadId, partUrls, partSize } = await api.startMultipartUpload({ fileSize })
+
+const task = createUploadTask({
+  id: 'video-upload',
+  source: `${directories.documents}/video.mp4`,
+  partUrls, // method defaults to PUT
+  partSize, // optional: defaults to Math.ceil(fileSize / partUrls.length)
+  mimeType: 'video/mp4',
+  metadata: { uploadId },
+}).progress(({ bytesUploaded, bytesTotal }) => {
+  console.log(`Uploaded: ${bytesUploaded / bytesTotal * 100}%`)
+}).done(async ({ parts }) => {
+  await api.completeMultipartUpload({
+    uploadId,
+    parts: parts.map(({ partNumber, responseHeaders }) => ({ PartNumber: partNumber, ETag: responseHeaders.etag })),
+  })
+})
+
+task.start()
+```
+
+A single upload's response headers are in `done` too, as `responseHeaders` (lowercased names). On iOS, an upload that finishes while the app isn't running comes back from `getExistingUploadTasks()` as a `DONE` task with `parts` and `responseHeaders` set. See [Uploading in parts](docs/API.md#uploading-in-parts).
+
+</details>
+
+<details>
 <summary><strong>Updating headers on paused downloads</strong></summary>
 
 If your download uses authentication tokens that expire, you can update the headers of a paused download before resuming it. This is useful when auth tokens refresh while a download is paused:
@@ -694,6 +728,7 @@ setConfig({
 - The `logCallback` function is called for each native debug log (iOS only sends logs to callback currently)
 - Logs include detailed information about download lifecycle, session management, and errors
 - In production builds, logs are only printed when explicitly enabled via `isLogsEnabled`
+- Logs include URLs but not header values or upload response bodies; see [Security Notes](docs/PLATFORM_NOTES.md#security-notes) before forwarding them anywhere
 
 </details>
 
@@ -750,6 +785,7 @@ task.start()
 - Uses HEAD requests to resolve redirects efficiently
 - Falls back to original URL if redirect resolution fails
 - Respects the same headers and timeouts as the main download
+- While `Authorization`, `Cookie` or `Proxy-Authorization` is set, stops before a redirect to another origin, so the credentials aren't sent there; never follows a redirect to a non-http(s) URL or from https to http
 
 </details>
 

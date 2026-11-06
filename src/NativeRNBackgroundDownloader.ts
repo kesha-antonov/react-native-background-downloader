@@ -42,10 +42,25 @@ export type UploadProgressEvent = {
   bytesTotal: number
 }
 
+// One part of an upload split across partUrls
+export type UploadPartResult = {
+  // 1-based, as S3's CompleteMultipartUpload numbers parts
+  partNumber: number
+  responseCode: number
+  responseBody: string
+  // Lowercased header names, e.g. responseHeaders.etag
+  responseHeaders: UnsafeObject
+  bytes: number
+}
+
 export type UploadCompleteEvent = {
   id: string
   responseCode: number
   responseBody: string
+  // Lowercased header names
+  responseHeaders?: UnsafeObject
+  // Set for an upload with partUrls, in part order
+  parts?: UploadPartResult[]
   bytesUploaded: number
   bytesTotal: number
 }
@@ -124,6 +139,9 @@ export interface Spec extends TurboModule {
     fieldName?: string
     mimeType?: string
     parameters?: UnsafeObject
+    // Upload source in parts, one URL per part (url is ignored then)
+    partUrls?: string[]
+    partSize?: number
     isAllowedOverRoaming: boolean
     isAllowedOverMetered: boolean
   }): void
@@ -139,6 +157,11 @@ export interface Spec extends TurboModule {
     bytesUploaded: number
     bytesTotal: number
     errorCode?: number | null
+    // The response of an upload that finished while the app wasn't listening
+    responseCode?: number | null
+    responseBody?: string | null
+    responseHeaders?: UnsafeObject | null
+    parts?: UploadPartResult[] | null
   }>>
 
   // Event emitters (new architecture)

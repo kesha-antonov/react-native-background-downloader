@@ -23,14 +23,19 @@
 - (void)completeHandler:(NSString *)jobId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)handleBridgeHotReload:(NSNotification *)note;
 - (void)restartStalledDownloads;
+- (void)getExistingUploadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (NSString *)partTempPathForUploadId:(NSString *)identifier index:(NSUInteger)index;
+- (BOOL)copyRangeOfFile:(NSString *)source offset:(long long)offset length:(long long)length toPath:(NSString *)path;
 #ifndef RCT_NEW_ARCH_ENABLED
 - (void)download:(NSDictionary *)options;
 #endif
 @end
 
-// Records download failures instead of sending them to JS
+// Records download failures and upload results instead of sending them to JS
 @interface RNBGDRecordingDownloader : RNBackgroundDownloader
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *failures;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *uploadFailures;
+@property (nonatomic, strong) NSMutableArray<NSDictionary *> *uploadCompletions;
 @end
 
 @implementation RNBGDRecordingDownloader
@@ -39,6 +44,33 @@
 {
     @synchronized (self.failures) {
         [self.failures addObject:@{@"id": identifier ?: [NSNull null], @"error": error ?: @""}];
+    }
+}
+
+- (void)emitUploadFailed:(NSString *)identifier error:(NSString *)error errorCode:(NSInteger)errorCode
+{
+    @synchronized (self.failures) {
+        [self.uploadFailures addObject:@{@"id": identifier ?: [NSNull null], @"error": error ?: @"", @"errorCode": @(errorCode)}];
+    }
+}
+
+- (void)emitUploadComplete:(NSString *)identifier
+              responseCode:(NSInteger)responseCode
+              responseBody:(NSString *)responseBody
+           responseHeaders:(NSDictionary *)responseHeaders
+                     parts:(NSArray<NSDictionary *> *)parts
+             bytesUploaded:(long long)bytesUploaded
+                bytesTotal:(long long)bytesTotal
+{
+    @synchronized (self.failures) {
+        [self.uploadCompletions addObject:@{
+            @"id": identifier,
+            @"responseCode": @(responseCode),
+            @"responseHeaders": responseHeaders ?: @{},
+            @"parts": parts ?: [NSNull null],
+            @"bytesUploaded": @(bytesUploaded),
+            @"bytesTotal": @(bytesTotal)
+        }];
     }
 }
 
@@ -95,6 +127,8 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     dispatch_once(&once, ^{
         module = [RNBGDRecordingDownloader new];
         module.failures = [NSMutableArray new];
+        module.uploadFailures = [NSMutableArray new];
+        module.uploadCompletions = [NSMutableArray new];
     });
     return module;
 }
@@ -110,6 +144,8 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     uploadIds = [NSMutableArray new];
     @synchronized (self.module.failures) {
         [self.module.failures removeAllObjects];
+        [self.module.uploadFailures removeAllObjects];
+        [self.module.uploadCompletions removeAllObjects];
     }
 }
 
@@ -140,6 +176,16 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 - (NSURLSession *)session
 {
     return [self ivar:@"urlSession"];
+}
+
+// Tests that need nsurlsessiond to create, cancel or pause real tasks. On the GitHub-hosted
+// Mac runners the daemon invalidates this app-less test process's connection, so those
+// calls never get an answer there and the tests would time out. CI sets this variable
+// (TEST_RUNNER_ prefixed in the workflow) to skip them; everywhere else they run in full.
+- (BOOL)backgroundSessionTestsSkipped
+{
+    const char *skip = getenv("RNBD_SKIP_BACKGROUND_SESSION_TESTS");
+    return skip != NULL && strcmp(skip, "1") == 0;
 }
 
 - (id)lock
@@ -222,6 +268,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testDownloadKeepsItsCellularSettingOnTheRequestAndConfig
 {
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     NSString *identifier = [self uniqueId:@"cellular"];
 
     [self download:@{
@@ -458,6 +505,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testPausingADownloadDropsItsBufferedProgressAndIgnoresDataInFlight
 {
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     RNBGDTaskConfig *config = nil;
     NSString *identifier = [self addLiveDownload:@"pause-progress" config:&config];
     @synchronized ([self lock]) {
@@ -479,6 +527,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testAReloadHandsTheSessionToTheNewModuleWithoutCancellingTransfers
 {
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     // A request that stays in flight: nothing answers at this address
     NSString *identifier = [self uniqueId:@"reload"];
     [self download:@{
@@ -799,6 +848,155 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     @synchronized ([self lock]) {
         XCTAssertNil(((NSDictionary *)[self ivar:@"uploadTaskToConfigMap"])[@900005]);
     }
+}
+
+#pragma mark - Uploads in parts
+
+// An upload of a 10-byte file in two parts, its part tasks at `firstKey` and `firstKey + 1`
+- (RNBGDUploadTaskConfig *)addPartUploadWithId:(NSString *)identifier firstKey:(NSUInteger)firstKey
+{
+    [uploadIds addObject:identifier];
+    RNBGDUploadTaskConfig *config = [[RNBGDUploadTaskConfig alloc] initWithDictionary:@{
+        @"id": identifier,
+        @"url": kUnreachableURL,
+        @"source": [NSTemporaryDirectory() stringByAppendingPathComponent:identifier],
+        @"method": @"PUT",
+        @"partUrls": @[kUnreachableURL, kUnreachableURL],
+    }];
+    config.bytesTotal = 10;
+    config.partIndexByTask = @{@(firstKey): @0, @(firstKey + 1): @1};
+    @synchronized ([self lock]) {
+        ((NSMutableDictionary *)[self ivar:@"uploadTaskToConfigMap"])[@(firstKey)] = config;
+        ((NSMutableDictionary *)[self ivar:@"uploadTaskToConfigMap"])[@(firstKey + 1)] = config;
+    }
+    for (NSUInteger index = 0; index < 2; index++) {
+        [[NSFileManager defaultManager] createFileAtPath:[self.module partTempPathForUploadId:identifier index:index]
+                                                contents:[NSData dataWithBytes:"12345" length:5]
+                                              attributes:nil];
+    }
+    return config;
+}
+
+- (RNBGDFakeTask *)partTaskWithKey:(NSUInteger)key status:(NSInteger)status etag:(NSString *)etag
+{
+    RNBGDFakeTask *task = [RNBGDFakeTask new];
+    task.fakeIdentifier = key;
+    task.fakeResponse = [[NSHTTPURLResponse alloc] initWithURL:[NSURL URLWithString:kUnreachableURL]
+                                                    statusCode:status
+                                                   HTTPVersion:@"HTTP/1.1"
+                                                  headerFields:etag ? @{@"ETag": etag} : @{}];
+    return task;
+}
+
+- (void)testAnUploadInPartsCompletesOnceWithEveryPartsETag
+{
+    NSString *identifier = [NSString stringWithFormat:@"parts-%@", [NSUUID UUID].UUIDString];
+    [self addPartUploadWithId:identifier firstKey:900101];
+
+    // Parts can finish in any order
+    [self.module URLSession:self.session task:[self partTaskWithKey:900102 status:200 etag:@"\"b\""] didCompleteWithError:nil];
+    XCTAssertEqual(self.module.uploadCompletions.count, 0u);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:[self.module partTempPathForUploadId:identifier index:1]]);
+
+    [self.module URLSession:self.session task:[self partTaskWithKey:900101 status:200 etag:@"\"a\""] didCompleteWithError:nil];
+
+    XCTAssertEqual(self.module.uploadCompletions.count, 1u);
+    NSDictionary *done = self.module.uploadCompletions.firstObject;
+    NSArray<NSDictionary *> *parts = done[@"parts"];
+    XCTAssertEqualObjects([parts valueForKey:@"partNumber"], (@[@1, @2]));
+    // Lowercased names, as on Android
+    XCTAssertEqualObjects([parts valueForKeyPath:@"responseHeaders.etag"], (@[@"\"a\"", @"\"b\""]));
+    XCTAssertEqualObjects([parts valueForKey:@"bytes"], (@[@5, @5]));
+    // The upload's own response is the last part's
+    XCTAssertEqualObjects(done[@"responseHeaders"][@"etag"], @"\"b\"");
+    XCTAssertEqualObjects(done[@"bytesUploaded"], @10);
+    @synchronized ([self lock]) {
+        XCTAssertNil(((NSDictionary *)[self ivar:@"uploadTaskToConfigMap"])[@900101]);
+        XCTAssertNil(((NSDictionary *)[self ivar:@"uploadTaskToConfigMap"])[@900102]);
+    }
+}
+
+- (void)testARejectedPartFailsTheWholeUpload
+{
+    NSString *identifier = [NSString stringWithFormat:@"parts-%@", [NSUUID UUID].UUIDString];
+    [self addPartUploadWithId:identifier firstKey:900111];
+    RNBGDFakeTask *rejected = [self partTaskWithKey:900111 status:403 etag:nil];
+    [self.module URLSession:self.session dataTask:(NSURLSessionDataTask *)rejected didReceiveData:[@"denied" dataUsingEncoding:NSUTF8StringEncoding]];
+
+    [self.module URLSession:self.session task:rejected didCompleteWithError:nil];
+
+    XCTAssertEqual(self.module.uploadFailures.count, 1u);
+    XCTAssertEqualObjects(self.module.uploadFailures.firstObject[@"errorCode"], @403);
+    XCTAssertEqualObjects(self.module.uploadFailures.firstObject[@"error"], @"Part 1 failed: HTTP 403 - denied");
+    // The other part is dropped with it: its completion finds nothing and reports nothing
+    [self.module URLSession:self.session task:[self partTaskWithKey:900112 status:200 etag:@"\"b\""] didCompleteWithError:nil];
+    XCTAssertEqual(self.module.uploadCompletions.count, 0u);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:[self.module partTempPathForUploadId:identifier index:1]]);
+}
+
+- (void)testProgressOfAnUploadInPartsIsTheSumOfItsParts
+{
+    NSString *identifier = [NSString stringWithFormat:@"parts-%@", [NSUUID UUID].UUIDString];
+    RNBGDUploadTaskConfig *config = [self addPartUploadWithId:identifier firstKey:900121];
+
+    [self.module URLSession:self.session task:[self partTaskWithKey:900121 status:200 etag:nil] didSendBodyData:3 totalBytesSent:3 totalBytesExpectedToSend:5];
+    [self.module URLSession:self.session task:[self partTaskWithKey:900122 status:200 etag:nil] didSendBodyData:4 totalBytesSent:4 totalBytesExpectedToSend:5];
+
+    XCTAssertEqual(config.bytesUploaded, 7);
+    XCTAssertEqual(config.bytesTotal, 10);
+}
+
+- (NSArray<NSDictionary *> *)existingUploads
+{
+    __block NSArray<NSDictionary *> *found = nil;
+    XCTestExpectation *listed = [self expectationWithDescription:@"listed"];
+    [self.module getExistingUploadTasks:^(id result) {
+        found = result;
+        [listed fulfill];
+    } reject:^(NSString *code, NSString *message, NSError *error) {
+        [listed fulfill];
+    }];
+    [self waitForExpectations:@[listed] timeout:10];
+    return found;
+}
+
+- (void)testAFinishedUploadIsListedWithItsResponseUntilJSHasIt
+{
+    NSString *identifier = [NSString stringWithFormat:@"finished-%@", [NSUUID UUID].UUIDString];
+    [self addUploadConfigWithId:identifier key:900131];
+    [self.module URLSession:self.session task:[self partTaskWithKey:900131 status:200 etag:@"\"whole\""] didCompleteWithError:nil];
+
+    NSDictionary *listed = nil;
+    for (NSDictionary *upload in [self existingUploads]) {
+        if ([upload[@"id"] isEqualToString:identifier]) listed = upload;
+    }
+    XCTAssertEqualObjects(listed[@"state"], @(NSURLSessionTaskStateCompleted));
+    XCTAssertEqualObjects(listed[@"responseHeaders"][@"etag"], @"\"whole\"");
+    XCTAssertEqualObjects(listed[@"responseCode"], @200);
+
+    // JS acknowledges it with stopUploadTask
+    [self.module stopUploadTaskInternal:identifier resolve:^(id result) {} reject:^(NSString *code, NSString *message, NSError *error) {}];
+
+    for (NSDictionary *upload in [self existingUploads]) {
+        XCTAssertNotEqualObjects(upload[@"id"], identifier);
+    }
+}
+
+- (void)testAPartIsCopiedFromItsByteRange
+{
+    NSString *source = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString];
+    NSMutableData *data = [NSMutableData dataWithLength:10000];
+    for (NSUInteger i = 0; i < data.length; i++) ((uint8_t *)data.mutableBytes)[i] = (uint8_t)(i % 251);
+    [data writeToFile:source atomically:YES];
+    NSString *part = [source stringByAppendingString:@".part"];
+
+    XCTAssertTrue([self.module copyRangeOfFile:source offset:4000 length:3000 toPath:part]);
+    XCTAssertEqualObjects([NSData dataWithContentsOfFile:part], [data subdataWithRange:NSMakeRange(4000, 3000)]);
+    // Past the end of the file: fails and leaves nothing behind
+    XCTAssertFalse([self.module copyRangeOfFile:source offset:9000 length:3000 toPath:part]);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:part]);
+
+    [[NSFileManager defaultManager] removeItemAtPath:source error:nil];
 }
 
 @end

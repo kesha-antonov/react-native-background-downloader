@@ -26,6 +26,11 @@ object DownloadConstants {
 
     /** Timeout for redirect resolution requests (milliseconds) */
     const val REDIRECT_TIMEOUT_MS = 10_000  // 10 seconds
+    // http -> https redirects the resumable downloader follows itself (the
+    // platform follows same-scheme ones); bounds a redirect loop between the two
+    const val MAX_SCHEME_REDIRECTS = 5
+    // Upload response bodies past this are cut off before they reach JS
+    const val MAX_UPLOAD_RESPONSE_CHARS = 1024 * 1024
 
     // ========== Download Buffer ==========
 

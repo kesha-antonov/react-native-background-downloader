@@ -90,7 +90,7 @@ class OnProgress(
             } catch (e: Exception) {
                 stopLoopWithFail()
                 // if reached maximum memory while downloading, the downloader broadcast can not receive event normally
-                downloader.broadcast(downloadId)
+                downloader.reportDownloadEnded(downloadId)
                 throw e
             }
 

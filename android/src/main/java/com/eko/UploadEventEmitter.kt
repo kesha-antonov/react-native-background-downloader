@@ -46,11 +46,33 @@ class UploadEventEmitter(
     /**
      * Emit an upload complete event.
      */
-    fun emitComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long) {
+    fun emitComplete(
+        id: String,
+        responseCode: Int,
+        responseBody: String,
+        responseHeaders: Map<String, String>,
+        parts: List<UploadPartResult>?,
+        bytesUploaded: Long,
+        bytesTotal: Long
+    ) {
         val params = Arguments.createMap()
         params.putString("id", id)
         params.putInt("responseCode", responseCode)
         params.putString("responseBody", responseBody)
+        params.putMap("responseHeaders", headersMap(responseHeaders))
+        if (parts != null) {
+            val array = Arguments.createArray()
+            for (part in parts) {
+                val map = Arguments.createMap()
+                map.putInt("partNumber", part.partNumber)
+                map.putInt("responseCode", part.responseCode)
+                map.putString("responseBody", part.responseBody)
+                map.putMap("responseHeaders", headersMap(part.responseHeaders))
+                map.putDouble("bytes", part.bytes.toDouble())
+                array.pushMap(map)
+            }
+            params.putArray("parts", array)
+        }
         params.putDouble("bytesUploaded", bytesUploaded.toDouble())
         params.putDouble("bytesTotal", bytesTotal.toDouble())
         safeEmit(EVENT_UPLOAD_COMPLETE, params)
@@ -67,4 +89,7 @@ class UploadEventEmitter(
         safeEmit(EVENT_UPLOAD_FAILED, params)
     }
 
+    private fun headersMap(headers: Map<String, String>) = Arguments.createMap().apply {
+        headers.forEach { (key, value) -> putString(key, value) }
+    }
 }

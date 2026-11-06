@@ -5,12 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token: the jobs run dependency install scripts and the build
+permissions:
+  contents: read
+
 jobs:
   js:
     name: JS (typecheck, lint, jest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -33,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -77,9 +85,15 @@ jobs:
 
   ios:
     name: iOS build and unit tests
-    runs-on: macos-15
+    # Expo SDK 58's expo-modules-jsi needs Swift 6.2 (Xcode 26+)
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Show the Xcode version
+        run: xcodebuild -version
 
       - uses: actions/setup-node@v4
         with:
@@ -111,6 +125,7 @@ jobs:
           SKIP_BUNDLING: '1'
         run: |
           workspace=$(ls -d *.xcworkspace | head -1)
+          status=0
           xcodebuild build \
             -workspace "$workspace" \
             -scheme "${workspace%.xcworkspace}" \
@@ -118,8 +133,11 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
-            | tail -n 200
-          exit ${PIPESTATUS[0]}
+            > build.log 2>&1 || status=$?
+          # A failing script phase prints its error far above the summary
+          grep -E "error:|warning: .*failed|\\*\\* BUILD" build.log | head -n 50 || true
+          tail -n 100 build.log
+          exit $status
 
       # The library's XCTest target (the podspec's test spec), on the first
       # available iPhone simulator
@@ -127,9 +145,17 @@ jobs:
         working-directory: example/ios
         env:
           SKIP_BUNDLING: '1'
+          # Passed into the test process without the prefix: the hosted runners'
+          # nsurlsessiond refuses the test process, so tests that need it to
+          # create, cancel or pause real tasks skip themselves here
+          TEST_RUNNER_RNBD_SKIP_BACKGROUND_SESSION_TESTS: '1'
         run: |
           udid=$(xcrun simctl list devices available --json \
             | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          # Boot the simulator and wait until it's fully up: on a cold one the
+          # tests start before nsurlsessiond is ready, and setting up the
+          # background URLSession fails its xpc connection
+          xcrun simctl bootstatus "$udid" -b
           xcodebuild test \
             -workspace RNBDExample.xcworkspace \
             -scheme react-native-background-downloader-Unit-Tests \

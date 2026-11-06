@@ -8,6 +8,7 @@ Platform-specific information, requirements, and troubleshooting for `@kesha-ant
 - [Android Notes](#android-notes)
 - [Google Play Console Declaration](#google-play-console-declaration)
 - [Proguard Rules](#proguard-rules)
+- [Security Notes](#security-notes)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -130,6 +131,8 @@ const task = createDownloadTask({
 })
 ```
 
+While an `Authorization`, `Cookie` or `Proxy-Authorization` header is set, the resolver stops at a redirect to another origin (scheme, host or port) and leaves it to the downloader, so the credentials aren't sent there. It never follows a redirect to a non-http(s) URL or from https to http.
+
 ### Slow-Responding URLs
 
 The library automatically includes connection timeout improvements for slow-responding URLs. By default, the following headers are added to all download requests on Android:
@@ -159,11 +162,32 @@ If you encounter `TypeToken` errors in release builds, add the following to your
 
 ```proguard
 -keep class com.eko.RNBGDTaskConfig { *; }
+-keep class com.eko.RNBGDUploadTaskConfig { *; }
+-keep class com.eko.UploadPartResult { *; }
 -keepattributes Signature
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
 -keep class com.tencent.mmkv.** { *; }
 ```
+
+---
+
+## Security Notes
+
+### Credentials in headers
+
+Request headers are saved with a download so it can be resumed after the app restarts: in app-private storage on Android (MMKV or SharedPreferences), and inside the resume data iOS writes for a paused download. Both are deleted when the download finishes, fails or is stopped. App-private files can still be included in backups, so:
+
+- prefer short-lived tokens or signed URLs to long-lived ones in `headers`
+- on Android, exclude the app's MMKV and `*_prefs` files from backups with `dataExtractionRules` / `fullBackupContent` if the tokens must not leave the device
+
+### Redirects on iOS
+
+Background `URLSession` transfers follow redirects inside the system and never ask the app, so the library can't drop headers on a redirect to another host. If a download needs credentials, point it at the final URL, or use a signed URL instead of an `Authorization` header.
+
+### Logs
+
+With `isLogsEnabled`, logs include download URLs (which can carry signed query parameters) but not header values or upload response bodies. Keep logs off in production builds, or filter them before `logCallback` forwards them anywhere.
 
 ---
 

@@ -6,18 +6,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish:
-    name: Publish to npm
+  # Everything that runs third-party code (dependency install scripts, the
+  # build, tests, lint) happens here, without the id-token permission: a
+  # compromised dependency must not be able to mint the token that npm trades
+  # for a publish credential.
+  build:
+    name: Build and test the package
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
-      # Required for npm provenance - lets the job mint the OIDC token that
-      # npm records as a signed, verifiable link back to this workflow run.
-      id-token: write
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Enable Corepack
         run: corepack enable
@@ -25,16 +28,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: yarn
 
       - run: yarn install --immutable
-
-      # npm trusted publishing (OIDC) needs npm >= 11.5.1. The runner's bundled
-      # npm is new enough today, but node-version: 24 floats, so this pins the
-      # requirement explicitly rather than relying on what ships with it.
-      - name: Use an npm that supports trusted publishing
-        run: npm install -g npm@^11.5.1
 
       # app.plugin.js requires plugin/build/index.js, which does not exist on a
       # clean checkout, so the plugin has to be built before anything loads it.
@@ -50,8 +46,45 @@ jobs:
 
       - run: yarn lint
 
-      # Authenticated by npm trusted publishing: the id-token permission above
-      # lets npm exchange this run's OIDC token for a short-lived credential,
-      # so there is no NPM_TOKEN secret to store, leak or rotate.
+      # The tarball that gets published, so the publish job runs no package code
+      - name: Pack
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Required for npm trusted publishing and provenance - lets the job mint
+      # the OIDC token npm exchanges for a short-lived credential and records
+      # as a signed, verifiable link back to this workflow run.
+      id-token: write
+
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # npm trusted publishing (OIDC) needs npm >= 11.5.1. Pinned exactly: this
+      # is the one package installed into the job that holds the token.
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@11.21.2
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+
+      # Publishing a tarball runs none of its lifecycle scripts. No NPM_TOKEN
+      # secret: the id-token permission above authenticates the publish.
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npm publish ./*.tgz --provenance --access public

@@ -1,7 +1,7 @@
 import { NativeModules, Platform, TurboModuleRegistry, NativeEventEmitter } from 'react-native'
 import { DownloadTask } from './DownloadTask'
 import { UploadTask } from './UploadTask'
-import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadTaskInfo, UploadTaskInfoNative } from './types'
+import { Config, DownloadParams, Headers, Metadata, TaskInfo, TaskInfoNative, UploadParams, UploadPartResult, UploadTaskInfo, UploadTaskInfoNative } from './types'
 import { config, DEFAULT_NOTIFICATION_TEXTS } from './config'
 import { log } from './logger'
 import { getNotificationTextsForNative } from './notifications'
@@ -126,8 +126,41 @@ interface UploadCompleteEvent {
   id: string
   responseCode: number
   responseBody: string
+  responseHeaders?: Record<string, string>
+  parts?: UploadPartResult[]
   bytesUploaded: number
   bytesTotal: number
+}
+
+// Apps forward logs to remote services: log response header names and the body
+// size, not values that can carry cookies or tokens
+function loggableBegin ({ headers, ...rest }: Omit<DownloadBeginEvent, 'id'>) {
+  return { ...rest, headers: Object.keys(headers ?? {}) }
+}
+
+function loggableUploadComplete ({ responseBody, responseHeaders, parts, ...rest }: Omit<UploadCompleteEvent, 'id'>) {
+  return {
+    ...rest,
+    responseBodyLength: responseBody?.length ?? 0,
+    responseHeaders: Object.keys(responseHeaders ?? {}),
+    parts: parts?.length,
+  }
+}
+
+function handleUploadComplete (data: UploadCompleteEvent) {
+  const { id, responseHeaders, ...rest } = data
+  log('uploadComplete', id, loggableUploadComplete(data))
+  // iOS keeps a finished upload's response until JS has it, so an upload that
+  // finishes while the app isn't listening still reaches getExistingUploadTasks.
+  // This one was delivered: let native drop it. Sent before the handlers run, so it
+  // can't race an upload the done handler starts with the same id.
+  ensureNativeModuleInitialized().stopUploadTask?.(id)?.catch(() => {})
+  const task = uploadTasksMap.get(id)
+  if (!task)
+    log('uploadComplete: task not found in uploadTasksMap', id)
+  else
+    task.onDone({ ...rest, responseHeaders: responseHeaders ?? {} })
+  uploadTasksMap.delete(id)
 }
 
 interface UploadFailedEvent {
@@ -169,7 +202,7 @@ function initializeEventListeners () {
     // iOS new architecture: use EventEmitter from TurboModule spec
     eventSubscriptions.push(turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
       const { id, ...rest } = data
-      log('downloadBegin', id, rest)
+      log('downloadBegin', id, loggableBegin(rest))
       const task = tasksMap.get(id)
       if (!task) {
         log('downloadBegin: task not found in tasksMap', id)
@@ -233,16 +266,7 @@ function initializeEventListeners () {
         }
       }))
 
-      eventSubscriptions.push(turboModule.onUploadComplete!((data: UploadCompleteEvent) => {
-        const { id, ...rest } = data
-        log('uploadComplete', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task)
-          log('uploadComplete: task not found in uploadTasksMap', id)
-        else
-          task.onDone(rest)
-        uploadTasksMap.delete(id)
-      }))
+      eventSubscriptions.push(turboModule.onUploadComplete!(handleUploadComplete))
 
       eventSubscriptions.push(turboModule.onUploadFailed!((data: UploadFailedEvent) => {
         const { id, ...rest } = data
@@ -265,7 +289,7 @@ function initializeEventListeners () {
     eventSubscriptions.push(
       eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
         const { id, ...rest } = data
-        log('downloadBegin', id, rest)
+        log('downloadBegin', id, loggableBegin(rest))
         const task = tasksMap.get(id)
         if (!task) {
           log('downloadBegin: task not found in tasksMap', id)
@@ -340,16 +364,7 @@ function initializeEventListeners () {
     )
 
     eventSubscriptions.push(
-      eventEmitter.addListener('uploadComplete', (data: UploadCompleteEvent) => {
-        const { id, ...rest } = data
-        log('uploadComplete', id, rest)
-        const task = uploadTasksMap.get(id)
-        if (!task)
-          log('uploadComplete: task not found in uploadTasksMap', id)
-        else
-          task.onDone(rest)
-        uploadTasksMap.delete(id)
-      })
+      eventEmitter.addListener('uploadComplete', handleUploadComplete)
     )
 
     eventSubscriptions.push(
@@ -640,11 +655,15 @@ export const getExistingUploadTasks = async (): Promise<UploadTask[]> => {
         break
       }
       case nativeModule.TaskCompleted: {
-        if (taskInfo.bytesUploaded === taskInfo.bytesTotal)
+        if (taskInfo.bytesUploaded === taskInfo.bytesTotal) {
           task.state = 'DONE'
-        else
+          // Finished while the app wasn't listening: the task carries the response
+          // now, so native can drop its copy
+          nativeModule.stopUploadTask?.(task.id)?.catch(() => {})
+        } else {
           // IOS completed the upload but it was not done.
           return undefined
+        }
       }
     }
 
@@ -667,8 +686,18 @@ export function createUploadTask ({
   // Ensure native module and event listeners are initialized before creating tasks
   ensureNativeModuleInitialized()
 
-  if (!rest.id || !rest.url || !rest.source)
-    throw new Error('[RNBackgroundDownloader] id, url and source are required')
+  if (rest.partUrls !== undefined) {
+    if (!Array.isArray(rest.partUrls) || rest.partUrls.length === 0 ||
+      rest.partUrls.some(url => typeof url !== 'string' || url.length === 0))
+      throw new Error('[RNBackgroundDownloader] partUrls must be a non-empty array of URLs')
+    if (rest.fieldName !== undefined || rest.parameters !== undefined)
+      throw new Error('[RNBackgroundDownloader] partUrls sends each part as the raw body; it can\'t be combined with fieldName or parameters')
+    if (rest.partSize !== undefined && !(Number.isInteger(rest.partSize) && rest.partSize > 0))
+      throw new Error('[RNBackgroundDownloader] partSize must be a positive whole number of bytes')
+  }
+
+  if (!rest.id || !(rest.url || rest.partUrls) || !rest.source)
+    throw new Error('[RNBackgroundDownloader] id, url (or partUrls) and source are required')
 
   rest.headers = { ...config.headers, ...rest.headers }
 

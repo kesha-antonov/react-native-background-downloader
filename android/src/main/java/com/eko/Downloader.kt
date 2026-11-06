@@ -657,11 +657,18 @@ class Downloader(private val context: Context, private val storageManager: com.e
     }
   }
 
-  // Manually trigger the receiver from anywhere.
-  fun broadcast(downloadId: Long) {
-    val intent = Intent(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-    intent.putExtra(DownloadManager.EXTRA_DOWNLOAD_ID, downloadId)
-    context.sendBroadcast(intent)
+  /**
+   * Runs the module's download-complete handling for [downloadId], like a
+   * DOWNLOAD_COMPLETE broadcast would. Not a real broadcast: the receiver only
+   * accepts broadcasts from DownloadManager, so other apps can't fake one.
+   */
+  @Volatile
+  var downloadEndedHandler: ((Long) -> Unit)? = null
+
+  fun reportDownloadEnded(downloadId: Long) {
+    val handler = downloadEndedHandler ?: return
+    // On the main thread, where the receiver runs too
+    android.os.Handler(android.os.Looper.getMainLooper()).post { handler(downloadId) }
   }
 
   fun checkDownloadStatus(downloadId: Long): WritableMap {

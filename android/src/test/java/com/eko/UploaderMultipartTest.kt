@@ -60,7 +60,16 @@ class UploaderMultipartTest {
             object : Uploader.UploadListener {
                 override fun onBegin(id: String, expectedBytes: Long) = Unit
                 override fun onProgress(id: String, bytesUploaded: Long, bytesTotal: Long) = Unit
-                override fun onComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long) {
+                override fun onPartComplete(id: String, part: UploadPartResult) = Unit
+                override fun onComplete(
+                    id: String,
+                    responseCode: Int,
+                    responseBody: String,
+                    responseHeaders: Map<String, String>,
+                    parts: List<UploadPartResult>?,
+                    bytesUploaded: Long,
+                    bytesTotal: Long
+                ) {
                     completedWith = responseCode
                     done.countDown()
                 }
