@@ -1,0 +1,318 @@
+/* react-native-background-downloader. One gutter for the window's top and
+   left and the phone's right. */
+.bgd .ss-stage {
+  --gutter: 32px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--ss-well);
+}
+
+/* The editor: pinned top-left, runs off the bottom */
+.bgd .bgd-window {
+  position: absolute;
+  top: var(--gutter);
+  left: var(--gutter);
+  width: 620px;
+  height: 480px;
+  border-radius: 10px;
+  box-shadow: var(--ss-shadow-hero);
+}
+
+.bgd .bgd-window .ss-window__body {
+  display: flex;
+  flex-direction: column;
+  background: var(--ss-surface);
+}
+
+.bgd .bgd-editor {
+  position: relative;
+  padding: 14px 0 18px;
+}
+
+.bgd .bgd-code {
+  position: relative;
+  padding-left: 12px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+/* The line that is acting, behind the code and the full width of the editor */
+.bgd .bgd-hl {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: color-mix(in srgb, var(--ss-accent) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--ss-accent);
+  opacity: 0;
+  transition:
+    top 0.45s cubic-bezier(0.45, 0, 0.1, 1),
+    opacity 0.3s ease;
+}
+
+.bgd .bgd-hl[data-on] {
+  opacity: 1;
+}
+
+.bgd .bgd-console {
+  flex: 1;
+  border-top: 1px solid var(--ss-line);
+  background: var(--ss-canvas);
+  padding: 12px 0 0;
+}
+
+.bgd .bgd-console__head {
+  padding: 0 16px 8px;
+  color: var(--ss-text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.bgd .bgd-log {
+  display: flex;
+  flex-direction: column;
+  font: 12px/22px ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.bgd .bgd-log__line {
+  will-change: transform;
+  display: grid;
+  grid-template-columns: 34px auto;
+  gap: 8px;
+  padding: 0 16px;
+  color: var(--ss-text-strong);
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 0.35s ease,
+    transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.bgd .bgd-log__line[data-on] {
+  opacity: 1;
+  transform: none;
+}
+
+.bgd .bgd-log__who {
+  color: var(--ss-text-faint);
+}
+
+/* The OS's own lines: the transfer living outside the app */
+.bgd .bgd-log__who[data-os] {
+  color: var(--ss-accent);
+  font-weight: 600;
+}
+
+.bgd .bgd-pct {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The anchor line stays across loops, quieter than the story's lines */
+.bgd .bgd-log__line:first-child .bgd-log__text {
+  color: var(--ss-text-faint);
+}
+
+/* Unlocking: the lock screen lifts away as the app zooms in, so the clock
+   never shows through the app */
+.bgd .bgd-lock {
+  transition:
+    opacity 0.18s ease,
+    transform 0.45s cubic-bezier(0.3, 0.75, 0.1, 1);
+  will-change: transform;
+}
+
+.bgd .bgd-lock[data-away] {
+  opacity: 0;
+  transform: translateY(-60px);
+}
+
+/* The phone straddles the editor's right edge over its empty margin */
+.bgd .bgd-phone {
+  position: absolute;
+  top: 56px;
+  right: var(--gutter);
+  box-shadow: var(--ss-shadow-satellite), 0 30px 50px -20px rgba(50, 50, 93, 0.35);
+}
+
+/* The app sits over the lock screen and fades away when the phone locks */
+.bgd .bgd-app {
+  position: absolute;
+  inset: 0;
+  padding: 62px 0 0;
+  background: #fff;
+  color: #000;
+  opacity: 0;
+  transform: scale(0.94);
+  transition:
+    opacity 0.18s ease,
+    transform 0.5s cubic-bezier(0.3, 0.75, 0.1, 1);
+  will-change: transform;
+}
+
+.bgd .bgd-app[data-on] {
+  opacity: 1;
+  transform: none;
+}
+
+.bgd .bgd-app__title {
+  padding: 6px 20px 0;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 41px;
+}
+
+.bgd .bgd-app__sub {
+  padding: 6px 20px 14px;
+}
+
+.bgd .bgd-list {
+  border-top: 0.5px solid rgba(60, 60, 67, 0.2);
+}
+
+.bgd .bgd-row {
+  position: relative;
+  padding: 10px 20px;
+  border-bottom: 0.5px solid rgba(60, 60, 67, 0.2);
+}
+
+.bgd .bgd-row .ss-row__subtitle {
+  color: rgba(60, 60, 67, 0.6);
+}
+
+.bgd .bgd-thumb {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: 11px;
+}
+
+/* Map thumbnails: the content that makes it a maps app */
+.bgd .bgd-thumb--es {
+  background:
+    radial-gradient(60% 50% at 70% 30%, #e8d9a8 0 40%, transparent 41%),
+    radial-gradient(40% 40% at 20% 80%, #b9d7a1 0 50%, transparent 51%),
+    linear-gradient(135deg, #cfe3b8, #a9cf93);
+}
+
+.bgd .bgd-thumb--pt {
+  background:
+    linear-gradient(100deg, transparent 0 55%, #9cc6e8 56%),
+    radial-gradient(50% 40% at 30% 60%, #d9e7b0 0 50%, transparent 51%),
+    linear-gradient(160deg, #c3dea4, #9bc58a);
+}
+
+.bgd .bgd-thumb--a { background: linear-gradient(135deg, #dfe7d6, #c9d8c0); }
+.bgd .bgd-thumb--b { background: linear-gradient(135deg, #d8e3ec, #c2d3e2); }
+.bgd .bgd-thumb--c { background: linear-gradient(135deg, #e6e2d4, #d6cfba); }
+.bgd .bgd-thumb--d { background: linear-gradient(135deg, #dbe6dd, #c4d6c9); }
+
+/* The trailing control: centered on the row, one fixed slot for every state */
+.bgd .bgd-trail {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  transform: translateY(-50%);
+}
+
+.bgd .bgd-get {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ss-accent) 12%, #fff);
+  color: var(--ss-accent);
+}
+
+.bgd .bgd-saved {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: #34c759;
+}
+
+.bgd .bgd-ring {
+  display: block;
+  transform: rotate(-90deg);
+}
+
+.bgd .bgd-ring__track {
+  fill: none;
+  stroke: #e3e3e8;
+  stroke-width: 3;
+}
+
+.bgd .bgd-ring__arc {
+  fill: none;
+  stroke: var(--ss-accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s linear;
+}
+
+.bgd .bgd-ring__stop {
+  fill: var(--ss-accent);
+}
+
+/* The notification drops in under the clock */
+.bgd .bgd-notif {
+  will-change: transform;
+  opacity: 0;
+  transform: translateY(-14px) scale(0.96);
+  transition:
+    opacity 0.4s ease,
+    transform 0.8s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.bgd .bgd-notif[data-on] {
+  opacity: 1;
+  transform: none;
+}
+
+.bgd .bgd-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(160deg, #4cc46a, #2a9d4f);
+  color: #fff;
+}
+
+/* Narrow: the phone on top, the log as a card over its lower, filler rows */
+.bgd .ss-stage[data-layout='compact'] {
+  --gutter: 16px;
+}
+
+.bgd .bgd-card {
+  position: absolute;
+  right: var(--gutter);
+  bottom: var(--gutter);
+  left: var(--gutter);
+  z-index: 2;
+  padding: 12px 0 10px;
+  border-radius: 12px;
+  background: var(--ss-surface);
+  box-shadow: var(--ss-shadow-satellite), 0 20px 40px -16px rgba(50, 50, 93, 0.3);
+}
+
+.bgd .ss-stage[data-layout='compact'] .bgd-log {
+  font-size: 11.5px;
+  line-height: 21px;
+}
+
+.bgd .ss-stage[data-layout='compact'] .bgd-phone {
+  top: var(--gutter);
+  right: auto;
+  left: var(--gutter);
+}

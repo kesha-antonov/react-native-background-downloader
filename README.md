@@ -32,6 +32,13 @@
 </p>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.gif" />
+    <img src="docs/images/how-it-works-light.gif" width="800" alt="A map download starts in the app, keeps going after the phone locks and iOS terminates the app, and is found again with getExistingDownloadTasks() when the app reopens" />
+  </picture>
+</p>
+
+<p align="center">
   <sub>Using it in production? A ⭐ helps other developers find the library.</sub>
 </p>
 
