@@ -1435,7 +1435,25 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       uploadProgressReporter.reportProgress(id, bytesUploaded, bytesTotal)
     }
 
-    override fun onComplete(id: String, responseCode: Int, responseBody: String, bytesUploaded: Long, bytesTotal: Long) {
+    override fun onPartComplete(id: String, part: UploadPartResult) {
+      synchronized(sharedLock) {
+        uploadConfigs[id]?.let { config ->
+          // A new list: the persisted one may be serialized concurrently
+          config.completedParts = config.completedParts.orEmpty() + part
+          storageManager.saveUploadConfigs(uploadConfigs)
+        }
+      }
+    }
+
+    override fun onComplete(
+      id: String,
+      responseCode: Int,
+      responseBody: String,
+      responseHeaders: Map<String, String>,
+      parts: List<UploadPartResult>?,
+      bytesUploaded: Long,
+      bytesTotal: Long
+    ) {
       synchronized(sharedLock) {
         uploadConfigs[id]?.state = DownloadConstants.TASK_COMPLETED
         uploadConfigs.remove(id)
@@ -1444,7 +1462,7 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
         // Remove from persistent storage on completion
         storageManager.saveUploadConfigs(uploadConfigs)
       }
-      uploadEventEmitter.emitComplete(id, responseCode, responseBody, bytesUploaded, bytesTotal)
+      uploadEventEmitter.emitComplete(id, responseCode, responseBody, responseHeaders, parts, bytesUploaded, bytesTotal)
     }
 
     override fun onError(id: String, error: String, errorCode: Int) {
@@ -1510,6 +1528,11 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       result
     } else null
 
+    val partUrls = if (options.hasKey("partUrls") && !options.isNull("partUrls")) {
+      options.getArray("partUrls")?.let { array -> (0 until array.size()).mapNotNull { array.getString(it) } }
+    } else null
+    val partSize = if (options.hasKey("partSize") && !options.isNull("partSize")) options.getDouble("partSize").toLong() else 0L
+
     // Progress settings
     val progressIntervalScope = options.getInt("progressInterval")
     // 0 is a valid value (percentage only), so it has to be applied too
@@ -1534,7 +1557,9 @@ class RNBackgroundDownloaderModuleImpl(private val reactContext: ReactApplicatio
       headers = headers,
       fieldName = fieldName,
       mimeType = mimeType,
-      parameters = parameters
+      parameters = parameters,
+      partUrls = partUrls,
+      partSize = partSize
     )
 
     synchronized(sharedLock) {

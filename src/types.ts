@@ -238,9 +238,24 @@ export type UploadProgressHandlerParams = {
 
 export type UploadProgressHandler = (params: UploadProgressHandlerParams) => void
 
-export type UploadDoneHandlerParams = {
+export type UploadPartResult = {
+  // 1-based, matching the position in partUrls and S3's part numbers
+  partNumber: number
   responseCode: number
   responseBody: string
+  // Lowercased header names, e.g. responseHeaders.etag
+  responseHeaders: Record<string, string>
+  bytes: number
+}
+
+export type UploadDoneHandlerParams = {
+  // For an upload with partUrls: the last part's response
+  responseCode: number
+  responseBody: string
+  // Lowercased header names, e.g. responseHeaders.etag
+  responseHeaders: Record<string, string>
+  // Set for an upload with partUrls, in part order
+  parts?: UploadPartResult[]
   bytesUploaded: number
   bytesTotal: number
 }
@@ -270,6 +285,10 @@ export interface UploadTaskInfoNative {
   bytesTotal: number
   errorCode: number
   state: number
+  responseCode?: number | null
+  responseBody?: string | null
+  responseHeaders?: Record<string, string> | null
+  parts?: UploadPartResult[] | null
 }
 
 export interface UploadTaskInfo {
@@ -278,13 +297,27 @@ export interface UploadTaskInfo {
 }
 
 export type UploadParams = {
-  url: string
+  // Not needed with partUrls
+  url?: string
   source: string
+  // Defaults to POST, or PUT with partUrls
   method?: 'POST' | 'PUT' | 'PATCH'
   headers?: Headers
   fieldName?: string
   mimeType?: string
   parameters?: Record<string, string>
+  /**
+   * Upload `source` in parts, one URL per part (e.g. S3 multipart upload with a
+   * presigned UploadPart URL each). Part `i` is sent as the raw body to `partUrls[i]`;
+   * can't be combined with `fieldName` or `parameters`.
+   */
+  partUrls?: string[]
+  /**
+   * Bytes per part, the last part taking what's left. Defaults to
+   * `Math.ceil(fileSize / partUrls.length)`. The upload fails if the parts don't
+   * cover the file exactly.
+   */
+  partSize?: number
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
 }
@@ -297,6 +330,11 @@ export interface UploadTask {
   bytesUploaded: number
   bytesTotal: number
   uploadParams?: UploadParams
+  // Set once the upload is done (also on a finished task from getExistingUploadTasks)
+  responseCode?: number
+  responseBody?: string
+  responseHeaders?: Record<string, string>
+  parts?: UploadPartResult[]
 
   begin: (handler: UploadBeginHandler) => UploadTask
   progress: (handler: UploadProgressHandler) => UploadTask
@@ -321,7 +359,7 @@ export type getExistingUploadTasks = () => Promise<UploadTask[]>
 
 export interface UploadOption {
   id: string
-  url: string
+  url?: string
   source: string
   method?: 'POST' | 'PUT' | 'PATCH'
   headers?: Headers | undefined
@@ -329,6 +367,8 @@ export interface UploadOption {
   fieldName?: string
   mimeType?: string
   parameters?: Record<string, string>
+  partUrls?: string[]
+  partSize?: number
   isAllowedOverRoaming?: boolean
   isAllowedOverMetered?: boolean
 }

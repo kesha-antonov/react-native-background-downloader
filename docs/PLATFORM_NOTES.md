@@ -162,6 +162,8 @@ If you encounter `TypeToken` errors in release builds, add the following to your
 
 ```proguard
 -keep class com.eko.RNBGDTaskConfig { *; }
+-keep class com.eko.RNBGDUploadTaskConfig { *; }
+-keep class com.eko.UploadPartResult { *; }
 -keepattributes Signature
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
