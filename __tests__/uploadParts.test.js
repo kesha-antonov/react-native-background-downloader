@@ -119,6 +119,29 @@ describe('the done handler gets the response headers', () => {
 })
 
 describe('an upload that finished while the app wasn\'t listening', () => {
+  test('a completion for an id JS doesn\'t know yet is not acknowledged, so getExistingUploadTasks still returns it', async () => {
+    // After a relaunch, iOS can deliver the completion before the app calls getExistingUploadTasks
+    emitEvent('uploadComplete', { id: 'not-claimed-yet', responseCode: 200, responseBody: '', bytesUploaded: 10, bytesTotal: 10 })
+
+    expect(native().stopUploadTask).not.toHaveBeenCalledWith('not-claimed-yet')
+
+    native().getExistingUploadTasks.mockResolvedValueOnce([{
+      id: 'not-claimed-yet',
+      metadata: '{}',
+      state: 3,
+      bytesUploaded: 10,
+      bytesTotal: 10,
+      errorCode: null,
+      responseCode: 200,
+      responseBody: '',
+    }])
+
+    const [task] = await getExistingUploadTasks()
+
+    expect(task.state).toBe('DONE')
+    expect(task.responseCode).toBe(200)
+  })
+
   test('comes back from getExistingUploadTasks with its parts, and is acknowledged', async () => {
     native().getExistingUploadTasks.mockResolvedValueOnce([{
       id: 'finished-in-background',
