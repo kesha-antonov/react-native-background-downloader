@@ -269,6 +269,8 @@ function rewriteLinks (markdown, pageId) {
   // Repository files that have no page of their own.
   out = out.replace(/\]\(\.?\/?(LICENSE|CHANGELOG\.md)\)/g, `](${REPO}/blob/main/$1)`)
   out = out.replace(/\]\(\.?\/?example\/?\)/g, `](${REPO}/tree/main/example)`)
+  // Images live in the repository, not the site: point them at the raw files.
+  out = out.replace(/src="\.?\/?(docs\/images\/[^"]+)"/g, `src="https://raw.githubusercontent.com/kesha-antonov/react-native-background-downloader/main/$1"`)
 
   return out
 }

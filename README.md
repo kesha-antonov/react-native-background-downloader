@@ -1,9 +1,8 @@
 <p align="center">
-  <img src="docs/images/example-main-dark.png" width="250" alt="Example app: main screen" />
-  &nbsp;
-  <img src="docs/images/example-download-dark.png" width="250" alt="Example app: downloads, one in progress" />
-  &nbsp;
-  <img src="docs/images/example-upload-dark.png" width="250" alt="Example app: uploads" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.gif" />
+    <img src="docs/images/how-it-works-light.gif" width="800" alt="A map download starts in the app, keeps going after the phone locks and iOS terminates the app, and is found again with getExistingDownloadTasks() when the app reopens" />
+  </picture>
 </p>
 
 <p align="center">
@@ -29,13 +28,6 @@
   <a href="https://kesha-antonov.github.io/react-native-background-downloader/installation">Installation</a> &nbsp;·&nbsp;
   <a href="https://kesha-antonov.github.io/react-native-background-downloader/api">API reference</a> &nbsp;·&nbsp;
   <a href="https://kesha-antonov.github.io/react-native-background-downloader/troubleshooting">Troubleshooting</a>
-</p>
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.gif" />
-    <img src="docs/images/how-it-works-light.gif" width="800" alt="A map download starts in the app, keeps going after the phone locks and iOS terminates the app, and is found again with getExistingDownloadTasks() when the app reopens" />
-  </picture>
 </p>
 
 <p align="center">
@@ -1140,6 +1132,14 @@ Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) sectio
 ## 🧪 Example App
 
 The repository includes a full example app demonstrating all features:
+
+<p align="center">
+  <img src="docs/images/example-main-dark.png" width="250" alt="Example app: main screen" />
+  &nbsp;
+  <img src="docs/images/example-download-dark.png" width="250" alt="Example app: downloads, one in progress" />
+  &nbsp;
+  <img src="docs/images/example-upload-dark.png" width="250" alt="Example app: uploads" />
+</p>
 
 ```bash
 cd example
