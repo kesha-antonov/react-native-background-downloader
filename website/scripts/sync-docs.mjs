@@ -92,6 +92,14 @@ const PAGES = [
     file: 'docs/PLATFORM_NOTES.md',
   },
   {
+    id: 'example-app',
+    title: 'Example app',
+    sidebarLabel: 'Example app',
+    description: 'Run the bundled Expo example app to see background downloads and uploads working end to end.',
+    keywords: ['react native background downloader example'],
+    sections: ['🧪 Example App'],
+  },
+  {
     id: 'troubleshooting',
     title: 'Troubleshooting',
     sidebarLabel: 'Troubleshooting',
@@ -99,14 +107,6 @@ const PAGES = [
       'Fixes for the most common problems: downloads not resuming, empty task lists after a restart, build failures and missing native setup steps.',
     keywords: ['getExistingDownloadTasks returns empty', 'react native background download not working'],
     sections: ['❓ Troubleshooting'],
-  },
-  {
-    id: 'example-app',
-    title: 'Example app',
-    sidebarLabel: 'Example app',
-    description: 'Run the bundled Expo example app to see background downloads and uploads working end to end.',
-    keywords: ['react native background downloader example'],
-    sections: ['🧪 Example App'],
   },
   {
     id: 'migration',

@@ -157,8 +157,8 @@ How this library compares to other file transfer options in the React Native eco
 - [📚 API](#-api)
   - [Quick Reference](#quick-reference)
 - [📱 Platform Notes](#-platform-notes)
-- [❓ Troubleshooting](#-troubleshooting)
 - [🧪 Example App](#-example-app)
+- [❓ Troubleshooting](#-troubleshooting)
 - [💡 Use Cases](#-use-cases)
 - [🔄 Migration Guide](#-migration-guide)
 - [🤝 Contributing](#-contributing)
@@ -1036,6 +1036,39 @@ Key points:
 - **Android**: Uses `DownloadManager` + Foreground Services + MMKV
 - **Pause/Resume**: Works on both platforms (Android requires server Range header support)
 
+## 🧪 Example App
+
+The repository includes a full example app demonstrating all features:
+
+<p align="center">
+  <img src="docs/images/example-main-dark.png" width="250" alt="Example app: main screen" />
+  &nbsp;
+  <img src="docs/images/example-download-dark.png" width="250" alt="Example app: downloads, one in progress" />
+  &nbsp;
+  <img src="docs/images/example-upload-dark.png" width="250" alt="Example app: uploads" />
+</p>
+
+```bash
+cd example
+yarn install
+
+# iOS
+cd ios && pod install && cd ..
+yarn ios
+
+# Android
+yarn android
+```
+
+The example app shows:
+- Starting multiple downloads
+- Pause/resume functionality
+- Progress tracking with animations
+- Re-attaching to background tasks
+- File management
+- Uploads to a test server
+- Light and dark theme, following the system setting
+
 ## ❓ Troubleshooting
 
 <details>
@@ -1128,39 +1161,6 @@ See the [Google Play Console Declaration](#google-play-console-declaration) sect
 
 Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section.
 </details>
-
-## 🧪 Example App
-
-The repository includes a full example app demonstrating all features:
-
-<p align="center">
-  <img src="docs/images/example-main-dark.png" width="250" alt="Example app: main screen" />
-  &nbsp;
-  <img src="docs/images/example-download-dark.png" width="250" alt="Example app: downloads, one in progress" />
-  &nbsp;
-  <img src="docs/images/example-upload-dark.png" width="250" alt="Example app: uploads" />
-</p>
-
-```bash
-cd example
-yarn install
-
-# iOS
-cd ios && pod install && cd ..
-yarn ios
-
-# Android
-yarn android
-```
-
-The example app shows:
-- Starting multiple downloads
-- Pause/resume functionality
-- Progress tracking with animations
-- Re-attaching to background tasks
-- File management
-- Uploads to a test server
-- Light and dark theme, following the system setting
 
 ## 💡 Use Cases
 
