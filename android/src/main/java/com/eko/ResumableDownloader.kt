@@ -472,7 +472,12 @@ class ResumableDownloader {
    * Execute the download and return a DownloadResult.
    * This method handles all download logic and returns a type-safe result.
    */
-  private fun executeDownload(state: DownloadState, listener: DownloadListener, expectedSessionId: Long): DownloadResult {
+  private fun executeDownload(
+    state: DownloadState,
+    listener: DownloadListener,
+    expectedSessionId: Long,
+    redirectsLeft: Int = DownloadConstants.MAX_SCHEME_REDIRECTS
+  ): DownloadResult {
     var connection: HttpURLConnection? = null
     var inputStream: InputStream? = null
     var outputStream: FileOutputStream? = null
@@ -572,17 +577,33 @@ class ResumableDownloader {
         HttpURLConnection.HTTP_MOVED_TEMP,
         HttpURLConnection.HTTP_SEE_OTHER,
         307, 308 -> {
-          // Handle redirect
-          val newUrl = connection.getHeaderField("Location")
-          if (newUrl != null) {
-            connection.disconnect()
-            // Create new state with updated URL
-            // Note: We preserve bytesDownloaded since the redirect should point to the same resource.
-            // If the new server doesn't support Range headers, the HTTP_OK case above will reset it.
-            val newState = state.copyWithUrl(newUrl)
-            activeDownloads[state.id] = newState
-            return executeDownload(newState, listener, expectedSessionId)
+          // HttpURLConnection follows same-scheme redirects itself, so this only
+          // sees ones that switch between http and https - which the platform
+          // refuses on purpose. Follow only http -> https upgrades, a bounded
+          // number of times, and drop credentials when the host changes.
+          val location = connection.getHeaderField("Location")
+          val newUrl = location?.let { runCatching { URL(URL(state.url), it) }.getOrNull() }
+          val currentUrl = URL(state.url)
+          if (newUrl == null || redirectsLeft <= 0 ||
+            !currentUrl.protocol.equals("http", ignoreCase = true) ||
+            !newUrl.protocol.equals("https", ignoreCase = true)
+          ) {
+            val error = DownloadResult.httpError(state.id, responseCode, "Refusing to follow redirect to $location")
+            listener.onError(state.id, error.message, error.errorCode)
+            return error
           }
+          connection.disconnect()
+          val headers = if (newUrl.host.equals(currentUrl.host, ignoreCase = true)) {
+            state.headers
+          } else {
+            HeaderUtils.withoutCredentials(state.headers)
+          }
+          // Create new state with updated URL
+          // Note: We preserve bytesDownloaded since the redirect should point to the same resource.
+          // If the new server doesn't support Range headers, the HTTP_OK case above will reset it.
+          val newState = state.copyWithUrl(newUrl.toString(), headers)
+          activeDownloads[state.id] = newState
+          return executeDownload(newState, listener, expectedSessionId, redirectsLeft - 1)
         }
         416 -> {
           // Range Not Satisfiable - file might be complete or server doesn't support ranges
@@ -768,12 +789,12 @@ class ResumableDownloader {
     }
   }
 
-  private fun DownloadState.copyWithUrl(url: String): DownloadState {
+  private fun DownloadState.copyWithUrl(url: String, headers: Map<String, String>): DownloadState {
     return DownloadState(
       id = this.id,
       url = url,
       destination = this.destination,
-      headers = this.headers,
+      headers = headers,
       isPaused = this.isPaused,
       isCancelled = this.isCancelled,
       bytesDownloaded = this.bytesDownloaded,

@@ -130,6 +130,16 @@ interface UploadCompleteEvent {
   bytesTotal: number
 }
 
+// Apps forward logs to remote services: log response header names and the body
+// size, not values that can carry cookies or tokens
+function loggableBegin ({ headers, ...rest }: Omit<DownloadBeginEvent, 'id'>) {
+  return { ...rest, headers: Object.keys(headers ?? {}) }
+}
+
+function loggableUploadComplete ({ responseBody, ...rest }: Omit<UploadCompleteEvent, 'id'>) {
+  return { ...rest, responseBodyLength: responseBody?.length ?? 0 }
+}
+
 interface UploadFailedEvent {
   id: string
   error: string
@@ -169,7 +179,7 @@ function initializeEventListeners () {
     // iOS new architecture: use EventEmitter from TurboModule spec
     eventSubscriptions.push(turboModule.onDownloadBegin((data: DownloadBeginEvent) => {
       const { id, ...rest } = data
-      log('downloadBegin', id, rest)
+      log('downloadBegin', id, loggableBegin(rest))
       const task = tasksMap.get(id)
       if (!task) {
         log('downloadBegin: task not found in tasksMap', id)
@@ -235,7 +245,7 @@ function initializeEventListeners () {
 
       eventSubscriptions.push(turboModule.onUploadComplete!((data: UploadCompleteEvent) => {
         const { id, ...rest } = data
-        log('uploadComplete', id, rest)
+        log('uploadComplete', id, loggableUploadComplete(rest))
         const task = uploadTasksMap.get(id)
         if (!task)
           log('uploadComplete: task not found in uploadTasksMap', id)
@@ -265,7 +275,7 @@ function initializeEventListeners () {
     eventSubscriptions.push(
       eventEmitter.addListener('downloadBegin', (data: DownloadBeginEvent) => {
         const { id, ...rest } = data
-        log('downloadBegin', id, rest)
+        log('downloadBegin', id, loggableBegin(rest))
         const task = tasksMap.get(id)
         if (!task) {
           log('downloadBegin: task not found in tasksMap', id)
@@ -342,7 +352,7 @@ function initializeEventListeners () {
     eventSubscriptions.push(
       eventEmitter.addListener('uploadComplete', (data: UploadCompleteEvent) => {
         const { id, ...rest } = data
-        log('uploadComplete', id, rest)
+        log('uploadComplete', id, loggableUploadComplete(rest))
         const task = uploadTasksMap.get(id)
         if (!task)
           log('uploadComplete: task not found in uploadTasksMap', id)

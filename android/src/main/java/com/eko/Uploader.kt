@@ -204,7 +204,8 @@ class Uploader(private val context: Context) {
             // Apply custom headers
             config.headers?.forEach { (key, value) ->
                 connection.setRequestProperty(key, value)
-                RNBackgroundDownloaderModuleImpl.logD(TAG, "Set upload header: $key = $value")
+                // Name only: values carry tokens, and apps forward logs to their services
+                RNBackgroundDownloaderModuleImpl.logD(TAG, "Set upload header: $key")
             }
 
             if (useMultipart) {
@@ -255,16 +256,9 @@ class Uploader(private val context: Context) {
             // Get response
             val responseCode = connection.responseCode
             val responseBody = try {
-                val reader = BufferedReader(InputStreamReader(
+                BufferedReader(InputStreamReader(
                     if (responseCode in 200..299) connection.inputStream else connection.errorStream
-                ))
-                val response = StringBuilder()
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    response.append(line)
-                }
-                reader.close()
-                response.toString()
+                )).use { readCapped(it, DownloadConstants.MAX_UPLOAD_RESPONSE_CHARS) }
             } catch (e: Exception) {
                 ""
             }
@@ -411,3 +405,18 @@ class Uploader(private val context: Context) {
 // Multipart text is sent as UTF-8 (DataOutputStream.writeBytes would keep only each
 // char's low byte, garbling non-ASCII names and values), so sizes count UTF-8 bytes
 private fun String.utf8Size(): Int = toByteArray(Charsets.UTF_8).size
+
+/**
+ * Read at most [maxChars] characters: the body goes to JS as one string, and an
+ * unbounded one from a hostile or broken server would run the app out of memory.
+ */
+internal fun readCapped(reader: java.io.Reader, maxChars: Int): String {
+    val response = StringBuilder()
+    val buffer = CharArray(8192)
+    while (response.length < maxChars) {
+        val read = reader.read(buffer, 0, minOf(buffer.size, maxChars - response.length))
+        if (read == -1) break
+        response.append(buffer, 0, read)
+    }
+    return response.toString()
+}
