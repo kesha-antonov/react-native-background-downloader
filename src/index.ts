@@ -150,16 +150,20 @@ function loggableUploadComplete ({ responseBody, responseHeaders, parts, ...rest
 function handleUploadComplete (data: UploadCompleteEvent) {
   const { id, responseHeaders, ...rest } = data
   log('uploadComplete', id, loggableUploadComplete(data))
+  const task = uploadTasksMap.get(id)
+  if (!task) {
+    // Nobody received it: after a relaunch, iOS can deliver a finished upload
+    // before the app has called getExistingUploadTasks. Native keeps the
+    // response, so that call still returns it as DONE.
+    log('uploadComplete: task not found in uploadTasksMap', id)
+    return
+  }
   // iOS keeps a finished upload's response until JS has it, so an upload that
   // finishes while the app isn't listening still reaches getExistingUploadTasks.
   // This one was delivered: let native drop it. Sent before the handlers run, so it
   // can't race an upload the done handler starts with the same id.
   ensureNativeModuleInitialized().stopUploadTask?.(id)?.catch(() => {})
-  const task = uploadTasksMap.get(id)
-  if (!task)
-    log('uploadComplete: task not found in uploadTasksMap', id)
-  else
-    task.onDone({ ...rest, responseHeaders: responseHeaders ?? {} })
+  task.onDone({ ...rest, responseHeaders: responseHeaders ?? {} })
   uploadTasksMap.delete(id)
 }
 
