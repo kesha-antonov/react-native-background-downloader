@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.8.0
+
+### ✨ Features
+
+- Uploads in parts (S3 multipart): pass `partUrls`, one presigned URL per part, and optionally `partSize`. One task, progress over the whole file, one `done` with `parts` (each part's status, headers and size) once every part is accepted ([#187](https://github.com/kesha-antonov/react-native-background-downloader/pull/187), closes [#183](https://github.com/kesha-antonov/react-native-background-downloader/issues/183))
+- `done` for uploads carries `responseHeaders` (lowercased names), also on the task as `task.responseHeaders` ([#187](https://github.com/kesha-antonov/react-native-background-downloader/pull/187))
+- iOS: an upload that finished while the app wasn't running keeps its response until JS has it, and comes back from `getExistingUploadTasks()` as `DONE` ([#187](https://github.com/kesha-antonov/react-native-background-downloader/pull/187))
+
+### ⚠️ Behavior Changes
+
+- Android: with `maxRedirects`, a redirect to another origin is not followed while `Authorization`, `Cookie` or `Proxy-Authorization` is set, and redirects to non-http(s) URLs or from https to http are not followed ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+- Upload response bodies are capped at 1 MB on both platforms ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+- iOS: downloads staged while the device is locked use `CompleteUntilFirstUserAuthentication` file protection instead of none ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+- Logs record response header names and the upload body length instead of their values ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+
+### 🐛 Bug Fixes
+
+- Android: downloads with `isAllowedOverMetered: false` failed with `EPERM` while a VPN was on ([#184](https://github.com/kesha-antonov/react-native-background-downloader/pull/184)). Thanks [@elliotdickison](https://github.com/elliotdickison)
+- iOS: after a relaunch, an upload completion that arrived before `getExistingUploadTasks()` lost its response ([#188](https://github.com/kesha-antonov/react-native-background-downloader/pull/188)). Thanks [@gueroverdenwshq](https://github.com/gueroverdenwshq)
+- Android: any app could end and remove a running download through the download-complete broadcast on Android 7 to 13 ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+- Android: redirects bouncing between http and https recursed until the app crashed ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+- iOS: a missing upload option or a numeric parameter cancelled every background upload after a relaunch ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+- iOS: a destination path shorter than the app container threw ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+- iOS: resume data, which holds the request headers, is deleted once a task is over ([#186](https://github.com/kesha-antonov/react-native-background-downloader/pull/186))
+
 ## v4.7.0
 
 ### ✨ Features
