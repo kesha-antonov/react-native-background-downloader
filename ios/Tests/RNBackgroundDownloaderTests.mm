@@ -142,6 +142,16 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
     return [self ivar:@"urlSession"];
 }
 
+// Tests that need nsurlsessiond to create, cancel or pause real tasks. On the GitHub-hosted
+// Mac runners the daemon invalidates this app-less test process's connection, so those
+// calls never get an answer there and the tests would time out. CI sets this variable
+// (TEST_RUNNER_ prefixed in the workflow) to skip them; everywhere else they run in full.
+- (BOOL)backgroundSessionTestsSkipped
+{
+    const char *skip = getenv("RNBD_SKIP_BACKGROUND_SESSION_TESTS");
+    return skip != NULL && strcmp(skip, "1") == 0;
+}
+
 - (id)lock
 {
     return [self ivar:@"sharedLock"];
@@ -222,6 +232,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testDownloadKeepsItsCellularSettingOnTheRequestAndConfig
 {
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     NSString *identifier = [self uniqueId:@"cellular"];
 
     [self download:@{
@@ -458,6 +469,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testPausingADownloadDropsItsBufferedProgressAndIgnoresDataInFlight
 {
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     RNBGDTaskConfig *config = nil;
     NSString *identifier = [self addLiveDownload:@"pause-progress" config:&config];
     @synchronized ([self lock]) {
@@ -479,6 +491,7 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
 - (void)testAReloadHandsTheSessionToTheNewModuleWithoutCancellingTransfers
 {
+    XCTSkipIf([self backgroundSessionTestsSkipped], @"nsurlsessiond doesn't serve this test process on CI");
     // A request that stays in flight: nothing answers at this address
     NSString *identifier = [self uniqueId:@"reload"];
     [self download:@{
