@@ -8,3 +8,5 @@ android/build/
 website/build/
 website/.docusaurus/
 website/docs/
+# Vendored animation kit for the docs demo, kept as upstream wrote it
+website/src/components/stageshow/

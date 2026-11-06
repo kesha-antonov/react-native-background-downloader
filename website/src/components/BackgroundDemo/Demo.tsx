@@ -1,3 +1,4 @@
+import React from 'react'
 import { ArrowDown, Check, Map as MapGlyph } from 'lucide-react'
 import { Bar, Code, Count, LockScreen, Notification, Phone, Row, Stage, States, Window, WALLPAPER, type Act } from '../stageshow/kit'
 import './bgd.css'
@@ -36,8 +37,8 @@ const START: S = { app: true, row: 'idle', pct: 0, os: 0, line: 0, log: 0, notif
 
 const CODE = [
   'createDownloadTask({ url, destination })',
-  "  .progress(p => setProgress(p))",
-  "  .done(() => notify('Portugal is ready'))",
+  '  .progress(p => setProgress(p))',
+  '  .done(() => notify(\'Portugal is ready\'))',
   '  .start()',
   '',
   '// After a relaunch, even if iOS killed the app',
@@ -46,7 +47,7 @@ const CODE = [
 
 const LINE_H = 20
 
-function Log({ s }: { s: S }) {
+function Log ({ s }: { s: S }) {
   const lines: [string, React.ReactNode][] = [
     ['app', 'launched'],
     ['app', 'download started'],
@@ -79,7 +80,7 @@ function Log({ s }: { s: S }) {
   )
 }
 
-function Ring({ pct }: { pct: number }) {
+function Ring ({ pct }: { pct: number }) {
   const r = 13
   const c = 2 * Math.PI * r
   return (
@@ -91,7 +92,7 @@ function Ring({ pct }: { pct: number }) {
   )
 }
 
-function App({ s }: { s: S }) {
+function App ({ s }: { s: S }) {
   return (
     <div className="bgd-app" data-on={s.app || undefined}>
       <div className="bgd-app__title">Offline maps</div>
@@ -139,7 +140,7 @@ function App({ s }: { s: S }) {
   )
 }
 
-async function script(a: Act<S>) {
+async function script (a: Act<S>) {
   await a.wait(1200)
 
   // Start: the button in the row, the start() line, the first log line
@@ -197,7 +198,7 @@ async function script(a: Act<S>) {
   await a.wait(400)
 }
 
-export default function BackgroundDownload({ theme = 'light' }: { theme?: 'light' | 'dark' }) {
+export default function BackgroundDownload ({ theme = 'light' }: { theme?: 'light' | 'dark' }) {
   return (
     <Stage<S>
       width={800}

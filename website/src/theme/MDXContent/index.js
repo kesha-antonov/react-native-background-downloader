@@ -6,7 +6,7 @@ import BackgroundDemo from '@site/src/components/BackgroundDemo'
 
 // The intro page is generated from README.md, which can't hold a React
 // component, so the overview animation is placed here, above its first section.
-export default function MDXContentWrapper(props) {
+export default function MDXContentWrapper (props) {
   const isIntro = useLocation().pathname === useBaseUrl('/')
   return (
     <>

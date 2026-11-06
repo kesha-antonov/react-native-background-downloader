@@ -4,13 +4,13 @@ import { useColorMode } from '@docusaurus/theme-common'
 
 // The animated overview on the intro page: a download that keeps going while
 // the app is suspended and killed, and is found again after the relaunch.
-function Themed() {
+function Themed () {
   const { colorMode } = useColorMode()
   const Demo = require('./Demo').default
   return <Demo theme={colorMode === 'dark' ? 'dark' : 'light'} />
 }
 
-export default function BackgroundDemo() {
+export default function BackgroundDemo () {
   return (
     <figure
       className="background-demo"
