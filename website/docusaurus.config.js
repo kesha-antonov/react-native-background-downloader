@@ -10,7 +10,7 @@ const config = {
   tagline: 'Download and upload large files on iOS and Android, even when your app is in the background or terminated',
   favicon: 'img/favicon.ico',
 
-  url: 'https://kesha-antonov.github.io',
+  url: 'https://kesha-antonov.com',
   baseUrl: '/react-native-background-downloader/',
   organizationName: 'kesha-antonov',
   projectName: 'react-native-background-downloader',
