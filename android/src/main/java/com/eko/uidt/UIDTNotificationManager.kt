@@ -121,6 +121,22 @@ object UIDTNotificationManager {
         )
     }
 
+    /**
+     * Tapping the notification brings the host app to the front (the launcher
+     * intent reuses the running task instead of starting a second one).
+     */
+    private fun applyOpenAppIntent(builder: NotificationCompat.Builder, context: Context) {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+        builder.setContentIntent(
+            PendingIntent.getActivity(
+                context,
+                0,
+                launchIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        )
+    }
+
     private fun buildCancelPendingIntent(context: Context, configId: String): PendingIntent {
         val intent = Intent(context, CancelDownloadReceiver::class.java).apply {
             action = CancelDownloadReceiver.ACTION_CANCEL_DOWNLOAD
@@ -203,6 +219,7 @@ object UIDTNotificationManager {
             .setProgress(0, 0, true)
 
         applyCancelAction(builder, context, configId)
+        applyOpenAppIntent(builder, context)
 
         // Apply grouping when enabled and groupId is provided
         if (config.groupingEnabled && groupId.isNotEmpty()) {
@@ -257,6 +274,7 @@ object UIDTNotificationManager {
             .setProgress(100, progress, bytesTotal <= 0)
 
         applyCancelAction(builder, context, configId)
+        applyOpenAppIntent(builder, context)
 
         // Apply grouping when enabled
         if (config.groupingEnabled && jobState.groupId.isNotEmpty()) {
@@ -285,7 +303,7 @@ object UIDTNotificationManager {
             config.getText("downloadTitle")
         }
 
-        val notification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+        val pausedBuilder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(config.getText("downloadPaused"))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -294,7 +312,8 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, false)
-            .build()
+        applyOpenAppIntent(pausedBuilder, context)
+        val notification = pausedBuilder.build()
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(notificationId, notification)
@@ -332,6 +351,7 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
 
+        applyOpenAppIntent(builder, context)
         val notification = builder.build()
 
         val service = UIDTJobRegistry.serviceInstance
