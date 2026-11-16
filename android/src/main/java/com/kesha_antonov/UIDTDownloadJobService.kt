@@ -40,7 +40,7 @@ import java.io.File
  * @see <a href="https://developer.android.com/develop/background-work/background-tasks/uidt">UIDT Documentation</a>
  */
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-class UIDTDownloadJobService : JobService() {
+open class UIDTDownloadJobService : JobService() {
 
     companion object {
         // Delegate static methods to UIDTJobManager and UIDTJobRegistry for backward compatibility
@@ -168,6 +168,13 @@ class UIDTDownloadJobService : JobService() {
          * or not at all if the process died), and appending from a lower offset duplicates
          * data. No file means start over.
          */
+        /**
+         * How often a running download's byte position is written to disk. The
+         * process can be killed without onStopJob (an app update, low memory), and
+         * the restarted job resumes from the last saved position instead of byte 0.
+         */
+        internal const val RESUME_SAVE_INTERVAL_MS = 5_000L
+
         internal fun resumeStartByte(savedStartByte: Long, destination: String): Long =
             if (savedStartByte > 0) File(destination).let { if (it.exists()) it.length() else 0L } else 0L
     }
@@ -369,6 +376,14 @@ class UIDTDownloadJobService : JobService() {
                     jobState.bytesDownloaded = bytesDownloaded
                     if (bytesTotal > 0) {
                         jobState.bytesTotal = bytesTotal
+                    }
+
+                    val now = System.currentTimeMillis()
+                    if (bytesDownloaded > 0 && now - jobState.lastResumeSaveTime >= RESUME_SAVE_INTERVAL_MS) {
+                        jobState.lastResumeSaveTime = now
+                        jobState.resumableDownloader.getState(id)?.let { state ->
+                            UIDTJobRegistry.saveResumeState(this@UIDTDownloadJobService, id, state.headers, bytesDownloaded)
+                        }
                     }
 
                     // Check if download is paused - don't update notification with progress

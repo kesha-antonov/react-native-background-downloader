@@ -26,12 +26,29 @@
       android:permission="android.permission.BIND_JOB_SERVICE"
       android:exported="false" />
 
+    <!-- The job service under its name before v5.0.0: downloads scheduled by
+         v4.x name it, and keep running in it after the app is updated -->
+    <service
+      android:name="com.eko.UIDTDownloadJobService"
+      android:permission="android.permission.BIND_JOB_SERVICE"
+      android:exported="false" />
+
     <!-- Receiver for the in-notification "Cancel" action -->
     <receiver
       android:name=".uidt.CancelDownloadReceiver"
       android:exported="false">
       <intent-filter>
         <action android:name="com.kesha_antonov.uidt.ACTION_CANCEL_DOWNLOAD" />
+      </intent-filter>
+    </receiver>
+
+    <!-- The Cancel receiver under its name before v5.0.0, for notifications
+         v4.x posted that are still shown after the app is updated -->
+    <receiver
+      android:name="com.eko.uidt.CancelDownloadReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="com.eko.uidt.ACTION_CANCEL_DOWNLOAD" />
       </intent-filter>
     </receiver>
 

@@ -32,7 +32,12 @@ internal object UIDTJobIds {
     /** configId -> ID picked but not yet handed to the JobScheduler. */
     private val reservations = mutableMapOf<String, Int>()
 
-    private val serviceName = UIDTDownloadJobService::class.java.name
+    // Jobs scheduled before v5.0.0 name the service by its old class, which
+    // still runs them (com.eko.UIDTDownloadJobService)
+    private val serviceNames = setOf(
+        UIDTDownloadJobService::class.java.name,
+        "com.eko.UIDTDownloadJobService",
+    )
 
     /**
      * The ID a download would have had before IDs were assigned. Still the
@@ -45,7 +50,7 @@ internal object UIDTJobIds {
 
     /** The download a scheduled job belongs to, or null if it isn't one of ours. */
     fun configIdOf(job: JobInfo): String? {
-        if (job.service.className != serviceName) return null
+        if (job.service.className !in serviceNames) return null
         return job.extras.getString(UIDTConstants.KEY_DOWNLOAD_ID)
     }
 

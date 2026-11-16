@@ -21,6 +21,8 @@ data class JobState(
     val customTitle: String = "",
     var lastNotifiedProgress: Int = -1,
     var lastNotificationUpdateTime: Long = 0,
+    // When the byte position was last written to disk (see UIDTDownloadJobService.RESUME_SAVE_INTERVAL_MS)
+    var lastResumeSaveTime: Long = 0,
     // Track download progress for summary notification
     @Volatile var bytesDownloaded: Long = 0L,
     @Volatile var bytesTotal: Long = -1L

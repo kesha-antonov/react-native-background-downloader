@@ -121,8 +121,14 @@ and remove the library's rules from `proguard-rules.pro`:
 
 ### Downloads Running During the Update
 
-- **iOS:** the saved state of downloads and uploads moves to the new storage keys on the first launch after the update, so transfers that were running continue as before.
-- **Android:** saved state carries over. On Android 14 and later, a download that was running in a background job while the app was updated may stop, because the system drops jobs whose service class no longer exists. Check `getExistingDownloadTasks()` after the update and start missing downloads again.
+Downloads, their progress and their saved state carry over to v5.0.0. This was checked by updating a v4.8.0 app to v5.0.0 in the middle of downloads, on an Android 16 phone and an iOS simulator:
+
+- **iOS:** running downloads keep going in the background session, and paused ones come back paused with their progress. Their saved state moves from the old storage keys to the new ones on the first launch.
+- **Android, paused downloads:** come back paused and resume from where they stopped.
+- **Android 14 and later, running downloads:** the download job keeps running after the update. The library keeps a service under the old `com.eko` class name for jobs scheduled by v4.x. Android usually holds a download job that an app update interrupted until the user opens the app again.
+- **Android 14 and later, one-time restart:** a download that v4.x started and that was running at the moment of the update starts again from the beginning, because v4.x didn't record its progress while downloading. From v5.0.0 on, progress is saved every few seconds, so later updates continue from where they were.
+
+Call `getExistingDownloadTasks()` on startup as before to re-attach your handlers.
 
 ---
 
