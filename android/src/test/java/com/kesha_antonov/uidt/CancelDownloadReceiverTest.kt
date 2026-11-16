@@ -1,8 +1,11 @@
 package com.kesha_antonov.uidt
 
+import android.app.job.JobInfo
 import android.app.job.JobScheduler
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.PersistableBundle
 import androidx.test.core.app.ApplicationProvider
 import com.kesha_antonov.ResumableDownloader
 import org.junit.After
@@ -72,6 +75,26 @@ class CancelDownloadReceiverTest {
         cancel("waiting")
 
         assertEquals(listOf("waiting" to -1), errors)
+        assertTrue(jobScheduler.allPendingJobs.isEmpty())
+    }
+
+    @Test
+    fun `the Cancel button of a notification from before the package rename still cancels`() {
+        // A job v4.x scheduled names the old service class
+        jobScheduler.schedule(
+            JobInfo.Builder(34567, ComponentName(context, "com.eko.UIDTDownloadJobService"))
+                .setExtras(PersistableBundle().apply { putString(UIDTConstants.KEY_DOWNLOAD_ID, "old") })
+                .setMinimumLatency(1000)
+                .build()
+        )
+
+        com.eko.uidt.CancelDownloadReceiver().onReceive(
+            context,
+            Intent(CancelDownloadReceiver.LEGACY_ACTION_CANCEL_DOWNLOAD)
+                .putExtra(CancelDownloadReceiver.EXTRA_CONFIG_ID, "old")
+        )
+
+        assertEquals(listOf("old" to -1), errors)
         assertTrue(jobScheduler.allPendingJobs.isEmpty())
     }
 

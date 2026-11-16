@@ -70,6 +70,17 @@ class UIDTJobIdsTest {
     }
 
     @Test
+    fun `a download scheduled before the package rename is still ours`() {
+        val legacyJob = JobInfo.Builder(34567, ComponentName(context, "com.eko.UIDTDownloadJobService"))
+            .setExtras(PersistableBundle().apply { putString(UIDTConstants.KEY_DOWNLOAD_ID, "a") })
+            .setMinimumLatency(1000)
+            .build()
+
+        assertEquals("a", UIDTJobIds.configIdOf(legacyJob))
+        assertEquals(34567, UIDTJobIds.jobIdFor("a", listOf(legacyJob)))
+    }
+
+    @Test
     fun `colliding downloads reserve different job IDs`() {
         val first = UIDTJobIds.reserveJobId(colliding.first, emptyList())
         val second = UIDTJobIds.reserveJobId(colliding.second, emptyList())

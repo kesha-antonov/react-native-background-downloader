@@ -21,10 +21,10 @@ import com.kesha_antonov.RNBackgroundDownloaderModuleImpl
  * job on its own.
  */
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-class CancelDownloadReceiver : BroadcastReceiver() {
+open class CancelDownloadReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_CANCEL_DOWNLOAD) return
+        if (intent.action != ACTION_CANCEL_DOWNLOAD && intent.action != LEGACY_ACTION_CANCEL_DOWNLOAD) return
         val configId = intent.getStringExtra(EXTRA_CONFIG_ID) ?: return
 
         RNBackgroundDownloaderModuleImpl.logD(
@@ -58,6 +58,8 @@ class CancelDownloadReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_CANCEL_DOWNLOAD = "com.kesha_antonov.uidt.ACTION_CANCEL_DOWNLOAD"
+        // The action of notifications posted before v5.0.0
+        const val LEGACY_ACTION_CANCEL_DOWNLOAD = "com.eko.uidt.ACTION_CANCEL_DOWNLOAD"
         const val EXTRA_CONFIG_ID = "config_id"
 
         private const val CANCELLED_MESSAGE = "Download cancelled by user"
