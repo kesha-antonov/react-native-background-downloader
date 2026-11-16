@@ -6,6 +6,12 @@ This guide helps you upgrade between major versions of `@kesha-antonov/react-nat
 
 - [Migration Guide](#migration-guide)
   - [Table of Contents](#table-of-contents)
+- [Migration Guide: v4.8.x to v5.0.0](#migration-guide-v48x-to-v500)
+  - [Android Package Renamed](#android-package-renamed)
+    - [Who Needs to Do Something](#who-needs-to-do-something)
+    - [Migration Helper](#migration-helper)
+    - [Manual Steps](#manual-steps)
+    - [Downloads Running During the Update](#downloads-running-during-the-update)
 - [Migration Guide: v4.1.x → v4.2.0](#migration-guide-v41x--v420)
   - [Android Pause/Resume Now Supported](#android-pauseresume-now-supported)
     - [Before (v4.1.x)](#before-v41x)
@@ -47,6 +53,76 @@ This guide helps you upgrade between major versions of `@kesha-antonov/react-nat
     - [Rebuild Required](#rebuild-required)
   - [Quick Migration Checklist](#quick-migration-checklist)
   - [Need Help?](#need-help)
+
+---
+
+# Migration Guide: v4.8.x to v5.0.0
+
+## Android Package Renamed
+
+The Android code moved from the `com.eko` package to `com.kesha_antonov`. JavaScript, TypeScript and iOS APIs don't change.
+
+| | Before (v4.x) | After (v5.0.0) |
+|---|---|---|
+| React package | `com.eko.RNBackgroundDownloaderPackage` | `com.kesha_antonov.RNBackgroundDownloaderPackage` |
+| Other classes | `com.eko.*` | `com.kesha_antonov.*` |
+| Gradle namespace | `com.eko` | `com.kesha_antonov` |
+| ProGuard rules | added by you | shipped with the library |
+
+### Who Needs to Do Something
+
+Most apps don't need any change. Autolinking (React Native CLI and Expo) picks up the new package by itself; rebuild the app after upgrading:
+
+```bash
+# Expo
+npx expo prebuild --clean
+# React Native CLI
+cd android && ./gradlew clean
+```
+
+Change your code only if it names a class of the library:
+
+- `MainApplication` registers `com.eko.RNBackgroundDownloaderPackage` by hand (autolinking turned off for this library).
+- `android/app/proguard-rules.pro`, or `extraProguardRules` of `expo-build-properties` in the Expo app config, has `-keep class com.eko...` rules. Those rules no longer match anything; delete them, since the library now ships its own rules.
+- Native code of your app imports anything from `com.eko`.
+
+### Migration Helper
+
+The package has a command that finds these references and changes them. Run it from your app's root folder:
+
+```bash
+# Lists what would change
+npx react-native-background-downloader migrate-package
+
+# Changes the files
+npx react-native-background-downloader migrate-package --write
+```
+
+It scans Java, Kotlin, Gradle, ProGuard and manifest files and the Expo app config (`app.json`, `app.config.*`), skipping `node_modules`, `ios` and build folders. Only names of this library are changed (for example `com.eko.RNBGDTaskConfig` or `com.eko.uidt.*`). Other lines that mention `com.eko`, such as a `-keep class com.eko.** { *; }` wildcard or your app's own `com.eko` package, are listed for you to check by hand.
+
+Review the result with `git diff`, then delete the library's keep rules from your ProGuard file: they are no longer needed.
+
+### Manual Steps
+
+Without the helper, replace `com.eko.` with `com.kesha_antonov.` wherever it names this library:
+
+```diff
+- import com.eko.RNBackgroundDownloaderPackage;
++ import com.kesha_antonov.RNBackgroundDownloaderPackage;
+```
+
+and remove the library's rules from `proguard-rules.pro`:
+
+```diff
+- -keep class com.eko.RNBGDTaskConfig { *; }
+- -keep class com.eko.RNBGDUploadTaskConfig { *; }
+- -keep class com.eko.UploadPartResult { *; }
+```
+
+### Downloads Running During the Update
+
+- **iOS:** the saved state of downloads and uploads moves to the new storage keys on the first launch after the update, so transfers that were running continue as before.
+- **Android:** saved state carries over. On Android 14 and later, a download that was running in a background job while the app was updated may stop, because the system drops jobs whose service class no longer exists. Check `getExistingDownloadTasks()` after the update and start missing downloads again.
 
 ---
 

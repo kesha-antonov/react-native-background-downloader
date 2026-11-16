@@ -48,6 +48,9 @@
       "name": "Kesha Antonov, Elad Gil"
     }
   ],
+  "bin": {
+    "react-native-background-downloader": "bin/react-native-background-downloader.js"
+  },
   "main": "lib/index.js",
   "react-native": "src/index.ts",
   "types": "lib/index.d.ts",
@@ -73,6 +76,8 @@
     "ios/",
     "!ios/Tests/",
     "android/build.gradle",
+    "android/consumer-rules.pro",
+    "bin/",
     "android/src/",
     "plugin/build/"
   ],

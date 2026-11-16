@@ -1163,7 +1163,7 @@ See the [Google Play Console Declaration](#google-play-console-declaration) sect
 <details>
 <summary><strong>TypeToken errors in release builds (Android)</strong></summary>
 
-Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section.
+Since v5.0.0 the library applies its ProGuard rules to your release build itself. On an older version, add the rules from the [Proguard Rules](#proguard-rules) section of that version's docs.
 </details>
 
 ## 💡 Use Cases
@@ -1181,6 +1181,7 @@ This library is perfect for apps that need reliable file transfers:
 
 Upgrading from an older version? Check the [Migration Guide](./MIGRATION.md) for detailed instructions:
 
+- [v4.8.x to v5.0.0](./MIGRATION.md#migration-guide-v48x-to-v500) - Android package renamed from `com.eko` to `com.kesha_antonov`
 - [v4.3.x → v4.4.0](./MIGRATION.md#migration-guide-v43x--v440) - iOS MMKV dependency change
 - [v4.1.x → v4.2.0](./MIGRATION.md#migration-guide-v41x--v420) - Android pause/resume support
 - [v4.0.x → v4.1.0](./MIGRATION.md#migration-guide-v40x--v410) - MMKV dependency change

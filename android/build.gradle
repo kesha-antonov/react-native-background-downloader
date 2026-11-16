@@ -48,6 +48,10 @@ android {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
 
+        // Keep rules for the classes the library stores with Gson, applied to
+        // the app's release build so apps don't have to add them
+        consumerProguardFiles 'consumer-rules.pro'
+
         buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
         buildConfigField "String", "LIBRARY_VERSION", "\"${getVersionFromPackageJson()}\""
     }
