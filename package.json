@@ -48,6 +48,7 @@
       "name": "Kesha Antonov, Elad Gil"
     }
   ],
+  "bin": "bin/react-native-background-downloader.js",
   "main": "lib/index.js",
   "react-native": "src/index.ts",
   "types": "lib/index.d.ts",
@@ -59,7 +60,7 @@
     "type": "modules",
     "jsSrcsDir": "src",
     "android": {
-      "javaPackageName": "com.eko"
+      "javaPackageName": "com.kesha_antonov"
     }
   },
   "files": [
@@ -73,6 +74,8 @@
     "ios/",
     "!ios/Tests/",
     "android/build.gradle",
+    "android/consumer-rules.pro",
+    "bin/",
     "android/src/",
     "plugin/build/"
   ],

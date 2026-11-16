@@ -2105,6 +2105,8 @@ __metadata:
     typescript: "npm:5.9.3"
   peerDependencies:
     react-native: ">=0.57.0"
+  bin:
+    react-native-background-downloader: bin/react-native-background-downloader.js
   languageName: unknown
   linkType: soft
 

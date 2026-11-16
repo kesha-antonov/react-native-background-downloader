@@ -158,17 +158,9 @@ The library uses Foreground Service permissions. When publishing to Google Play:
 
 ## Proguard Rules
 
-If you encounter `TypeToken` errors in release builds, add the following to your `android/app/proguard-rules.pro`:
+The library ships its ProGuard / R8 rules (`android/consumer-rules.pro`), and Gradle applies them to your release build automatically. You don't need to add anything to `android/app/proguard-rules.pro`.
 
-```proguard
--keep class com.eko.RNBGDTaskConfig { *; }
--keep class com.eko.RNBGDUploadTaskConfig { *; }
--keep class com.eko.UploadPartResult { *; }
--keepattributes Signature
--keep class com.google.gson.reflect.TypeToken { *; }
--keep class * extends com.google.gson.reflect.TypeToken
--keep class com.tencent.mmkv.** { *; }
-```
+If you added the library's rules by hand in an older version, you can delete them. Rules that still name the old `com.eko` package do nothing; see the [Migration Guide](../MIGRATION.md#migration-guide-v48x-to-v500).
 
 ---
 
@@ -224,4 +216,4 @@ See the [Google Play Console Declaration](#google-play-console-declaration) sect
 
 ### TypeToken errors in release builds (Android)
 
-Add the Proguard rules mentioned in the [Proguard Rules](#proguard-rules) section above.
+The library applies its ProGuard rules itself since v5.0.0. On an older version, add the rules from the [Proguard Rules](#proguard-rules) section of that version's docs.
