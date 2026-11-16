@@ -154,7 +154,9 @@
     "access": "public"
   },
   "resolutions": {
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "minimatch@npm:^10.2.2": "^11.0.1",
+    "glob@npm:^13.0.0": "^14.0.2"
   },
   "packageManager": "yarn@4.17.1"
 }
