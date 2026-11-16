@@ -10,6 +10,36 @@ permissions:
   contents: read
 
 jobs:
+  # The iOS job takes about 30 minutes, so it runs only when something that
+  # goes into the iOS build changed
+  changes:
+    name: Detect iOS changes
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # A new branch or a force push has no usable base: run iOS to be safe
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$BASE" HEAD > changed.txt
+          cat changed.txt
+          if grep -qE '^(ios/|[^/]+\.podspec$|src/Native[^/]*\.ts$|plugin/|app\.plugin\.js$|package\.json$|yarn\.lock$|example/(package\.json|yarn\.lock|app\.json|app\.config\.[jt]s|plugins/)|\.github/workflows/tests\.yml$)' changed.txt; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ios=false" >> "$GITHUB_OUTPUT"
+          fi
+
   js:
     name: JS (typecheck, lint, jest)
     runs-on: ubuntu-latest
@@ -85,6 +115,8 @@ jobs:
 
   ios:
     name: iOS build and unit tests
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     # Expo SDK 58's expo-modules-jsi needs Swift 6.2 (Xcode 26+)
     runs-on: macos-26
     steps:
