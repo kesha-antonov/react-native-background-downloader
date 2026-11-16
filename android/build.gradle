@@ -30,7 +30,7 @@ android {
     def agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
     // Check AGP version for backward compatibility reasons (for RN < 0.71)
     if (agpVersion.tokenize('.')[0].toInteger() >= 7) {
-        namespace "com.eko"
+        namespace "com.kesha_antonov"
     }
 
     compileSdkVersion safeExtGet('compileSdkVersion', 36)

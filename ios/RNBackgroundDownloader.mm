@@ -10,17 +10,21 @@
 #import <ReactCommon/TurboModule.h>
 #endif
 
-#define ID_TO_CONFIG_MAP_KEY @"com.eko.bgdownloadidmap"
-#define ID_TO_UPLOAD_CONFIG_MAP_KEY @"com.eko.bguploadidmap"
+#define ID_TO_CONFIG_MAP_KEY @"com.kesha_antonov.bgdownloadidmap"
+#define ID_TO_UPLOAD_CONFIG_MAP_KEY @"com.kesha_antonov.bguploadidmap"
 // Finished uploads kept until JS has their response, by upload id
-#define FINISHED_UPLOADS_KEY @"com.eko.bguploadfinished"
+#define FINISHED_UPLOADS_KEY @"com.kesha_antonov.bguploadfinished"
 #define PROGRESS_INTERVAL_KEY @"progressInterval"
 #define PROGRESS_MIN_BYTES_KEY @"progressMinBytes"
 #define MAX_PARALLEL_DOWNLOADS_KEY @"maxParallelDownloads"
 // Persisted map of downloads whose finished file could not be moved to its destination
 // yet because the device was locked (Data Protection). The move is retried when protected
 // data becomes available / on next launch. See issue #101.
-#define PENDING_MOVES_MAP_KEY @"com.eko.bgdpendingmoves"
+#define PENDING_MOVES_MAP_KEY @"com.kesha_antonov.bgdpendingmoves"
+// Keys used before the move to com.kesha_antonov; moved to the new keys on launch
+// so downloads and uploads running across the update are not forgotten
+#define LEGACY_KEY_PREFIX @"com.eko."
+#define KEY_PREFIX @"com.kesha_antonov."
 
 // Session configuration constants
 static const NSInteger kMaxConnectionsPerHost = 4;
@@ -209,7 +213,7 @@ RCT_EXPORT_MODULE();
 
 - (dispatch_queue_t)methodQueue
 {
-    return dispatch_queue_create("com.eko.backgrounddownloader", DISPATCH_QUEUE_SERIAL);
+    return dispatch_queue_create("com.kesha_antonov.backgrounddownloader", DISPATCH_QUEUE_SERIAL);
 }
 
 #ifndef RCT_NEW_ARCH_ENABLED
@@ -339,6 +343,7 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
     if (self) {
         [MMKV initializeMMKV:nil];
         mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
+        [self migrateLegacyKeys];
 
         NSString *bundleIdentifier = [[NSBundle mainBundle] bundleIdentifier];
         NSString *sessionIdentifier = [bundleIdentifier stringByAppendingString:@".backgrounddownloadtask"];
@@ -431,6 +436,21 @@ static const int kMaxEventRetries = 50;  // 50 retries * 100ms = 5 seconds max w
 
 // The session isn't invalidated here or on reload: that would cancel every transfer. The
 // next module instance takes it over (see -lazyRegisterSession).
+// Move stored state from the com.eko.* keys to the com.kesha_antonov.* ones. A key that
+// already has a value under its new name keeps it; the old key is removed either way.
+- (void)migrateLegacyKeys {
+    NSArray<NSString *> *keys = @[ID_TO_CONFIG_MAP_KEY, ID_TO_UPLOAD_CONFIG_MAP_KEY, FINISHED_UPLOADS_KEY, PENDING_MOVES_MAP_KEY];
+    for (NSString *key in keys) {
+        NSString *legacyKey = [LEGACY_KEY_PREFIX stringByAppendingString:[key substringFromIndex:[KEY_PREFIX length]]];
+        if (![mmkv containsKey:legacyKey]) continue;
+        if (![mmkv containsKey:key]) {
+            NSData *data = [mmkv getDataForKey:legacyKey];
+            if (data != nil) [mmkv setData:data forKey:key];
+        }
+        [mmkv removeValueForKey:legacyKey];
+    }
+}
+
 - (void)dealloc {
     DLog(nil, @"[RNBackgroundDownloader] - [dealloc]");
     [self unregisterBridgeListener];

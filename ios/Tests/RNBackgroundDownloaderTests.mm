@@ -26,6 +26,7 @@
 - (void)getExistingUploadTasks:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (NSString *)partTempPathForUploadId:(NSString *)identifier index:(NSUInteger)index;
 - (BOOL)copyRangeOfFile:(NSString *)source offset:(long long)offset length:(long long)length toPath:(NSString *)path;
+- (void)migrateLegacyKeys;
 #ifndef RCT_NEW_ARCH_ENABLED
 - (void)download:(NSDictionary *)options;
 #endif
@@ -299,6 +300,37 @@ static NSString *const kUnreachableURL = @"http://127.0.0.1:9/file.zip";
 
     XCTAssertEqual(self.session, session);
     XCTAssertTrue(self.session.configuration.allowsCellularAccess);
+}
+
+#pragma mark - Stored keys from before the package rename
+
+- (void)testLegacyKeysMoveToTheNewNames
+{
+    MMKV *mmkv = [MMKV mmkvWithID:@"RNBackgroundDownloader"];
+    NSString *key = @"com.kesha_antonov.bguploadfinished";
+    NSString *legacyKey = @"com.eko.bguploadfinished";
+    NSData *saved = [mmkv getDataForKey:key];
+    NSData *legacy = [@"legacy" dataUsingEncoding:NSUTF8StringEncoding];
+
+    [mmkv removeValueForKey:key];
+    [mmkv setData:legacy forKey:legacyKey];
+    [self.module migrateLegacyKeys];
+    XCTAssertEqualObjects([mmkv getDataForKey:key], legacy);
+    XCTAssertFalse([mmkv containsKey:legacyKey]);
+
+    // A value already under the new name wins over the old one
+    NSData *current = [@"current" dataUsingEncoding:NSUTF8StringEncoding];
+    [mmkv setData:current forKey:key];
+    [mmkv setData:legacy forKey:legacyKey];
+    [self.module migrateLegacyKeys];
+    XCTAssertEqualObjects([mmkv getDataForKey:key], current);
+    XCTAssertFalse([mmkv containsKey:legacyKey]);
+
+    if (saved != nil) {
+        [mmkv setData:saved forKey:key];
+    } else {
+        [mmkv removeValueForKey:key];
+    }
 }
 
 #pragma mark - setMaxParallelDownloads

@@ -59,7 +59,7 @@
     "type": "modules",
     "jsSrcsDir": "src",
     "android": {
-      "javaPackageName": "com.eko"
+      "javaPackageName": "com.kesha_antonov"
     }
   },
   "files": [

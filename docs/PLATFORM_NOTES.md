@@ -161,9 +161,9 @@ The library uses Foreground Service permissions. When publishing to Google Play:
 If you encounter `TypeToken` errors in release builds, add the following to your `android/app/proguard-rules.pro`:
 
 ```proguard
--keep class com.eko.RNBGDTaskConfig { *; }
--keep class com.eko.RNBGDUploadTaskConfig { *; }
--keep class com.eko.UploadPartResult { *; }
+-keep class com.kesha_antonov.RNBGDTaskConfig { *; }
+-keep class com.kesha_antonov.RNBGDUploadTaskConfig { *; }
+-keep class com.kesha_antonov.UploadPartResult { *; }
 -keepattributes Signature
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
