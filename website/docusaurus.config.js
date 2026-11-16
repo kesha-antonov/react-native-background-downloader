@@ -10,7 +10,7 @@ const config = {
   tagline: 'Download and upload large files on iOS and Android, even when your app is in the background or terminated',
   favicon: 'img/favicon.ico',
 
-  url: 'https://kesha-antonov.github.io',
+  url: 'https://kesha-antonov.com',
   baseUrl: '/react-native-background-downloader/',
   organizationName: 'kesha-antonov',
   projectName: 'react-native-background-downloader',
@@ -88,7 +88,8 @@ const config = {
           {
             title: 'Built by',
             items: [
-              { label: 'Kesha Antonov', href: 'https://github.com/kesha-antonov' },
+              { label: 'Kesha Antonov', href: 'https://kesha-antonov.com' },
+              { label: 'GitHub profile', href: 'https://github.com/kesha-antonov' },
               { label: 'cryptoc - crypto portfolio app', href: 'https://cryptoc-app.web.app/' },
               { label: 'Sponsor', href: 'https://github.com/sponsors/kesha-antonov' },
             ],
