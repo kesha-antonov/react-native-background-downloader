@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import com.eko.RNBackgroundDownloaderModuleImpl
 import com.eko.UIDTDownloadJobService
+import com.eko.utils.NotificationUtils.applyOpenAppIntent
 import com.eko.utils.ProgressUtils
 import java.io.File
 import java.net.URLConnection
@@ -203,6 +204,7 @@ object UIDTNotificationManager {
             .setProgress(0, 0, true)
 
         applyCancelAction(builder, context, configId)
+        applyOpenAppIntent(builder, context)
 
         // Apply grouping when enabled and groupId is provided
         if (config.groupingEnabled && groupId.isNotEmpty()) {
@@ -257,6 +259,7 @@ object UIDTNotificationManager {
             .setProgress(100, progress, bytesTotal <= 0)
 
         applyCancelAction(builder, context, configId)
+        applyOpenAppIntent(builder, context)
 
         // Apply grouping when enabled
         if (config.groupingEnabled && jobState.groupId.isNotEmpty()) {
@@ -285,7 +288,7 @@ object UIDTNotificationManager {
             config.getText("downloadTitle")
         }
 
-        val notification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+        val pausedBuilder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(config.getText("downloadPaused"))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
@@ -294,7 +297,8 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, false)
-            .build()
+        applyOpenAppIntent(pausedBuilder, context)
+        val notification = pausedBuilder.build()
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(notificationId, notification)
@@ -332,6 +336,8 @@ object UIDTNotificationManager {
             .setShowWhen(false)
             .setProgress(100, progress, bytesTotal <= 0)
 
+        applyCancelAction(builder, context, configId)
+        applyOpenAppIntent(builder, context)
         val notification = builder.build()
 
         val service = UIDTJobRegistry.serviceInstance
@@ -398,7 +404,7 @@ object UIDTNotificationManager {
         val title = groupName.ifEmpty { config.getText("groupTitle") }
         val text = config.getText("groupText", "count" to groupDownloads)
 
-        val summaryNotification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+        val summaryBuilder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -408,7 +414,8 @@ object UIDTNotificationManager {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .build()
+        applyOpenAppIntent(summaryBuilder, context)
+        val summaryNotification = summaryBuilder.build()
 
         notificationManager.notify(summaryNotificationId, summaryNotification)
     }
@@ -478,7 +485,7 @@ object UIDTNotificationManager {
 
         // Create a standalone progress notification (NOT part of the group)
         // This ensures progress bar is visible in collapsed view
-        val progressNotification = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
+        val progressBuilder = NotificationCompat.Builder(context, UIDTConstants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -488,7 +495,8 @@ object UIDTNotificationManager {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setProgress(100, progress, indeterminate)
-            .build()
+        applyOpenAppIntent(progressBuilder, context)
+        val progressNotification = progressBuilder.build()
 
         notificationManager.notify(summaryNotificationId, progressNotification)
 

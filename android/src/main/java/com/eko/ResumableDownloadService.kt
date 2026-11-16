@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import com.eko.utils.NotificationUtils.applyOpenAppIntent
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -487,7 +488,7 @@ class ResumableDownloadService : Service() {
       android.R.drawable.stat_sys_download_done
     }
 
-    return NotificationCompat.Builder(this, DownloadConstants.NOTIFICATION_CHANNEL_ID)
+    val builder = NotificationCompat.Builder(this, DownloadConstants.NOTIFICATION_CHANNEL_ID)
       .setContentTitle("Background Download")
       .setContentText(contentText)
       .setSmallIcon(icon)
@@ -495,7 +496,8 @@ class ResumableDownloadService : Service() {
       .setOngoing(true)
       .setGroup(NOTIFICATION_GROUP_KEY)
       .setGroupSummary(true)
-      .build()
+    applyOpenAppIntent(builder, this)
+    return builder.build()
   }
 
   private fun updateNotification() {
