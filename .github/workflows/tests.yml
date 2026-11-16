@@ -119,6 +119,15 @@ jobs:
     if: needs.changes.outputs.ios == 'true'
     # Expo SDK 58's expo-modules-jsi needs Swift 6.2 (Xcode 26+)
     runs-on: macos-26
+    env:
+      # React Native's Podfile wraps clang in ccache when this is set at pod
+      # install time; Expo modules come precompiled, so most of what is left
+      # to compile is C, C++ and Objective-C that ccache can reuse
+      USE_CCACHE: '1'
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPRESS: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,6 +135,36 @@ jobs:
 
       - name: Show the Xcode version
         run: xcodebuild -version
+
+      - name: Install ccache
+        run: brew install ccache
+
+      # Saved after every run under a new key; the newest one is restored
+      - name: Restore the ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-ios-${{ github.sha }}
+          restore-keys: ccache-ios-
+
+      # Pod sources and React Native's prebuilt core and Hermes downloads
+      - name: Restore the CocoaPods cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: pods-${{ hashFiles('yarn.lock', 'example/yarn.lock', '*.podspec') }}
+          restore-keys: pods-
+
+      # Booted in the background while dependencies install; both xcodebuild
+      # steps target this one simulator, so the test step reuses what the build
+      # step compiled and only one architecture is built
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid"
 
       - uses: actions/setup-node@v4
         with:
@@ -150,20 +189,21 @@ jobs:
         run: npx expo prebuild --platform ios
         working-directory: example
 
+      - name: Reset ccache stats
+        run: ccache --zero-stats
+
       # Compile only: no signing, no JS bundle
       - name: Build for the simulator
         working-directory: example/ios
         env:
           SKIP_BUNDLING: '1'
         run: |
-          workspace=$(ls -d *.xcworkspace | head -1)
           status=0
           xcodebuild build \
-            -workspace "$workspace" \
-            -scheme "${workspace%.xcworkspace}" \
+            -workspace RNBDExample.xcworkspace \
+            -scheme RNBDExample \
             -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO \
             > build.log 2>&1 || status=$?
           # A failing script phase prints its error far above the summary
@@ -171,8 +211,7 @@ jobs:
           tail -n 100 build.log
           exit $status
 
-      # The library's XCTest target (the podspec's test spec), on the first
-      # available iPhone simulator
+      # The library's XCTest target (the podspec's test spec)
       - name: Run unit tests
         working-directory: example/ios
         env:
@@ -182,16 +221,18 @@ jobs:
           # create, cancel or pause real tasks skip themselves here
           TEST_RUNNER_RNBD_SKIP_BACKGROUND_SESSION_TESTS: '1'
         run: |
-          udid=$(xcrun simctl list devices available --json \
-            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
-          # Boot the simulator and wait until it's fully up: on a cold one the
-          # tests start before nsurlsessiond is ready, and setting up the
-          # background URLSession fails its xpc connection
-          xcrun simctl bootstatus "$udid" -b
+          # Wait until the simulator is fully up: on a cold one the tests start
+          # before nsurlsessiond is ready, and setting up the background
+          # URLSession fails its xpc connection
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}"
           xcodebuild test \
             -workspace RNBDExample.xcworkspace \
             -scheme react-native-background-downloader-Unit-Tests \
-            -destination "id=$udid" \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO \
             | tail -n 200
           exit ${PIPESTATUS[0]}
+
+      - name: Show ccache stats
+        if: always()
+        run: ccache --show-stats
