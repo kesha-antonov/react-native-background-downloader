@@ -1,5 +1,23 @@
 # Changelog
 
+## v5.0.0
+
+### Breaking Changes
+
+- Android: the Java/Kotlin package is now `com.kesha_antonov` instead of `com.eko`. Apps that autolink the library need no changes. Apps that register `RNBackgroundDownloaderPackage` by hand, reference the library's classes, or keep them in their own ProGuard rules need to update those names: run `npx react-native-background-downloader migrate-package --write` or see [MIGRATION.md](MIGRATION.md#migration-guide-v48x-to-v500) ([#192](https://github.com/kesha-antonov/react-native-background-downloader/pull/192))
+- iOS: stored state moves to `com.kesha_antonov.*` keys. It is migrated on the first launch, so paused and running downloads carry over ([#192](https://github.com/kesha-antonov/react-native-background-downloader/pull/192))
+
+### Features
+
+- Android: ProGuard/R8 rules ship with the library, so release builds need no rules of their own ([#192](https://github.com/kesha-antonov/react-native-background-downloader/pull/192))
+- `migrate-package` command that rewrites the old `com.eko` library names in an app's native code ([#192](https://github.com/kesha-antonov/react-native-background-downloader/pull/192))
+
+### Bug Fixes
+
+- Android 14 and later: tapping a download notification opens the app ([#190](https://github.com/kesha-antonov/react-native-background-downloader/pull/190)). Thanks [@Leviathan09](https://github.com/Leviathan09)
+- Android 14 and later: a download that was running when the app was updated started over from the beginning; progress is now saved every few seconds and the download continues where it was ([#193](https://github.com/kesha-antonov/react-native-background-downloader/pull/193))
+- Android 14 and later: downloads scheduled by v4.x keep running after the update to v5, and the Cancel button on their notifications keeps working ([#193](https://github.com/kesha-antonov/react-native-background-downloader/pull/193))
+
 ## v4.8.0
 
 ### ✨ Features
