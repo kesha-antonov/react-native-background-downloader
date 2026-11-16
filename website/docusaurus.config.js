@@ -8,7 +8,11 @@ const NPM = 'https://www.npmjs.com/package/@kesha-antonov/react-native-backgroun
 const config = {
   title: 'React Native Background Downloader',
   tagline: 'Download and upload large files on iOS and Android, even when your app is in the background or terminated',
-  favicon: 'img/favicon.ico',
+  favicon: 'https://kesha-antonov.com/favicon.ico',
+  headTags: [
+    { tagName: 'link', attributes: { rel: 'icon', type: 'image/png', sizes: '192x192', href: 'https://kesha-antonov.com/favicon-192.png' } },
+    { tagName: 'link', attributes: { rel: 'apple-touch-icon', href: 'https://kesha-antonov.com/apple-touch-icon.png' } },
+  ],
 
   url: 'https://kesha-antonov.com',
   baseUrl: '/react-native-background-downloader/',
