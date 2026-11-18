@@ -95,7 +95,6 @@ const config = {
               { label: 'Kesha Antonov', href: 'https://kesha-antonov.com' },
               { label: 'Hire a React Native lead engineer', href: 'https://kesha-antonov.com/react-native-developer/' },
               { label: 'GitHub profile', href: 'https://github.com/kesha-antonov' },
-              { label: 'cryptoc - crypto portfolio app', href: 'https://cryptoc-app.web.app/' },
               { label: 'Sponsor', href: 'https://github.com/sponsors/kesha-antonov' },
             ],
           },
