@@ -1,5 +1,14 @@
 # Changelog
 
+## v5.0.1
+
+No changes to the library code. This release updates the README shown on npm.
+
+### Documentation
+
+- README documentation links and the package homepage go straight to kesha-antonov.com
+- The author line links to the author's site, and the app block is gone from the README
+
 ## v5.0.0
 
 ### Breaking Changes
