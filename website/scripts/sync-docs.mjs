@@ -25,12 +25,19 @@ const REPO = 'https://github.com/kesha-antonov/react-native-background-downloade
  */
 const key = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '')
 
-/** Pages, in sidebar order. `from` is either README sections or a whole file. */
+/**
+ * Pages, in sidebar order. `from` is either README sections or a whole file.
+ *
+ * `title` is the heading a reader sees. The browser and search title is
+ * "title | site name" unless `searchTitle` replaces it, which keeps the long
+ * ones under 60 characters and lets the landing page say what the library does.
+ */
 const PAGES = [
   {
     id: 'intro',
     slug: '/',
     title: 'React Native Background Downloader',
+    searchTitle: 'React Native background download and upload of large files',
     sidebarLabel: 'Introduction',
     description:
       'Download and upload large files in React Native and Expo apps on iOS and Android, continuing while the app is backgrounded or terminated by the OS.',
@@ -40,9 +47,10 @@ const PAGES = [
   {
     id: 'comparison',
     title: 'Comparison with other libraries',
+    searchTitle: 'React Native background download libraries compared',
     sidebarLabel: 'Comparison',
     description:
-      'How background transfers in this library compare with expo-file-system, react-native-blob-util and react-native-fs, including which of them survive an app restart.',
+      'How background transfers in this library compare with expo-file-system, react-native-blob-util and react-native-fs, and which of them survive an app restart.',
     keywords: ['expo-file-system background download', 'react-native-blob-util vs', 'react native download in background'],
     sections: ['⚖️ Comparison'],
   },
@@ -58,6 +66,7 @@ const PAGES = [
   {
     id: 'usage',
     title: 'Downloading files in the background',
+    searchTitle: 'Usage: downloading files in the background in React Native',
     sidebarLabel: 'Usage',
     description:
       'Start a background download, track progress, handle completion and errors, and re-attach to downloads that were still running after your app restarted.',
@@ -85,6 +94,7 @@ const PAGES = [
   {
     id: 'platform-notes',
     title: 'Platform notes for iOS and Android',
+    searchTitle: 'React Native background downloads: iOS and Android notes',
     sidebarLabel: 'Platform notes',
     description:
       'iOS and Android specifics: NSURLSession background sessions, DownloadManager, foreground services, Android 14 notification requirements and ProGuard rules.',
@@ -127,6 +137,30 @@ const PAGES = [
 ]
 
 const read = (relative) => readFileSync(join(ROOT, relative), 'utf8')
+
+/** Pixel size of a PNG or GIF in the repository, read from the file header. */
+function imageSize (relative) {
+  const bytes = readFileSync(join(ROOT, relative))
+  if (bytes.toString('latin1', 1, 4) === 'PNG') return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
+  if (bytes.toString('latin1', 0, 3) === 'GIF') return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) }
+  throw new Error(`Cannot read the size of ${relative}. Update website/scripts/sync-docs.mjs.`)
+}
+
+/**
+ * Gives repository images that only state a width the matching height, so the
+ * browser reserves their space before they load.
+ */
+function addImageHeights (markdown) {
+  return markdown.replace(/<img\b[^>]*>/g, (tag) => {
+    if (/\sheight=/.test(tag)) return tag
+    const src = /\ssrc="\.?\/?(docs\/images\/[^"]+)"/.exec(tag)
+    const width = /\swidth="(\d+)"/.exec(tag)
+    if (!src || !width) return tag
+    const size = imageSize(src[1])
+    const height = Math.round(Number(width[1]) * size.height / size.width)
+    return tag.replace(width[0], `${width[0]} height="${height}"`)
+  })
+}
 
 /**
  * Splits a markdown document into top-level (`##`) sections, ignoring headings
@@ -171,12 +205,15 @@ function stripTableOfContents (markdown) {
 }
 
 /**
- * Promotes headings by one level and gives each an explicit `{#key}` anchor so
- * that generated links resolve to a slug we control rather than one inferred
- * from emoji.
+ * Renumbers headings so the page outline starts at h2 and never skips a level,
+ * whatever levels the source used, and gives each an explicit `{#key}` anchor
+ * so that generated links resolve to a slug we control rather than one
+ * inferred from emoji.
  */
-function normaliseHeadings (markdown, depth) {
+function normaliseHeadings (markdown) {
   let fenced = false
+  // Source levels of the headings the current line is nested under.
+  const open = []
   return markdown
     .split('\n')
     .map((line) => {
@@ -188,9 +225,12 @@ function normaliseHeadings (markdown, depth) {
 
       const m = /^(#{1,6}) (.+?)\s*$/.exec(line)
       if (!m) return line
-      if (/\{#[^}]+\}\s*$/.test(m[2])) return line
 
-      const level = Math.max(2, m[1].length - depth)
+      while (open.length && open[open.length - 1] >= m[1].length) open.pop()
+      open.push(m[1].length)
+      const level = Math.min(6, open.length + 1)
+      if (/\{#[^}]+\}\s*$/.test(m[2])) return `${'#'.repeat(level)} ${m[2]}`
+
       return `${'#'.repeat(level)} ${m[2]} {#${key(m[2])}}`
     })
     .join('\n')
@@ -204,10 +244,10 @@ const anchorToPage = new Map()
 for (const page of PAGES) {
   const bodies = page.sections
     ? page.sections.map((title) => {
-        const section = readmeSections.get(title)
-        if (!section) throw new Error(`README section not found: "${title}". Update website/scripts/sync-docs.mjs.`)
-        return `## ${section.title}\n${section.lines.join('\n')}`
-      })
+      const section = readmeSections.get(title)
+      if (!section) throw new Error(`README section not found: "${title}". Update website/scripts/sync-docs.mjs.`)
+      return `## ${section.title}\n${section.lines.join('\n')}`
+    })
     : [read(page.file)]
 
   page.raw = bodies.join('\n\n')
@@ -217,9 +257,8 @@ for (const page of PAGES) {
   // are promoted one level. Links that pointed at it become links to the page.
   page.droppedHeading = page.sections?.length === 1 ? key(page.sections[0]) : null
 
-  for (const heading of headingsIn(page.raw)) {
+  for (const heading of headingsIn(page.raw))
     if (!anchorToPage.has(key(heading))) anchorToPage.set(key(heading), page.id)
-  }
 }
 
 /** Anchors that no longer exist because their heading became the page title. */
@@ -250,12 +289,11 @@ function rewriteLinks (markdown, pageId) {
 
   let out = markdown
 
-  for (const [pattern, target] of fileRoutes) {
+  for (const [pattern, target] of fileRoutes)
     out = out.replace(pattern, (_match, hash) => {
       const anchor = hash ? `#${key(hash.slice(1))}` : ''
       return `](./${target}.md${anchor})`
     })
-  }
 
   // Links back into README.md from the standalone docs files.
   out = out.replace(/\]\(\.\.?\/?README\.md(#[^)]*)?\)/g, (_match, hash) => {
@@ -270,7 +308,7 @@ function rewriteLinks (markdown, pageId) {
   out = out.replace(/\]\(\.?\/?(LICENSE|CHANGELOG\.md)\)/g, `](${REPO}/blob/main/$1)`)
   out = out.replace(/\]\(\.?\/?example\/?\)/g, `](${REPO}/tree/main/example)`)
   // Images live in the repository, not the site: point them at the raw files.
-  out = out.replace(/src="\.?\/?(docs\/images\/[^"]+)"/g, `src="https://raw.githubusercontent.com/kesha-antonov/react-native-background-downloader/main/$1"`)
+  out = out.replace(/src="\.?\/?(docs\/images\/[^"]+)"/g, 'src="https://raw.githubusercontent.com/kesha-antonov/react-native-background-downloader/main/$1"')
 
   return out
 }
@@ -282,9 +320,30 @@ function frontmatter (page, index) {
     `sidebar_position: ${index + 1}`,
     `description: ${JSON.stringify(page.description)}`,
   ]
+  // "Edit this page" opens the file the page is generated from.
+  fields.push(`custom_edit_url: ${JSON.stringify(`${REPO}/edit/main/${page.file ?? 'README.md'}`)}`)
+  // Read by src/theme/DocItem/Metadata, which puts it in the title element.
+  if (page.searchTitle) fields.push(`search_title: ${JSON.stringify(page.searchTitle)}`)
   if (page.slug) fields.push(`slug: ${JSON.stringify(page.slug)}`)
   if (page.keywords?.length) fields.push(`keywords: [${page.keywords.map((k) => JSON.stringify(k)).join(', ')}]`)
   return `---\n${fields.join('\n')}\n---\n`
+}
+
+/**
+ * Opening of the landing page: the one-line summary under the README title and
+ * the install command. Both sit in parts of the README that no page copies.
+ */
+function landingLead () {
+  const summary = /<h1[^>]*>[\s\S]*?<\/h1>\s*<p[^>]*>\s*([\s\S]*?)\s*<\/p>/.exec(readme)
+  const install = /```bash\n([\s\S]*?)\n```/.exec(readmeSections.get('📦 Installation').lines.join('\n'))
+  if (!summary || !install) throw new Error('README summary or install command not found. Update website/scripts/sync-docs.mjs.')
+
+  return [
+    summary[1],
+    'Install the package:',
+    `\`\`\`bash\n${install[1]}\n\`\`\``,
+    'The Expo config plugin and the setup for bare React Native projects are covered in [Installation](./installation.md).',
+  ].join('\n\n')
 }
 
 rmSync(OUT, { recursive: true, force: true })
@@ -296,14 +355,12 @@ PAGES.forEach((page, index) => {
   body = body.replace(/^#\s+.+?\n/, '')
 
   // Same for a single README section: its `##` heading is the page title.
-  let depth = 0
-  if (page.droppedHeading) {
-    body = body.replace(/^##\s+.+?\n/, '')
-    depth = 1
-  }
+  if (page.droppedHeading) body = body.replace(/^##\s+.+?\n/, '')
 
-  body = normaliseHeadings(body, depth)
+  body = normaliseHeadings(body)
+  body = addImageHeights(body)
   body = rewriteLinks(body, page.id)
+  if (page.id === 'intro') body = `${landingLead()}\n\n${body}`
 
   const source = page.file ?? 'README.md'
   const note = `<!-- Generated from ${source} by website/scripts/sync-docs.mjs - edit that file, not this one. -->\n`

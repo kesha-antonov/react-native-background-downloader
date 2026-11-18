@@ -29,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The sitemap dates come from git history (docusaurus.config.js)
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-node@v4

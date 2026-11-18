@@ -1,17 +1,62 @@
 // @ts-check
 import { themes as prismThemes } from 'prism-react-renderer'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const REPO = 'https://github.com/kesha-antonov/react-native-background-downloader'
 const NPM = 'https://www.npmjs.com/package/@kesha-antonov/react-native-background-downloader'
+const SITE = 'https://kesha-antonov.com/react-native-background-downloader/'
+const TAGLINE = 'Download and upload large files on iOS and Android, even when your app is in the background or terminated'
+
+// Describes the library to search engines on every page.
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareSourceCode',
+  name: 'React Native Background Downloader',
+  description: TAGLINE,
+  url: SITE,
+  codeRepository: REPO,
+  programmingLanguage: 'TypeScript',
+  runtimePlatform: 'React Native',
+  license: 'https://spdx.org/licenses/Apache-2.0',
+  author: { '@type': 'Person', name: 'Kesha Antonov', url: 'https://kesha-antonov.com/' },
+}
+
+// The docs pages are generated from the README and the docs folder at build
+// time, so git has no date for the pages themselves. The sitemap takes the date
+// of the last commit that touched their sources. Without git history (a tarball,
+// a shallow clone with no match) the dates are left out.
+function docsLastModified () {
+  try {
+    const date = execFileSync(
+      'git',
+      ['log', '-1', '--format=%cs', '--', '../README.md', '../docs', '../MIGRATION.md', '.'],
+      { cwd: fileURLToPath(new URL('.', import.meta.url)), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    ).trim()
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined
+  } catch {
+    return undefined
+  }
+}
+const LASTMOD = docsLastModified()
+
+// Every page gets that one date.
+const sitemapWithDates = {
+  createSitemapItems: async ({ defaultCreateSitemapItems, ...rest }) => {
+    const items = await defaultCreateSitemapItems(rest)
+    return LASTMOD ? items.map(item => ({ ...item, lastmod: LASTMOD })) : items
+  },
+}
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'React Native Background Downloader',
-  tagline: 'Download and upload large files on iOS and Android, even when your app is in the background or terminated',
+  tagline: TAGLINE,
   favicon: 'https://kesha-antonov.com/favicon.ico',
   headTags: [
     { tagName: 'link', attributes: { rel: 'icon', type: 'image/png', sizes: '192x192', href: 'https://kesha-antonov.com/favicon-192.png' } },
     { tagName: 'link', attributes: { rel: 'apple-touch-icon', href: 'https://kesha-antonov.com/apple-touch-icon.png' } },
+    { tagName: 'script', attributes: { type: 'application/ld+json' }, innerHTML: JSON.stringify(structuredData) },
   ],
 
   url: 'https://kesha-antonov.com',
@@ -39,11 +84,12 @@ const config = {
         docs: {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
-          editUrl: `${REPO}/edit/main/`,
+          // No editUrl: the pages are generated, so scripts/sync-docs.mjs gives
+          // each one the "Edit this page" link of the file it comes from.
         },
         blog: false,
         theme: { customCss: './src/css/custom.css' },
-        sitemap: { changefreq: 'weekly', priority: 0.5 },
+        sitemap: { changefreq: 'weekly', priority: 0.5, ...sitemapWithDates },
       }),
     ],
   ],
@@ -87,6 +133,15 @@ const config = {
               { label: 'GitHub', href: REPO },
               { label: 'npm', href: NPM },
               { label: 'Changelog', href: `${REPO}/blob/main/CHANGELOG.md` },
+            ],
+          },
+          {
+            title: 'More libraries',
+            items: [
+              { label: 'React Native Chat', href: 'https://kesha-antonov.com/react-native-chat/' },
+              { label: 'React Native Zoom Reanimated', href: 'https://kesha-antonov.com/react-native-zoom-reanimated/' },
+              { label: 'React Native ActionCable', href: 'https://kesha-antonov.com/react-native-action-cable/' },
+              { label: 'React Native Cloud Sync', href: 'https://kesha-antonov.com/react-native-cloud-sync/' },
             ],
           },
           {
