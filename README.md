@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <strong><a href="https://kesha-antonov.com/react-native-background-downloader/">📖 Documentation</a></strong> &nbsp;·&nbsp;
+  <strong><a href="https://kesha-antonov.com/react-native-background-downloader">📖 Documentation</a></strong> &nbsp;·&nbsp;
   <a href="https://kesha-antonov.com/react-native-background-downloader/installation">Installation</a> &nbsp;·&nbsp;
   <a href="https://kesha-antonov.com/react-native-background-downloader/api">API reference</a> &nbsp;·&nbsp;
   <a href="https://kesha-antonov.com/react-native-background-downloader/troubleshooting">Troubleshooting</a>

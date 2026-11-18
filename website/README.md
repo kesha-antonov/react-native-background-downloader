@@ -1,7 +1,7 @@
 # Documentation site
 
 The site published at
-<https://kesha-antonov.com/react-native-background-downloader/>.
+<https://kesha-antonov.com/react-native-background-downloader>.
 
 ## How the content works
 
