@@ -1,5 +1,13 @@
 # Changelog
 
+## v5.0.3
+
+No changes to the library code. This release updates the README shown on npm.
+
+### Documentation
+
+- The README and the package homepage link the docs site without a trailing slash
+
 ## v5.0.2
 
 No changes to the library code. This release updates the README shown on npm.
