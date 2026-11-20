@@ -1,5 +1,13 @@
 # Changelog
 
+## v5.1.0
+
+No changes to the library code. This release updates the README shown on npm.
+
+### Documentation
+
+- The Stream sponsor block and its logo are removed from the README
+
 ## v5.0.3
 
 No changes to the library code. This release updates the README shown on npm.
